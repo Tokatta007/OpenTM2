@@ -273,7 +273,9 @@ void update_start(const char *base)
     snprintf(base_dir, sizeof base_dir, "%s", base);
     if (!GetModuleFileNameA(NULL, exe_path, sizeof exe_path)) snprintf(exe_path, sizeof exe_path, "%stm2pc.exe", base_dir);
     remove_old();
-    const char *url = getenv("TM2PC_UPDATE_URL") ? getenv("TM2PC_UPDATE_URL") : settings_update_check ? settings_update_url : NULL;
+    /* (started by RecompLauncher: it installs the updates itself, so the game never asks; its rule, recomplauncher.json) */
+    const char *url = getenv("TM2PC_UPDATE_URL") ? getenv("TM2PC_UPDATE_URL")
+                    : settings_update_check && !getenv("RECOMPLAUNCHER") ? settings_update_url : NULL;
     if (!url || !*url) return;
     SDL_SetAtomicInt(&state, UPDATE_CHECKING);
     SDL_Thread *t = SDL_CreateThread(check_thread, "update check", SDL_strdup(url));

@@ -482,12 +482,15 @@ static int load_boot_exe(void)
  * Started from a terminal it prints there; with its output redirected
  * (tests) it writes to that; started from Explorer or a shortcut, its
  * messages go to tm2pc.log next to the executable. */
-static void setup_output(void)
+static void setup_output(int prepare)
 {
 #ifdef _WIN32
-    if (GetFileType(GetStdHandle(STD_ERROR_HANDLE)) != FILE_TYPE_UNKNOWN)
+    /* Started by RecompLauncher (RECOMPLAUNCHER set): the log still goes to tm2pc.log (players send it with a bug);
+     * stdout stays the launcher's when it reads it (--prepare's progress lines). --prepare logs to tm2pc-setup.log. */
+    int launcher = getenv("RECOMPLAUNCHER") != NULL;
+    if (!launcher && GetFileType(GetStdHandle(STD_ERROR_HANDLE)) != FILE_TYPE_UNKNOWN)
         return;
-    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+    if (!launcher && AttachConsole(ATTACH_PARENT_PROCESS)) {
         freopen("CONOUT$", "w", stdout);
         freopen("CONOUT$", "w", stderr);
         return;
@@ -495,16 +498,19 @@ static void setup_output(void)
     char path[1100];
     DWORD n = GetModuleFileNameA(0, path, 1024);
     while (n > 0 && path[n - 1] != '\\' && path[n - 1] != '/') n--;
-    strcpy(path + n, "tm2pc.log");
-    { /* the session before kept as tm2pc-prev.log (a freeze or a crash: its log survives the restart) */
+    strcpy(path + n, prepare ? "tm2pc-setup.log" : "tm2pc.log");
+    if (!prepare) { /* the session before kept as tm2pc-prev.log (a freeze or a crash: its log survives the restart) */
         char prev[1100];
         snprintf(prev, sizeof prev, "%.*stm2pc-prev.log", (int)n, path);
         MoveFileExA(path, prev, MOVEFILE_REPLACE_EXISTING);
     }
+    int keep_stdout = launcher && GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) != FILE_TYPE_UNKNOWN;
     if (freopen(path, "w", stderr)) {
         setvbuf(stderr, NULL, _IONBF, 0);
-        freopen(path, "a", stdout);
+        if (!keep_stdout) freopen(path, "a", stdout);
     }
+#else
+    (void)prepare;
 #endif
 }
 
@@ -532,15 +538,22 @@ static int SDLCALL watchdog(void *unused)
 
 int main(int argc, char **argv)
 {
-    setup_output();
+    int prepare = 0; /* --prepare: the first-time setup without a window (RecompLauncher's setup step), then exit */
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--prepare")) prepare = 1;
+    setup_output(prepare);
 #ifdef _WIN32
     SetUnhandledExceptionFilter(crash_report);
 #endif
     { SDL_Thread *w = SDL_CreateThread(watchdog, "watchdog", NULL); if (w) SDL_DetachThread(w); }
-    const char *disc = 0;
+    const char *disc = 0, *pc_arg = 0;
     int setup_forced = 0;
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_boundaries = strtoull(argv[++i], 0, 10);
+        if (!strcmp(argv[i], "--prepare")) continue;
+        else if (!strcmp(argv[i], "--game") && i + 1 < argc) disc = argv[++i]; /* (the disc, as the first argument) */
+        else if (!strncmp(argv[i], "--game=", 7)) disc = argv[i] + 7;
+        else if (!strcmp(argv[i], "--pc") && i + 1 < argc) pc_arg = argv[++i]; /* (with --prepare: the PC version) */
+        else if (!strncmp(argv[i], "--pc=", 5)) pc_arg = argv[i] + 5;
+        else if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_boundaries = strtoull(argv[++i], 0, 10);
         else if (!strcmp(argv[i], "--vblanks") && i + 1 < argc) max_vblanks = strtoull(argv[++i], 0, 10);
         else if (!strcmp(argv[i], "--tape") && i + 1 < argc) {
             if (!load_tape(argv[++i])) { fprintf(stderr, "cannot read tape %s\n", argv[i]); return 1; }
@@ -598,6 +611,9 @@ int main(int argc, char **argv)
     base[n] = 0;
     if (disc && _fullpath(disc_full, disc, sizeof disc_full))
         disc = disc_full;
+    static char pc_full[1024];
+    if (pc_arg && *pc_arg && _fullpath(pc_full, pc_arg, sizeof pc_full))
+        pc_arg = pc_full;
 #endif
     snprintf(path, sizeof path, "%smusic", base);
     music_set_folder(path);
@@ -615,6 +631,8 @@ int main(int argc, char **argv)
         settings_load(ini, !settings_path);
         if (!disc) disc = settings_disc();
         else settings_remember_disc(ini);
+        if (prepare) /* (RecompLauncher's setup step: the menu pictures from the discs, no window; exit 0 when made) */
+            return setup_prepare(base, disc, pc_arg) ? 0 : 1;
         if (!settings_path || getenv("TM2PC_UPDATE_URL")) update_pregame(base); /* (play: a newer version, before the game? tests: theirs only) */
         static char chosen[1024];
         snprintf(chosen, sizeof chosen, "%s", disc ? disc : "");
