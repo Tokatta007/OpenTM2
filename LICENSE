@@ -32,6 +32,8 @@ cover:
   license, beside it.
 - assets/fonts/flexure.atlas: made from the Flexure typeface and used by
   permission of T26; see assets/fonts/Flexure-NOTICE.txt.
+- docs/images/opentm2-logo.png: the OpenTM2 logo; its lettering is the Flexure
+  typeface (T26), drawn as a picture.
 - assets/fonts/AveriaSerifLibre-Bold.ttf: SIL Open Font License, see
   assets/fonts/AveriaSerifLibre-OFL.txt.
 - assets/art: icons from game-icons.net, CC BY 3.0 (credited in assets/art/CREDITS.txt).
