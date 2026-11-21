@@ -1,9 +1,10 @@
 """A release's zip (docs/RELEASE.md): the port's own files from build/port, in one folder named for the version
 (CMakeLists.txt TM2PC_VERSION), as the updater (src/runtime/update.c) puts them next to the executable.
 
-    python tools/release/pack_release.py        -> build/release/OpenTM2-<version>-win64.zip
+    python tools/release/pack_release.py        -> build/release/OpenTM2-<version>-Windows-x64.zip
 
-Only what the port made: tm2pc.exe, fonts/ (the menu fonts, SIL OFL; flexure.atlas by permission of T26, its notice beside it) and art/ (the mode symbols, CC BY 3.0). Never the game's art or anything made from it
+Only what the port made: tm2pc.exe, fonts/ (the menu fonts, SIL OFL; flexure.atlas by permission of T26, its notice beside it) and art/ (the mode symbols, CC BY 3.0),
+and recomplauncher.json beside the executable (RecompLauncher's install and setup steps). Never the game's art or anything made from it
 (ui/, extracted/), nor a player's files (tm2pc.ini, profiles/, music/, mods/, screenshots/)."""
 import re
 import sys
@@ -20,7 +21,7 @@ def main():
     if not m:
         sys.exit('no TM2PC_VERSION in CMakeLists.txt')
     ver = m.group(1)
-    out = REPO / 'build' / 'release' / ('OpenTM2-%s-win64.zip' % ver)
+    out = REPO / 'build' / 'release' / ('OpenTM2-%s-Windows-x64.zip' % ver)  # (the system and processor in the name)
     out.parent.mkdir(parents=True, exist_ok=True)
     top = 'OpenTM2-%s/' % ver
     n = 0
@@ -32,6 +33,8 @@ def main():
             for f in [p] if p.is_file() else sorted(q for q in p.rglob('*') if q.is_file()):
                 z.write(f, top + f.relative_to(PORT).as_posix())
                 n += 1
+        z.write(REPO / 'recomplauncher.json', top + 'recomplauncher.json')  # (from the repository: RecompLauncher reads it)
+        n += 1
     print('%s: %d files, %d KB' % (out, n, out.stat().st_size // 1024))
 
 
