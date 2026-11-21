@@ -320,7 +320,7 @@ As planned below, with these differences:
     keeps room for 5 vertices.
   - Tests: `TM2PC_DEPTH=0/1` overrides the setting; `TM2PC_DEPTH_LOG=<VBlank>` logs every depth-tested polygon
     from then (slot, corners).
-  - Decomp request 72 draws the hidden places (Paris's church inside, the tunnel at any distance) under
+  - Decomp request 72 (HIDDEN_AREAS.md) draws the hidden places (Paris's church inside, the tunnel at any distance) under
     `portVisual` bit 6; the port sets it only while the depth test is on.
 
 The jitter has two causes:

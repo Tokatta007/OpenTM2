@@ -48,8 +48,8 @@ typedef enum {
     VP_BAL_MISSILES,        /* fire missile 10, homing 7 */
     VP_BAL_SHIELD,          /* a shield cast while shielded is refused, no cost */
     VP_BAL_MINES,           /* mines permanent, 5 per driver */
-    VP_BAL_FREEZE,          /* ice freezes: half as long each time within 1 s of the last (request 41) */
-    VP_BAL_RICOCHET,        /* a ricochet bomb cannot hit its owner before it has cleared the car (request 41) */
+    VP_BAL_FREEZE,          /* ice freezes: half as long each time within 1 s of the last (request 41, BALANCE.md) */
+    VP_BAL_RICOCHET,        /* a ricochet bomb cannot hit its owner before it has cleared the car (request 41, BALANCE.md) */
     VP_BAL_GUNS,            /* machine guns: every bullet that connects does half damage, no coin flip (round 3) */
     /* each car's (Character Balancing) */
     VP_BAL_HAMMERHEAD,      /* ram x1.2, crush 15 + 5 on top, recharge 35 s, brakes 2, slide speed 60 */
@@ -61,16 +61,16 @@ typedef enum {
     VP_BAL_GRIMM,           /* recharge 60 s */
     VP_BAL_THUMPER,         /* recharge 75 s */
     VP_BAL_SHADOW,          /* the slope bug fixed: 28 at most */
-    /* the decomp's portVisual word (request 42): vp_visual_word */
+    /* the decomp's portVisual word (request 42, CUSTOM_TOURNAMENT_ANSWERS.md): vp_visual_word */
     VP_TASER_LOW,           /* the taser starts at Outlaw 2's muzzle, not above her roof */
-    VP_CAMERA_WALLS,        /* the chase camera stays inside the arena's walls (decomp request 63, portVisual bit 5) */
-    VP_BAL_PICKUPS,         /* a pickup's respawn never wasted on one still there (decomp request 67, portBalance bit 23) */
+    VP_CAMERA_WALLS,        /* the chase camera stays inside the arena's walls (decomp request 63, FAR_LOD.md, portVisual bit 5) */
+    VP_BAL_PICKUPS,         /* a pickup's respawn never wasted on one still there (decomp request 67, BALANCE.md, portBalance bit 23) */
     VP_CARSEL_BORDERS,      /* 2-4 player car select: the big portraits framed and tagged in the player's color */
     VP_BAL_SLAM,            /* Mr. Slam: no pickups or special while his arm swings (decomp request 91, portBalance bit 26) */
     VP_AI_UNJAM,            /* computer cars jammed by cars back out (decomp request 91, portBalance bit 27) */
-    VP_STEADY_SHADOW,       /* car shadows tilted with the car only, no suspension rocking (request 92, portVisual bit 7) */
+    VP_STEADY_SHADOW,       /* car shadows tilted with the car only, no suspension rocking (request 92, RENDER_ANSWERS.md, portVisual bit 7) */
     VP_BAL_ROADKILL,        /* Roadkill's boomerang always caught on its way back (decomp request 95, portBalance bit 28) */
-    VP_GLACIER_FIRE,        /* Antarctica's fire missile out of the mark that hides it (decomp request 120); online always */
+    VP_GLACIER_FIRE,        /* Antarctica's fire missile out of the mark that hides it (decomp request 120, RETAIL_BUGS.md); online always */
     VP_COUNT
 } VpChangeId;
 
@@ -92,7 +92,7 @@ extern const char *const vp_category_names[VP_CAT_COUNT];
 int vp_on(VpChangeId id);
 int vp_retired(int id); /* taken out of the game: never on, not offered */
 unsigned vp_balance_word(void); /* the balancing rules on, as the decomp's portBalance bits (requests 40-41) */
-unsigned vp_visual_word(void);  /* the decomp's portVisual bits (request 42) */
+unsigned vp_visual_word(void);  /* the decomp's portVisual bits (request 42, CUSTOM_TOURNAMENT_ANSWERS.md) */
 int vp_jugg_car_swap(void);    /* fixes.c: the build can give the Juggernaut a car (decomp request 32 step 3) */
 int vp_minion_opponent(void);  /* the opponent loaded as the Juggernaut's car (parked), -1 none */
 void vp_jugg_car_set(int opp); /* ui_AiSelect: that opponent, or -1 */

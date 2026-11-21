@@ -7,7 +7,7 @@ enum { MODS_MAX = 512, MODS_FORMAT = 1 }; /* (MODS_FORMAT: the newest mod.ini fo
 enum { MOD_NAME_MAX = 16 }; /* a mod's name: letters at most (as a profile's, PROFILE_NAME_MAX: the game's fixed letter sprites) */
 
 /* A character's own numbers ([character] in its mod.ini, MODDING.md 4.2), as the decomp's per-car profile takes them
- * (car_numbers.h TM2PortCarProfile, request 70): stats-block fields over the base car's, and the special's numbers */
+ * (car_numbers.h TM2PortCarProfile, request 70, CAR_PROFILES.md): stats-block fields over the base car's, and the special's numbers */
 enum { MOD_STATS = 24, MOD_STAT_STEP = 1, MOD_STAT_SPECIAL = 2, MOD_STAT_RADAR = 4 };
 typedef struct {
     int n;                                  /* stat entries */
@@ -17,7 +17,7 @@ typedef struct {
     short step, recharge;
     signed char max_specials;
     unsigned char radar[3];
-    short special;                          /* the special's template (decomp request 73): 0 the base's own, a car type
+    short special;                          /* the special's template (decomp request 73, SPECIAL_TEMPLATES.md): 0 the base's own, a car type
                                              * (0x10..0xE0) or a pickup (0x101..0x164) */
     int sp_n;                               /* its numbers: field ids (TM2_SPN_*) and values */
     unsigned char sp_field[16];
@@ -84,7 +84,7 @@ int mod_video_play(const char *path, int (*skip)(void));
 void mods_ini_key(const char *key, const char *val);
 void mods_ini_write(FILE *f);
 
-/* Dark Tooth's second phase as a look of his (decomp request 118): Select on Dark Tooth (14) cycles his own look, this,
+/* Dark Tooth's second phase as a look of his (decomp request 118, DARK_TOOTH_PLAYER.md): Select on Dark Tooth (14) cycles his own look, this,
  * then his skins. A port-side car number only (below the mods' 0x20 + m): the game is given 14 and the player's bit in
  * portDtPlayer.phase2 (vplus/mod_cars.c mod_dt2_*); online its lobby skin index is LOBBY_SKIN_DT2. */
 #define LOOK_DT2 0x1F

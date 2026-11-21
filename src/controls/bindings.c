@@ -82,7 +82,7 @@ static int energy_key[2][BIND_ENERGY];
 static int pad_type[4];                          /* 0 auto, 1 PlayStation, 2 Xbox */
 static int jump_combo[4], easy_energy[4];         /* L1 + R1 jumps; the D-pad's energy attacks (steering on the stick) */
 static int analog_steer[4] = {1, 1, 1, 1};        /* the stick turns as far as it is tilted */
-static int steer_keep[4] = {1, 1, 1, 1};          /* in reverse, Left still turns the nose left (decomp request 66) */
+static int steer_keep[4] = {1, 1, 1, 1};          /* in reverse, Left still turns the nose left (decomp request 66, ANALOG_STEERING.md) */
 static int keypad34[2];                           /* players 3-4's layouts (1-2's: settings_game.keypad) */
 static int layout_of(int p) { return p < 2 ? settings_game.keypad[p] : keypad34[(p - 2) & 1]; }
 int bind_layout(int player) { return player >= 0 && player <= 3 ? layout_of(player) : 0; }

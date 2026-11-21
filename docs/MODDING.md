@@ -31,7 +31,7 @@
   cars last"), in the 1-player carousel (`vplus/fixes.c` `car_order`, the opening's step) and the 2-4 player car
   select (`grid_car` / `roster_n`); their own name, portraits and in-match model and textures; for now their base's
   stats, special, sounds, hit box and turning car in car select. Online they travel as skins do (the host's list, a
-  player's mod as the list's index). Stats and size of their own: decomp request 70 (PER_CAR_PLAN.md E.2's
+  player's mod as the list's index). Stats and size of their own: decomp request 70 (CAR_PROFILES.md; PER_CAR_PLAN.md E.2's
   `portCarProfile`). Guide: `assets/mods/characters/_TEMPLATE/GUIDE.txt`. Test characters:
   scratchpad `make_test_character.py` (the recolored Spectre with rotated portraits).
 - Characters' sounds, computer drivers and endings (2026-10-30, the user's):
@@ -167,7 +167,7 @@ character's target panel name: its first 15). Keep the start of a long name mean
 ### 4.2 Stats and the base car
 
 **Built (2026-10-27):** the keys, ranges and units are in `assets/mods/characters/_TEMPLATE/GUIDE.txt` ("Stats"),
-checked in `mods/mods.c` and handed to the decomp's `portCarProfile` (request 70). Computer cars drive characters: a
+checked in `mods/mods.c` and handed to the decomp's `portCarProfile` (request 70, CAR_PROFILES.md). Computer cars drive characters: a
 Challenge Match opponent picked by name, or Random with Options > Mods "Mod Cars in Random" (Challenge Match,
 Custom Tournament, Survival; offline: online Random keeps the game's drivers; the game's Tournament never).
 

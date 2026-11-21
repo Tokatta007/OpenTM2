@@ -241,7 +241,7 @@ static void packet_peak(void)
 }
 
 void port_config_sync(void); /* vplus/port_config.c */
-void mod_cars_carsel_frame(void); /* vplus/mod_cars.c: car select's turning mod cars (decomp request 71) */
+void mod_cars_carsel_frame(void); /* vplus/mod_cars.c: car select's turning mod cars (decomp request 71, CAR_PROFILES.md) */
 void rt_frame_boundary(void)
 {
     packet_peak();

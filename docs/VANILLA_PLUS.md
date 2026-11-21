@@ -68,16 +68,16 @@ word, written at each match's load (`vp_balance_word`, four.c; the decomp's `BAL
 | `bal_thumper` | Thumper balancing | 22 | recharge 75 s |
 | `bal_shadow` | Shadow balancing | 10 | the slope splash bug fixed: 28 at most |
 
-Each car's recharge has its own bit since decomp request 45 (`BALANCE.md` 14.1: Outlaw 2 8, Mr. Grimm 21, Thumper
+Each car's recharge has its own bit since decomp request 45 (PLAYTEST_ANSWERS.md; `BALANCE.md` 14.1: Outlaw 2 8, Mr. Grimm 21, Thumper
 22). Bit 18 also lets a ricochet pass through its owner's car until it has left his box: no bounce, red blink or push
 (14.2). The older keys `bal_recharges` and `bal_taser` are no longer read.
 The final kill cam (`final_kill_cam`, Global Balancing) takes `off`, `1`, `2` or `3` shots (default 3; an older `on`
 reads as 3).
 
 Bits 9 and 14 are reserved (Sweet Tooth's spiral and Grasshopper's leap stay retail's). The decomp's
-`portVisual` word (request 42, `vp_visual_word`): bit 0 always set, no option since 2026-10-17 (the taser and the
+`portVisual` word (request 42, CUSTOM_TOURNAMENT_ANSWERS.md, `vp_visual_word`): bit 0 always set, no option since 2026-10-17 (the taser and the
 lightning sorted by depth, no longer drawn over everything), bit 2 always set (each view draws its own car first, so a
-full mesh queue or packet buffer never drops it: request 45), and bit 1, the Bug fixes option `taser_low` **Taser Visual Fix** (it starts
+full mesh queue or packet buffer never drops it: request 45 (PLAYTEST_ANSWERS.md)), and bit 1, the Bug fixes option `taser_low` **Taser Visual Fix** (it starts
 at Outlaw 2's gun height, less jitter at the start). Tests: `TM2PC_TEST_PRE42=1` runs with the rules before requests
 41-42 (balance `& 0x3DFF`, no visual bits, the 12 random opponents), to compare with older baselines.
 

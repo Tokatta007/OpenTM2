@@ -48,7 +48,7 @@ static int syms(void)
         a_options = port_sym("portHumanOptions");
         a_layout = port_sym("portHumanLayout");
         a_bindings = port_sym("portHumanBindings");
-        a_control = port_sym("portHumanControl"); /* (decomp request 66: bit 0, the turn's sign kept in reverse) */
+        a_control = port_sym("portHumanControl"); /* (decomp request 66, ANALOG_STEERING.md: bit 0, the turn's sign kept in reverse) */
     }
     return a_local && a_pad && a_options && a_bindings;
 }

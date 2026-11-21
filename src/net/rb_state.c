@@ -395,7 +395,7 @@ uint32_t rbs_hash(void) /* the state as the machines compare it: the table's has
 /* the clock's interrupt accumulator (timerTicsAccum: SysClkIntHandler adds a period per root-counter wrap, GetCurTics
  * reads it): live time, not the step's (a re-run passes no VBlank), so a batch leaves it as it was; the main loop's
  * pacing measures from it (put back to an older step's, its next wait ended at once: the clocks of the machines parted).
- * In the regions' snapshot and hash rows (decomp request 54) */
+ * In the regions' snapshot and hash rows (decomp request 54, ONLINE_ROLLBACK.md) */
 #define TICS_ACCUM 0x801FA3B8u /* (retail) */
 static uint64_t live_gv;
 static uint32_t live_accum;
@@ -447,7 +447,7 @@ static void chk_inputs(void *ctx, int32_t f) { (void)ctx; humans_inputs_put(chk.
 static uint8_t *ram_copy;
 /* the play's state, as the machines compare it online (killcam_state_hash: the cars, the game's seed, the model nodes),
  * with the port's random numbers and its gameplay blocks: the regions' hash rows still hold the drawing's state (its
- * order tables, matrices, the objects' screen positions), which a re-run does not make (decomp request 54); and
+ * order tables, matrices, the objects' screen positions), which a re-run does not make (decomp request 54 (ONLINE_ROLLBACK.md)); and
  * rollback's own blocks (the tally, the kills' attribution, the stats: this machine's) */
 uint32_t killcam_state_hash(void);
 static uint32_t play_hash(void)
