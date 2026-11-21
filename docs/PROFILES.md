@@ -110,7 +110,7 @@ the codes still work and the tournament opponent picker's save, force and restor
   rows, locked ones grayed out), under Options > Movies.
 - **Portrait unlocks:** decided per portrait in [PORTRAIT_UNLOCKS.md](PORTRAIT_UNLOCKS.md) (counters show progress; online counts; an online Versus Tournament win on the "TM2 Original" ruleset earns the winner's ending, with a message pointing to Movies). The direction (2026-10-05): easy and plentiful.
   Tournament wins count as *unique* wins (a driver not won with before), so replaying a
-  driver earns nothing new beyond that run's own feats. Feats to track (decomp request 7:
+  driver earns nothing new beyond that run's own feats. Feats to track (decomp request 7, GAME_EVENTS.md:
   kill credit, weapons, pedestrians, air time, falls, speed): a kill with each driver's
   special; the first online win with each driver; online wins and kills in total; fun ones
   tied to fitting stills (top speed in Twister for her hair-blown shots, falling off the

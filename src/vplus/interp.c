@@ -53,7 +53,7 @@
 #include "cars.h" /* the car records and counts */
 
 #define POOL GA(0x8019A950u)          /* csObjectPool: objects of 0x128 (retail 128; the decomp's 16 cars: 20 a car) */
-#define POOL_N 320                    /* (the most: TM2_MAX_COORD_SYSTEMS, 20 x 16 cars, request 40's mines) */
+#define POOL_N 320                    /* (the most: TM2_MAX_COORD_SYSTEMS, 20 x 16 cars, request 40, BALANCE.md's mines) */
 #define POOL_COUNT GA(0x801810DCu)    /* csPoolCount: the objects allocated */
 /* the objects in use: past the retail 128 with 16 cars (each car's own object among them: not blended before, so the
  * car's body and the camera moved between steps without it, the car seen floating ahead) */

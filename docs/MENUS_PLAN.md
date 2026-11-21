@@ -96,14 +96,14 @@ split screen: changing it needs its viewports and cameras (decomp request 5, wid
 
 - **2-player car select like the 1-player one:** each half with its live turning car, the
   portrait at the top left and SELECT CAR / CAR INFO (the middle bar and P tags stay). The
-  car is to be drawn once per player by the game's own carousel draw (decomp request 9), not
+  car is to be drawn once per player by the game's own carousel draw (decomp request 9, CAR_SELECT_CAR.md), not
   recorded: a recording would lose the shadow, the R1 drive-in, and later render fixes.
 - **Split-screen car select (made, the default):** each player's own car select in their view,
   the drivers' strip below (2 players; 3-4 in quarters with the strip between, to come). Tuning:
   `TM2PC_SPLIT_F` (car scale, %), `TM2PC_SPLIT_Y` (car height in the view, %).
 - **Shared screen, to try:** without SELECT CAR / CAR INFO (room for 4 portraits at the top),
   smaller cars; maybe Square for one player's CAR INFO (stops the others meanwhile; needs a legend).
-- **2-player car select, live (made, decomp request 9):** the game's car select with a car per
+- **2-player car select, live (made, decomp request 9, CAR_SELECT_CAR.md):** the game's car select with a car per
   player, drawn by the game's own carousel draw (each car's place a little further back for the
   big ones: Axel, Mr. Slam, Hammerhead, Sweet Tooth, Minion), animations as the game's (slide,
   R1 drop and rise, turning). Tuning for tests: `TM2PC_CL_Y`, `TM2PC_CL_Z`, `TM2PC_CL_DX`,

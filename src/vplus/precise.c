@@ -26,7 +26,7 @@ void vp_ModelEmit(CPU *c)
     if (off < 0) off = getenv("TM2PC_NO_FINE_SORT") != NULL; /* (tests: as before) */
     { /* a draw entry whose mesh, vertices or primitives lie outside memory: left out (the user's 2026-11-09 co-op, Dark
        * Tooth's phase: both machines' emitter walked garbage at FDA1F150 and froze, one after the other; decomp
-       * request 110). Logged, so the object can be found. */
+       * request 110 (PLAYTEST_ANSWERS.md)). Logged, so the object can be found. */
         uint32_t entries = c->r[5];
         int count = (int)c->r[6];
         static int said;

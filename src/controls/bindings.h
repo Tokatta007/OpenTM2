@@ -65,7 +65,7 @@ void bind_set_jump_combo(int player, int on);
 int bind_easy_energy(int player);
 int bind_analog_steer(int player);   /* the stick turns as far as it is tilted (on by default) */
 void bind_set_analog_steer(int player, int on);
-int bind_steer_keep(int player);      /* in reverse, Left still turns the nose left (decomp request 66; off: retail) */
+int bind_steer_keep(int player);      /* in reverse, Left still turns the nose left (decomp request 66, ANALOG_STEERING.md; off: retail) */
 void bind_set_steer_keep(int player, int on);
 void bind_set_easy_energy(int player, int on);
 

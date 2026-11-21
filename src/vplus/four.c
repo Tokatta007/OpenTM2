@@ -125,7 +125,7 @@ void vp_SessionLoad(CPU *c)
         for (int h = 2; hc && h < four_n; h++) mem_w8(c, hc + (uint32_t)(h - 2), (uint8_t)four_car[h - 2]);
     }
     int opps = four_computer(s), humans = mem_r8(c, s + 4);
-    /* Dark Tooth's second phase (decomp request 118, portDtPlayer.phase2 +0x28, bit h): each human who chose it in car
+    /* Dark Tooth's second phase (decomp request 118, DARK_TOOTH_PLAYER.md, portDtPlayer.phase2 +0x28, bit h): each human who chose it in car
      * select (LOOK_DT2) and drives Dark Tooth; read by the decomp at every start, restart and respawn. Game state: the
      * same on every machine (online from the lobby's skins). */
     if (dtp) {
@@ -179,7 +179,7 @@ void vp_SessionLoad(CPU *c)
      * cars are not in the match loaded as spares (portCarSpecialLoad; never cleared by the C: written every load), the
      * raised pools (bit 3: every car may fire one missile special) and banks (the spares' textures, any arena) */
     unsigned vp_gun_specials(void); /* fixes.c: the game type's special levels (0: none, or not Gun Game) */
-    unsigned vp_arena_options(void); /* fixes.c: hazards / destructibles off (decomp request 38, latched by roundStart) */
+    unsigned vp_arena_options(void); /* fixes.c: hazards / destructibles off (decomp request 38, ARENA_SWITCHES.md, latched by roundStart) */
     uint32_t arena_opt = port_sym("portArenaOptions");
     if (arena_opt) {
         mem_w32(c, arena_opt, vp_arena_options());
@@ -191,9 +191,9 @@ void vp_SessionLoad(CPU *c)
         mem_w32(c, balance, vp_balance_word());
         fprintf(stderr, "balance: %05X\n", vp_balance_word());
     }
-    uint32_t visual = port_sym("portVisual"); /* decomp request 42: the taser and the lightning by depth, the taser lower */
+    uint32_t visual = port_sym("portVisual"); /* decomp request 42 (CUSTOM_TOURNAMENT_ANSWERS.md): the taser and the lightning by depth, the taser lower */
     if (visual) mem_w32(c, visual, vp_visual_word());
-    /* bit 10: computer Dark Tooths ordinary (his first phase, no boss parts; decomp request 42): a Challenge Match's or a
+    /* bit 10: computer Dark Tooths ordinary (his first phase, no boss parts; decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md): a Challenge Match's or a
      * custom tournament's regular Dark Tooth; never with his boss fight in the match (Survival's, a stage's boss) */
     int dt_ordinary = 0, dts = 0;
     for (int i = 0; i < opps; i++) dts += (guest_call(GA(0x8013783Cu), s, (uint32_t)i, 0, 0) & 0xFF) == 14;

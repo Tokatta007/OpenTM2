@@ -131,7 +131,7 @@ void vp_vblank(void)
         uint32_t o = mem_r32(&M.cpu, opt), want = vp_dt_player_offered() ? (o | 0x100u) : (o & ~0x100u);
         if (want != o) mem_w32(&M.cpu, opt, want);
     }
-    /* portVisual bit 6 (decomp request 72): the hidden areas (Paris's church) drawn from anywhere, only while the depth
+    /* portVisual bit 6 (decomp request 72, HIDDEN_AREAS.md): the hidden areas (Paris's church) drawn from anywhere, only while the depth
      * buffer is on (it hides what is behind walls; the PS1's order would paint the inside over them). Each machine's
      * own drawing (not in the online hash), read at every renderScene. */
     static uint32_t visual = 1;
@@ -139,8 +139,8 @@ void vp_vblank(void)
     if (visual) {
         int gpu_depth_enabled(void); /* runtime/gpu.c */
         uint32_t w = mem_r32(&M.cpu, visual), want = gpu_depth_enabled() ? w | 0x40u : w & ~0x40u;
-        want = vp_on(VP_STEADY_SHADOW) ? want | 0x80u : want & ~0x80u; /* (bit 7, request 92: steady shadows, drawing only) */
-        /* bit 8 (request 93, RENDER_ANSWERS R8): at Wobble None no polygon is cut by the near pass (its pieces' UVs are
+        want = vp_on(VP_STEADY_SHADOW) ? want | 0x80u : want & ~0x80u; /* (bit 7, request 92, RENDER_ANSWERS.md: steady shadows, drawing only) */
+        /* bit 8 (request 93, RENDER_ANSWERS.md, RENDER_ANSWERS R8): at Wobble None no polygon is cut by the near pass (its pieces' UVs are
          * averaged in screen space, the affine error fixed into them), the decomp's own switch for renderScene and
          * renderDrawModel. precise.c's hook around the emitter did it already; this no longer depends on that hook.
          * (Not the temple wall's sliding beams: PSY-Z's flipped-texture fix, patch 23) */
@@ -164,7 +164,7 @@ void vp_vblank(void)
 
     carsel_sound_vblank();
     static const char *targets = (const char *)1; /* tests: TM2PC_TEST_TARGETS=V,x,y,r: at VBlank V every breakable within r
-                                                    * of x, y destroyed (targetDamage: Paris's church door for request 72) */
+                                                    * of x, y destroyed (targetDamage: Paris's church door for request 72, HIDDEN_AREAS.md) */
     if (targets == (const char *)1) targets = getenv("TM2PC_TEST_TARGETS");
     long long tv = 0, tx = 0, ty = 0, tr = 0;
     if (targets && sscanf(targets, "%lld,%lld,%lld,%lld", &tv, &tx, &ty, &tr) == 4 && M.vblanks == (uint64_t)tv) {
@@ -277,7 +277,7 @@ void vp_CarAccept(CPU *c)
 }
 
 /* settingsSetHumanCar(settings, human, number) (801378A4): every human 0-1's car handed to the game, by the game's car
- * select or the port. LOOK_DT2 (Dark Tooth's second phase, decomp request 118): Dark Tooth for the game, the human's
+ * select or the port. LOOK_DT2 (Dark Tooth's second phase, decomp request 118, DARK_TOOTH_PLAYER.md): Dark Tooth for the game, the human's
  * phase-2 bit for the port (mod_dt2_human); the game's own carousel hands 14 while it shows his second phase. */
 void F_801378A4_orig(CPU *c);
 int ui_carsel_game(void);
@@ -796,7 +796,7 @@ int vp_carousel_car(void) /* (the car: a skin's base) */
     return car >= 0x20 ? mod_car_base(car) : car;
 }
 int vp_carousel_number(void) { return carousel ? mem_r8(&M.cpu, carousel + 7) : -1; } /* (a skin: its own number) */
-/* Dark Tooth's second phase on the carousel (LOOK_DT2, decomp request 118): the carousel stays on Dark Tooth (14), its
+/* Dark Tooth's second phase on the carousel (LOOK_DT2, decomp request 118, DARK_TOOTH_PLAYER.md): the carousel stays on Dark Tooth (14), its
  * model the head alone (mod_cars_carsel_frame); only while the carousel is on 14 */
 static int carousel_dt2;
 int vp_carousel_look(void) /* the look shown: a skin's number, LOOK_DT2, else the car */
@@ -2171,7 +2171,7 @@ static void test_kills(void) /* tests: TM2PC_TEST_KILL="1@2400,2@3000" destroys 
                     (int16_t)mem_r16(&M.cpu, r + 0x46A), (int16_t)mem_r16(&M.cpu, r + 0x462), (int16_t)mem_r16(&M.cpu, r + 0x464),
                     (int16_t)mem_r16(&M.cpu, r + 0x466), (int32_t)mem_r32(&M.cpu, r + 0x5A0), tg,
                     tg >= 0 && tg < cars_ai_max() ? (int16_t)mem_r16(&M.cpu, AI_REC(tg) + 0x46A) : -1);
-            if (getenv("TM2PC_MODS_DEBUG")) /* (and its stats block, +0x4FC: a mod character's own, decomp request 70) */
+            if (getenv("TM2PC_MODS_DEBUG")) /* (and its stats block, +0x4FC: a mod character's own, decomp request 70, CAR_PROFILES.md) */
                 fprintf(stderr, "ai trace: car %d top speed %d acceleration %d max hp %d mass %d track %d axles %d %d fire %d\n", k,
                         (int16_t)mem_r16(&M.cpu, r + 0x4FC + 0x52), (int32_t)mem_r32(&M.cpu, r + 0x4FC + 0xAC),
                         (int16_t)mem_r16(&M.cpu, r + 0x4FC + 0x3A), (int16_t)mem_r16(&M.cpu, r + 0x4FC + 0x7A),
@@ -3724,7 +3724,7 @@ void vp_pickup_taken(int slot)
                                               (int32_t)mem_r32(&M.cpu, HUMAN_REC(0) + 0x704));
 }
 
-/* No wasted pickup respawns (portBalance bit 23, request 67) also waits per slot: pickupRespawnTick (8010AED0) brings
+/* No wasted pickup respawns (portBalance bit 23, request 67, BALANCE.md) also waits per slot: pickupRespawnTick (8010AED0) brings
  * one back every period (200 steps, 10 seconds), and a slot taken a moment before could come back at once (the user's
  * 2026-11-03: "a slot has to at least be empty for 10 seconds"). Here a slot taken less than a period ago looks
  * still there to the draw (its +2 active set for the call, then put back); with nothing to bring back yet but a slot
@@ -4028,7 +4028,7 @@ static const int gun_attack_of[GUN_COUNT] = {2, 3, 9, 7, 10, 5, 4, 11, 1};
 static int gun_kind(int g) { return g < GUN_COUNT ? gun_kind_of[g] : 0; }
 static int gun_attack(int g) { return g < GUN_COUNT ? gun_attack_of[g] : 12; }
 static int gun_special_type(int g) { return g >= GUN_COUNT ? (g - GUN_COUNT) << 4 : 0; }
-unsigned vp_arena_options(void) /* four.c, at the load: decomp request 38's portArenaOptions (bit 0 hazards off, bit 1
+unsigned vp_arena_options(void) /* four.c, at the load: decomp request 38 (ARENA_SWITCHES.md)'s portArenaOptions (bit 0 hazards off, bit 1
                                  * destructibles off) from the game type; a tournament or Survival: 0, the arena as retail */
 {
     const GameType *t = battle_rules();
@@ -4689,7 +4689,7 @@ static int score_text(int p, char *out, size_t n)
     if (getenv("TM2PC_TEST_SCORE") && vp_dm()) { snprintf(out, n < 11 ? n : 11, "%s", getenv("TM2PC_TEST_SCORE")); return 1; } /* tests: this text */
     if (!vp_dm()) {
         /* a co-op tournament (mode 2): the game prints the team's lives on player 1's view only (HUD_LIVES_HERE; with
-         * portHumanOptions bit 1 every view prints its own); the others here, the same line (decomp request 75) */
+         * portHumanOptions bit 1 every view prints its own); the others here, the same line (decomp request 75 (HIDDEN_AREAS.md)) */
         static uint32_t opts = 1;
         if (opts == 1) opts = port_sym("portHumanOptions");
         if (p <= 0 || mem_r8(&M.cpu, SETTINGS_BLOCK) != 2 || settings_video.hud_no_lives || (opts && (mem_r32(&M.cpu, opts) & 2u))) return 0;

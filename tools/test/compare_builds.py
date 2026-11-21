@@ -117,7 +117,7 @@ SCENARIOS = {
                                                     TM2PC_PAD1_SCRIPT=pad_x(2300, 3400, 20), **TWO), {}),  # (player 1 drives Dark Tooth, firing)
     'arena_off': (100, '2400v,3000v,3600v', dict(TM2PC_UI_SCRIPT=UI_CHALLENGE, **TWO),
                   {'CBTest': {'battle': ['game_type = Calm Arena', 'kills = 100'], 'game_type1': ['name = Calm Arena', 'mode = 4', 'respawn = 3',
-                                                                                  'hazards = 00', 'destructibles = 00']}}),  # (request 38: both off)
+                                                                                  'hazards = 00', 'destructibles = 00']}}),  # (request 38 (ARENA_SWITCHES.md): both off)
     'dt_carsel': (100, ','.join('%dv' % v for v in range(600, 1700, 100)) + ',2400v', dict(TM2PC_UI_SCRIPT=UI_CHALLENGE, TM2PC_DT_PLAYER='1',
                   TM2PC_P2_SCRIPT='-,-,-,-,x', TM2PC_CARSEL_SCRIPT='-,-,-,-,left,-,-,-,-,x', TM2PC_CARSEL_P2_SCRIPT='-,-,-,-,-,-,x'), {}),  # (Dark Tooth picked in the 2-player car select)
     'shared_unlocks': (100, '1300v,2400v', dict(TM2PC_UI_SCRIPT=UI_CHALLENGE, TM2PC_P2_SCRIPT='-,-,-,-,x',

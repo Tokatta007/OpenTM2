@@ -27,7 +27,7 @@ int port_config_on(void) /* the build has the block, and it is used (tests: TM2P
 #include "vplus.h" /* vp_draw_distance */
 void port_config_sync(void)
 {
-    /* the C emitter's subpixel beam and sprite corners (decomp request 61 addendum: the pickups, their labels and the
+    /* the C emitter's subpixel beam and sprite corners (decomp request 61, FAR_DISTANCE.md addendum: the pickups, their labels and the
      * trees no longer wobble with wobble smooth / none): its x sizes times the widescreen squeeze, in 1/4096 */
     static uint32_t precise_emit = 1;
     if (precise_emit == 1) precise_emit = port_sym("portPreciseEmit");
@@ -52,23 +52,23 @@ void port_config_sync(void)
     if (mesh_cap) mem_w32(&M.cpu, mesh_cap, caps ? 2048u : 0u);
     if (packet_bytes) mem_w32(&M.cpu, packet_bytes, caps ? 390320u : 0u); /* (request 47 revised: a 390,400-byte buffer per view, 80 of slack) */
     /* 20 steps a second in every mode, co-op too, and every step 3 ticks, the first after a load or a pause too (the
-     * user's: one rate everywhere; decomp request 48 stage 1, FIXED_TICKS: retail's co-op ran 15, and a step measured
+     * user's: one rate everywhere; decomp request 48 (ONLINE_ROLLBACK.md) stage 1, FIXED_TICKS: retail's co-op ran 15, and a step measured
      * up to 5 ticks after a pause or a load). (tests: TM2PC_RETAIL_TICKS=1, retail's measured ticks) */
     static uint32_t rb_options = 1, step_ticks;
     if (rb_options == 1) { rb_options = port_sym("portRollbackOptions"); step_ticks = port_sym("portStepTicks"); }
     if (rb_options) {
         uint32_t o = mem_r32(&M.cpu, rb_options) & ~0x97Du;
         /* online, on every machine: the step itself advances the effects, the level's animations (their frames hold
-         * walls the cars hit: decomp request 51) and the animators' random numbers, not each machine's drawing
+         * walls the cars hit: decomp request 51 (ONLINE_ROLLBACK.md)) and the animators' random numbers, not each machine's drawing
          * (ONCE_PER_STEP, ANIM_IN_STEP, VISUAL_RAND: ONLINE_ROLLBACK.md 11, 13); offline as retail */
         int netplay_in_match(void), netplay_rollback(void); /* net/game_tm2.c */
-        /* ROUND_CLEAN (0x800, request 60) offline too: a projectile still flying as a match ended flew on in the next
+        /* ROUND_CLEAN (0x800, request 60, ONLINE_ROLLBACK.md) offline too: a projectile still flying as a match ended flew on in the next
          * one (the user's 2026-10-30: Sweet Tooth's special fired as the last match ended, in flight at the next spawn) */
         mem_w32(&M.cpu, rb_options, o | (getenv("TM2PC_RETAIL_TICKS") ? 0u : 1u) | (netplay_in_match() ? 0x1Cu : 0u) |
                                         (getenv("TM2PC_NO_ROUND_CLEAN") ? 0u : 0x800u) |
                                         (getenv("TM2PC_TEST_RERUN") || netplay_rollback() ? 0x97Du : 0u)); /* (rollback: steps run
                                          * again, the step first then the drawing, no sound or palette upload while re-run:
-                                         * net/rb_state.c; tests too; ROUND_CLEAN, request 60: no missile of an earlier
+                                         * net/rb_state.c; tests too; ROUND_CLEAN, request 60 (ONLINE_ROLLBACK.md): no missile of an earlier
                                          * round steers in the next one's first steps, at an object each machine binds
                                          * its own way) */
         mem_w32(&M.cpu, step_ticks, 0); /* (0: 3 ticks) */

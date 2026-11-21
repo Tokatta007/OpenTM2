@@ -12,7 +12,7 @@ game's endings or drivers.
 | Stage N: Arena | any arena unlocked (the 8, then the secret ones), or Random (rolled when the tournament starts) |
 | Stage N: Enemies | how many computer cars (capped by the arena's room), or Random (3 to 7) |
 | Stage N: Bosses | none, 1 or 2; then Boss 1 / Boss 2: any driver (a boss or a regular one): they arrive once the stage's enemies are out ("BOSS BATTLE") |
-| CPU Drivers | the roster: which drivers the enemies are drawn from at random (never a player's car): the 12, then Sweet Tooth (on at first), Minion and Dark Tooth (off at first) once unlocked; the bosses as ordinary enemies: Minion, and Dark Tooth in his first phase (no second stage: `portCarOptions` bit 10, decomp request 42; once a stage, not beside his boss fight, where his textures fit). In place of "Bosses as regular contestants" (2026-11-20): an older profile's switch becomes the two bosses' rows, Sweet Tooth on |
+| CPU Drivers | the roster: which drivers the enemies are drawn from at random (never a player's car): the 12, then Sweet Tooth (on at first), Minion and Dark Tooth (off at first) once unlocked; the bosses as ordinary enemies: Minion, and Dark Tooth in his first phase (no second stage: `portCarOptions` bit 10, decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md; once a stage, not beside his boss fight, where his textures fit). In place of "Bosses as regular contestants" (2026-11-20): an older profile's switch becomes the two bosses' rows, Sweet Tooth on |
 | Difficulty | as the tournament's; the lives too: 3 for the run (3 players 2, 4 players 1), or at every stage with Vanilla Plus "lives per level" |
 
 The roster offers only unlocked drivers. A Versus Tournament server (Network Play) has its own setup on the same page,

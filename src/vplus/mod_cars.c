@@ -1,4 +1,4 @@
-/* Skins from mods/skins (docs/MODDING.md 5) and characters from mods/characters (4): each is the decomp's mod car (car_numbers.h, request 42 items 3 and 5):
+/* Skins from mods/skins (docs/MODDING.md 5) and characters from mods/characters (4): each is the decomp's mod car (car_numbers.h, request 42, CUSTOM_TOURNAMENT_ANSWERS.md items 3 and 5):
  * number 0x20 + m in portModCars[m], built on its base car (the settings byte: the base's stats, special, sounds and
  * hit box), with its own model and textures handed to the load through portCarSource (CAR_GROUPS.md 7.7).
  *
@@ -8,12 +8,12 @@
  *   (net/lobby_mods.c: mods_online_set).
  * - Car select (the user's, 2026-10-25): Left / Right go from car to car; Select cycles the highlighted car's looks,
  *   the car's own and then each of its skins that is on (mod_next_look). The carousel's mod children show the base's
- *   turning car until the shown one's own model is loaded (mod_cars_carsel_frame, decomp request 71); the port's
+ *   turning car until the shown one's own model is loaded (mod_cars_carsel_frame, decomp request 71, CAR_PROFILES.md); the port's
  *   overlays show the skin's name and pictures (mod_car_name, mod_car_picture).
  * - Characters (the user's, 2026-10-26): their own cars in the Left / Right order, after every regular car (Spectre,
  *   Sweet Tooth, Minion and Dark Tooth as offered), in the scan's order; their own name, portraits and model, their own
  *   numbers from [character] (stats, size and hit box, the special's recharge and count, radar color: portCarProfile,
- *   decomp request 70), the base's special behavior and sounds. Select gives a character no other looks. Computer cars
+ *   decomp request 70 (CAR_PROFILES.md)), the base's special behavior and sounds. Select gives a character no other looks. Computer cars
  *   drive them too (ui/options.c ui_AiSelect: picked, or Random with Options > Mods' setting).
  * - The load (vplus/four.c's vp_SessionLoad): each car, human or computer, whose car number is a mod gets its car.dmd
  *   and car.tms read into high RAM and its load group pointed at them; every other group reads the disc. */
@@ -175,7 +175,7 @@ static void write_profiles(void)
     }
 }
 
-/* the characters' specials (decomp request 73, car_numbers.h TM2PortSpecialProfile, 0x48 bytes each by mod): read only
+/* the characters' specials (decomp request 73, SPECIAL_TEMPLATES.md, car_numbers.h TM2PortSpecialProfile, 0x48 bytes each by mod): read only
  * while the mod's portCarProfile entry is valid; match state, the same on every machine */
 static void write_specials(void)
 {
@@ -423,7 +423,7 @@ void mod_cars_carsel_frame(void)
             mem_w32(&M.cpu, node + 28, (uint32_t)(-40));
     }
     static int failed[CARSEL_LOADS] = {-1, -1, -1, -1}; /* (a number whose files failed: not again this car select) */
-    static int slot_dt2[CARSEL_LOADS]; /* (a slot's Dark Tooth: 1 his second phase, the head alone; request 118) */
+    static int slot_dt2[CARSEL_LOADS]; /* (a slot's Dark Tooth: 1 his second phase, the head alone; request 118, DARK_TOOTH_PLAYER.md) */
     if (!loads || !load_fn || !sel || (int)mem_r32(&M.cpu, sel + 4) <= DARK_TOOTH) { /* (not the extended carousel) */
         for (int k = 0; k < CARSEL_LOADS; k++) failed[k] = -1, slot_dt2[k] = 0;
         return;

@@ -268,9 +268,9 @@ unsigned vp_balance_word(void)
         {VP_BAL_SHADOW, 0x0400}, {VP_BAL_OUTLAW2, 0x10000}, {VP_BAL_FREEZE, 0x20000},
         {VP_BAL_RICOCHET, 0x40000}, {VP_BAL_GUNS, 0x100000},
         /* Hammerhead's brakes 2 and slide speed 60: bit 24 (decomp request 77, BALANCE.md 17) */
-        /* the recharges: Outlaw 2 bit 8, Mr. Grimm bit 21, Thumper bit 22 (decomp request 45, BALANCE.md 14.1) */
+        /* the recharges: Outlaw 2 bit 8, Mr. Grimm bit 21, Thumper bit 22 (decomp request 45, PLAYTEST_ANSWERS.md, BALANCE.md 14.1) */
         {VP_BAL_OUTLAW2, 0x0100}, {VP_BAL_GRIMM, 0x200000}, {VP_BAL_THUMPER, 0x400000},
-        {VP_BAL_PICKUPS, 0x800000}, /* (request 67: the respawn's draw among the taken pickups that can show) */
+        {VP_BAL_PICKUPS, 0x800000}, /* (request 67, BALANCE.md: the respawn's draw among the taken pickups that can show) */
         {VP_BAL_SLAM, 0x4000000}, {VP_AI_UNJAM, 0x28000000}, /* (request 91, BALANCE.md 19-20; bit 29 request 101, 22: the routes on Roof Tops) */
         {VP_BAL_ROADKILL, 0x10000000}, /* (request 95, BALANCE.md 21: the boomerang caught within 20 of its thrower) */
     };
@@ -286,7 +286,7 @@ unsigned vp_balance_word(void)
     return w;
 }
 
-/* The decomp's portVisual bits (request 42, port_visual.h): 0 the taser and the lightning sorted by depth, 1 the taser
+/* The decomp's portVisual bits (request 42, CUSTOM_TOURNAMENT_ANSWERS.md, port_visual.h): 0 the taser and the lightning sorted by depth, 1 the taser
  * from the muzzle. Written at each match's load (four.c); read live. */
 /* tests (decomp request 105's run 1): TM2PC_TEST_VISUAL_MASK=hex, only these portVisual bits ever on */
 unsigned vp_visual_test_mask(void)
@@ -301,14 +301,14 @@ unsigned vp_visual_test_mask(void)
 }
 unsigned vp_visual_word(void)
 {
-    if (getenv("TM2PC_TEST_PRE42")) return 0; /* tests: as before request 42 */
+    if (getenv("TM2PC_TEST_PRE42")) return 0; /* tests: as before request 42 (CUSTOM_TOURNAMENT_ANSWERS.md) */
     /* bit 0 always: the taser and the lightning hidden by walls, no option (the user's, 2026-10-17: vanilla drew them
      * over everything, a fix nobody will miss) */
     /* bit 2 always: each view walks its own car first, so a full mesh queue or packet buffer drops far things, never
      * the player's car (decomp request 45, PLAYTEST_ANSWERS.md 3.3) */
     /* bits 3 and 4 always (request 46): each car's shadow sorted behind its own car (the user's on Sweet Tooth), and a new
      * bullet's first streak from the muzzle where it is now (not behind a fast car) */
-    /* bit 5 (request 63): the chase camera kept inside the walls; bit 7 (request 92, RENDER_ANSWERS R7): steady shadows */
+    /* bit 5 (request 63, FAR_LOD.md): the chase camera kept inside the walls; bit 7 (request 92, RENDER_ANSWERS.md, RENDER_ANSWERS R7): steady shadows */
     return (1u | (vp_on(VP_TASER_LOW) ? 2u : 0u) | 4u | 8u | 16u | (vp_on(VP_CAMERA_WALLS) ? 32u : 0u) |
             (vp_on(VP_STEADY_SHADOW) ? 0x80u : 0u)) & vp_visual_test_mask();
 }

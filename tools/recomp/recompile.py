@@ -468,7 +468,7 @@ def main():
     # rollback_regions.tsv): the ranges, minus the "no" rows inside them, plus the "yes" rows outside them; the BIOS
     # rand() seed (0x80009010, the port's HLE: the game's stream) in both
     rb_spans = {'snap': [], 'hash': []}
-    rb_ptrs = []  # the `ptr` rows (request 57): a pointer word, and the bytes at the object it names that are hash no
+    rb_ptrs = []  # the `ptr` rows (request 57, ONLINE_ROLLBACK.md): a pointer word, and the bytes at the object it names that are hash no
     if args.port_json:
         rr = Path(args.port_json).with_suffix('') / 'rollback_regions.tsv'
         if rr.exists():

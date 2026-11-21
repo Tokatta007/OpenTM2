@@ -41,7 +41,7 @@ multiple hills as settings.
 Drivers: a group row (All, No bosses: Minion and Dark Tooth off, Custom) over each driver in
 car-select order, then **Random opponents**: Minion in random and Dark Tooth in random (each "???" until unlocked; off
 by default; game type keys `minion_random`, `dark_tooth`). The random opponents are drawn from the 12 drivers on, Sweet
-Tooth once unlocked (his row on), and those two (decomp request 42: Dark Tooth in his first phase, `portCarOptions` bit
+Tooth once unlocked (his row on), and those two (decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md: Dark Tooth in his first phase, `portCarOptions` bit
 10; one a match, where his textures fit). Arena Hazards: one switch for the hazards and one for the
 destructibles (their arenas in the description). Pickup respawn time in seconds (the game's
 200 frames: about 7).

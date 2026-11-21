@@ -98,7 +98,7 @@ for 10 s (or after a minute).
   has; one step an iteration of the game's loop (the session's `one_step`).
   - **The re-run check** (`TM2PC_TEST_RERUN=K,EVERY`, offline): K steps played, put back, run again, compared (the cars,
     seeds, nodes and the port's blocks). 1000 checks of 8 steps over `kills`, `two`, `lives`, `koth`, `four`,
-    `laquake`, `tour` (every level, the bosses), `dt_player`, `secret`, `arena_off`: all equal. Since request 54 the
+    `laquake`, `tour` (every level, the bosses), `dt_player`, `secret`, `arena_off`: all equal. Since request 54 (ONLINE_ROLLBACK.md) the
     node list is every loaded model file's (made once a load, kept on the host: `dmd_list`), so a node an object takes
     later is in every state. No state reaches back past a round's start (`rbs_new_round`).
   - **Two machines** (`tools/test/net_lockstep.py`, `TM2PC_NET_ROLLBACK=1 --delay 0`, `TM2PC_NET_LAG_MS=100`): 224
@@ -116,13 +116,13 @@ for 10 s (or after a minute).
   - **Players leaving, coming back, dropping in** (PR #355): applied as the step begins, live and re-run
     (`slot_events`); a join's or resync's state made at a confirmed step (the host stops predicting while one is owed);
     the kills' attribution and the tally sent with every state.
-  - **A round's end** (request 55): while `portRollbackEndDue()` says the next step ends the round and an input before
+  - **A round's end** (request 55, ONLINE_ROLLBACK.md): while `portRollbackEndDue()` says the next step ends the round and an input before
     it is predicted, the machine waits (window 0): every machine ends it at the same step (3 machines at 80 ms: step
     448 on all).
-  - **The decomp's whole table between machines** (`rbs_hash`, `TM2PC_NET_FULLHASH`, for tests until request 57):
+  - **The decomp's whole table between machines** (`rbs_hash`, `TM2PC_NET_FULLHASH`, for tests until request 57, ONLINE_ROLLBACK.md):
     less each machine's own words (the pads' buffers, sound, the views' cameras, rigs and the sky, the buffer flip,
     `portHumanLocal`, the HUD texts, the human records' camera bytes) three machines hash equal, lockstep and rollback;
-    after a drop-in two more words still differ (request 57). The default compares the cars, the seed and the nodes.
+    after a drop-in two more words still differ (request 57, ONLINE_ROLLBACK.md). The default compares the cars, the seed and the nodes.
     The hash takes under 1 ms (the spans less the masks made once; 17 ms word by word).
   - **The kill cam:** a re-run's inputs and hashes go to their own frames, snapshots of guessed steps are forgotten:
     the final replay matches the battle frame for frame on every machine.
@@ -291,7 +291,7 @@ The user's rules (2026-10-21):
 | A | `src/net/`: sockets, connections (reliable + unreliable channels), the protocol's messages, the rollback engine with its own time sync and desync checks, and `tools/net_sim`: many simulated players over a fake network (delay, jitter, loss) running a tiny test game, proving rollback, desync detection and recovery, host migration and joining late without the game. **Built** (PR #298), then voice (Opus) and the server's messages (chat, the playlist vote, vote kick): `net_sim` runs 10 scenarios | no |
 | B | Decomp request 44 (what the game needs for rollback: step boundary, state, determinism) | no (the decomp chat) |
 | C | The master server (server list, hole punching, relay, friends, stats) as a small program run on this PC first | no |
-| D | The game hooked to the engine: inputs per slot from the network, save/load state, the determinism fixes (`HARDENING.md` 3-4), the lobby's messages; LAN first (two copies on one PC, then two PCs). **Lockstep milestone built** (2026-10-19, `src/net/game_tm2.c`): `TM2PC_NET=host:PORT` / `join:HOST:PORT`, each step waits for both machines' inputs (the kill cam's input seam, `killcam_input`), the cars' hash compared every 8th step; two copies on this PC over UDP, a 2-player Challenge Match, player 1 on the host and player 2 on the joiner: 1,338 steps the same on both, 0 desyncs in 150 checks. **The joiner starts from the host's state** (RAM, the port's gameplay blocks, VRAM and the texture banks, sound RAM: 50.9 MB, 3.6 MB packed, at the battle's first step), so its own menus need not match: with another seed (other opponents chosen) the battle ran the same, 1,554 steps and the same screenshots (`tools/test/net_lockstep.py --join TM2PC_SEED=99`). **The lobby** (`src/net/lobby.c`, Network Play's menus, 2026-10-19): host, join by address, players, cars, teams, ready, chat, kick, the host's Start into the same match on every machine and back to the lobby after it (two copies through the menus: equal battles, 0 desyncs). Next: more players (the decomp's local-player map), then rollback with decomp request 48 | yes |
+| D | The game hooked to the engine: inputs per slot from the network, save/load state, the determinism fixes (`HARDENING.md` 3-4), the lobby's messages; LAN first (two copies on one PC, then two PCs). **Lockstep milestone built** (2026-10-19, `src/net/game_tm2.c`): `TM2PC_NET=host:PORT` / `join:HOST:PORT`, each step waits for both machines' inputs (the kill cam's input seam, `killcam_input`), the cars' hash compared every 8th step; two copies on this PC over UDP, a 2-player Challenge Match, player 1 on the host and player 2 on the joiner: 1,338 steps the same on both, 0 desyncs in 150 checks. **The joiner starts from the host's state** (RAM, the port's gameplay blocks, VRAM and the texture banks, sound RAM: 50.9 MB, 3.6 MB packed, at the battle's first step), so its own menus need not match: with another seed (other opponents chosen) the battle ran the same, 1,554 steps and the same screenshots (`tools/test/net_lockstep.py --join TM2PC_SEED=99`). **The lobby** (`src/net/lobby.c`, Network Play's menus, 2026-10-19): host, join by address, players, cars, teams, ready, chat, kick, the host's Start into the same match on every machine and back to the lobby after it (two copies through the menus: equal battles, 0 desyncs). Next: more players (the decomp's local-player map), then rollback with decomp request 48 (ONLINE_ROLLBACK.md) | yes |
 | E | Voice (Opus), the playlist vote, kicks, mute, friends, co-op modes, host migration, stats | partly |
 | F | Versus Tournament | yes |
 

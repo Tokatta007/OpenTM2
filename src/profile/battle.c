@@ -110,7 +110,7 @@ int battle_type_playable(const GameType *t)
     a.hunted_teams = b.hunted_teams;
     a.koth_hills = b.koth_hills;
     a.koth_spots = b.koth_spots;
-    a.hazards = b.hazards;             /* made: decomp request 38 (the hybrid's portArenaOptions) */
+    a.hazards = b.hazards;             /* made: decomp request 38 (ARENA_SWITCHES.md; the hybrid's portArenaOptions) */
     a.destructibles = b.destructibles;
     a.jugg_invisible = b.jugg_invisible;
     a.koth_move = b.koth_move;

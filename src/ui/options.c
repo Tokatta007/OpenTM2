@@ -2066,7 +2066,7 @@ static void build_battle(PageId page)
             add_choice("Minion in random", "Can Minion be drawn as a random opponent?", get_gt_dark_tooth, set_gt_dark_tooth, 1,
                        onoff_values, 2);
         else add_locked("???", "Unlock this driver first.", "OFF");
-        if (profile_dark_tooth_unlocked()) /* his first phase (no second stage; decomp request 42) */
+        if (profile_dark_tooth_unlocked()) /* his first phase (no second stage; decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md) */
             add_choice("Dark Tooth in random", "Can Dark Tooth be drawn as a random opponent? He fights as in his first phase.",
                        get_gt_dark_tooth, set_gt_dark_tooth, 0, onoff_values, 2);
         else add_locked("???", "Unlock this driver first.", "OFF");
@@ -2161,7 +2161,7 @@ static void build_battle(PageId page)
         }
         break;
     case PAGE_BATTLE_HAZARDS:
-        if (port_sym("portArenaOptions")) { /* (decomp request 38: TM2_PORT_HAZARDS) */
+        if (port_sym("portArenaOptions")) { /* (decomp request 38, ARENA_SWITCHES.md: TM2_PORT_HAZARDS) */
             add_choice("Hazards", "Antarctica's collapsing ice, lava burns, fire patches and Hong Kong's trains. Off: the ice "
                        "holds, lava and fire don't burn, no trains.", get_match_rule, set_match_rule, MR_HAZARDS, onoff_values, 2);
             add_choice("Destructibles", "The LA bridge, Moscow's bridges and dish, the Eiffel Tower, New York's target, "
@@ -12520,7 +12520,7 @@ static int carsel_live_count(void) { return cl.n; }
 static int carsel_live_done(void) { return cl.done; }
 static int cs_byte(int car) { return car >= 0x20 ? mod_car_base(car) : car; } /* the settings' byte: a character's base */
 static int carsel_live_car(int p) { return cs_byte(cs2[p & 3].car); }
-/* player p's car number in car select (a mod's own), -1 none: the carousel's models (vplus/mod_cars.c, decomp request 71) */
+/* player p's car number in car select (a mod's own), -1 none: the carousel's models (vplus/mod_cars.c, decomp request 71, CAR_PROFILES.md) */
 int carsel_shown(int p)
 {
     if (cl.on) return p < cl.n ? (cs_look(p) == LOOK_DT2 ? LOOK_DT2 : cs2[p & 3].car) : -1; /* (his second phase: its model) */
@@ -13520,7 +13520,7 @@ static void team_cycle(int p) /* Triangle: the player's next team */
 }
 
 void F_80122124_orig(CPU *c);
-/* the carousel's distance for a car drawn with its in-game model (decomp request 71): Dark Tooth's truck is
+/* the carousel's distance for a car drawn with its in-game model (decomp request 71, CAR_PROFILES.md): Dark Tooth's truck is
  * about twice a car's size and taller: 3.4 times as far, nearer Minion's size (4 times looked small, the user's
  * 2026-11-04) (% of the usual, 0 = as the others; TM2PC_DT_FAR: tests) */
 static int carsel_far(int car)
@@ -15188,7 +15188,7 @@ void ui_AiSelect(CPU *c)
     for (int cc = 0; cc <= BATTLE_DRIVERS; cc++) types += used[cc];
     for (int j = 0; j < 128; j++) types += used_mod[j]; /* (a character: textures of its own) */
     if (jforce && !used[jt->jugg_car]) { used[jt->jugg_car] = 1; types++; } /* (its textures counted: the arena's room) */
-    /* the random opponents: the 12, then Sweet Tooth, Minion and Dark Tooth once unlocked (decomp request 42: Sweet Tooth's
+    /* the random opponents: the 12, then Sweet Tooth, Minion and Dark Tooth once unlocked (decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md: Sweet Tooth's
      * AI is all there; Dark Tooth his first phase only, portCarOptions bit 10, four.c), Dark Tooth once a match, never
      * beside his boss fight (a stage's boss), and where his textures fit (texture banks, or the arena's room) */
     int dt_boss_here = 0;
@@ -15202,7 +15202,7 @@ void ui_AiSelect(CPU *c)
                    (cc == TOUR_DARK_TOOTH && profile_dark_tooth_unlocked() && !dt_boss_here && port_config_on() &&
                     (cars_banks() || level >= 13 || boss_room[level] > humans + n));
     int pool_cars = TOUR_DARK_TOOTH + 1;
-    if (getenv("TM2PC_TEST_PRE42")) { /* tests: the pool before request 42 (the 12; a tournament's regular Minion) */
+    if (getenv("TM2PC_TEST_PRE42")) { /* tests: the pool before request 42 (CUSTOM_TOURNAMENT_ANSWERS.md; the 12; a tournament's regular Minion) */
         pool_cars = trun.on && (battle_tour()->roster >> TOUR_MINION & 1) && profile_minion_unlocked() ? TOUR_MINION + 1 : BATTLE_OPPONENT_CARS;
         open[TOUR_DARK_TOOTH] = 0;
     }
