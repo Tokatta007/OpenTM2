@@ -1,4 +1,4 @@
-# OpenTM2
+<p align="center"><img src="docs/images/opentm2-logo.png" alt="OpenTM2" width="560"></p>
 
 A PC port of **Twisted Metal 2** (PlayStation, 1996) for Windows. The game's own code is recompiled from your copy of
 the game and runs on a native PC runtime, with online play, split-screen and many optional improvements.
