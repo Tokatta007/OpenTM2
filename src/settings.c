@@ -21,7 +21,7 @@
 
 static char disc[1024];        /* given on the command line */
 static char saved_disc[1024];  /* from the file */
-static char pc_version[1024];  /* the 1997 PC version (its .iso or folder), for the first-time setup's pictures */
+static char pc_version[1024];  /* the 1997 PC version (its disc image or folder), for the first-time setup's pictures */
 
 void settings_set_disc(const char *path) { snprintf(disc, sizeof disc, "%s", path); }
 const char *settings_disc(void) { return saved_disc; }
@@ -37,7 +37,7 @@ static void game_write(FILE *f)
 {
     if (!*disc) snprintf(disc, sizeof disc, "%s", saved_disc); /* (a section rewritten: the file's) */
     fprintf(f, "[game]\n; the Twisted Metal 2 disc image (.cue)\ndisc = %s\n", disc);
-    fprintf(f, "; the 1997 PC version (its .iso or installed folder), for sharper menu pictures (empty: the PS1's)\n"
+    fprintf(f, "; the 1997 PC version (its disc image: .iso, .cue, .mdf, .img; or installed folder), for sharper menu pictures (empty: the PS1's)\n"
                "pc_version = %s\n", pc_version);
     snprintf(saved_disc, sizeof saved_disc, "%s", disc);
 }

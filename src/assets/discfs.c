@@ -157,6 +157,12 @@ static void walk_folder(DiscFs *fs, const char *dir, const char *prefix, int dep
 #endif
 }
 
+static int ext_is(const char *ext, const char *want) /* (case ignored) */
+{
+    while (*ext && *want && tolower((unsigned char)*ext) == *want) ext++, want++;
+    return !*ext && !*want;
+}
+
 DiscFs *discfs_open(const char *path)
 {
     DiscFs *fs = calloc(1, sizeof *fs);
@@ -177,7 +183,9 @@ DiscFs *discfs_open(const char *path)
     }
     char image[1100];
     const char *ext = strrchr(path, '.');
-    if (ext && (!strcmp(ext, ".cue") || !strcmp(ext, ".CUE") || !strcmp(ext, ".Cue"))) { if (!cue_data_track(path, image, sizeof image)) { free(fs); return NULL; } }
+    if (ext && ext_is(ext, ".cue")) { if (!cue_data_track(path, image, sizeof image)) { free(fs); return NULL; } }
+    else if (ext && (ext_is(ext, ".mds") || ext_is(ext, ".ccd"))) /* (Alcohol's .mds: its .mdf; CloneCD's .ccd: its .img) */
+        snprintf(image, sizeof image, "%.*s%s", (int)(ext - path), path, ext_is(ext, ".mds") ? ".mdf" : ".img");
     else snprintf(image, sizeof image, "%s", path);
     fs->f = fopen(image, "rb");
     if (!fs->f) { free(fs); return NULL; }
@@ -189,6 +197,10 @@ DiscFs *discfs_open(const char *path)
     if (fread(head, 1, 16, fs->f) == 16 && !memcmp(head, sync, 12)) {
         fs->sector = 2352;
         fs->user = head[15] == 2 ? 24 : 16; /* (Mode 2 Form 1: an 8-byte subheader before the data) */
+        uint8_t next[12]; /* (2448: a raw sector and its 96 bytes of subchannel, as some .mdf and .img keep them) */
+        if (!fseek(fs->f, 2352, SEEK_SET) && fread(next, 1, 12, fs->f) == 12 && memcmp(next, sync, 12) &&
+            !fseek(fs->f, 2448, SEEK_SET) && fread(next, 1, 12, fs->f) == 12 && !memcmp(next, sync, 12))
+            fs->sector = 2448;
     }
     uint8_t pvd[2048];
     if (!read_sector(fs, 16, pvd) || memcmp(pvd + 1, "CD001", 5)) { discfs_close(fs); return NULL; }
@@ -211,8 +223,8 @@ int discfs_count(const DiscFs *fs) { return fs ? fs->n : 0; }
 uint32_t discfs_size(const DiscFs *fs, int i) { return fs && i >= 0 && i < fs->n ? fs->e[i].size : 0; }
 int discfs_raw(DiscFs *fs, int i, uint32_t n, uint8_t out[2352])
 {
-    if (!fs || !fs->f || fs->sector != 2352 || i < 0 || i >= fs->n) return 0;
-    if (fseek(fs->f, (long)(fs->e[i].lba + n) * 2352, SEEK_SET)) return 0;
+    if (!fs || !fs->f || fs->sector < 2352 || i < 0 || i >= fs->n) return 0;
+    if (fseek(fs->f, (long)(fs->e[i].lba + n) * fs->sector, SEEK_SET)) return 0;
     return fread(out, 1, 2352, fs->f) == 2352;
 }
 const char *discfs_path(const DiscFs *fs, int i) { return fs && i >= 0 && i < fs->n ? fs->e[i].path : ""; }

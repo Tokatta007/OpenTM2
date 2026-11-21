@@ -10,6 +10,7 @@
 #include <windows.h>
 #endif
 
+#include "../assets/discfs.h"
 #include "../assets/uibuild.h"
 #include "../settings.h"
 #include "../ui/draw.h"
@@ -112,13 +113,32 @@ static void SDLCALL picked(void *which, const char *const *list, int filter)
     SDL_UnlockMutex(picks);
 }
 
+/* the PC version's disc image formats: an .iso, a .cue with its .bin, Alcohol's .mdf/.mds, CloneCD's .img/.ccd */
+static int is_image(const char *p)
+{
+    return ends_with(p, ".iso") || ends_with(p, ".cue") || ends_with(p, ".bin") || ends_with(p, ".mdf") ||
+           ends_with(p, ".mds") || ends_with(p, ".img") || ends_with(p, ".ccd");
+}
+
+/* what a disc image or folder holds: 1 the PlayStation disc (SCUS_943.06), 2 another readable one (the PC version), 0 none */
+static int disc_kind(const char *path)
+{
+    DiscFs *fs = discfs_open(path);
+    if (!fs) return 0;
+    int kind = discfs_find(fs, "/SCUS_943.06") >= 0 ? 1 : 2;
+    discfs_close(fs);
+    return kind;
+}
+
 static void dropped(const char *path)
 {
     SDL_LockMutex(picks);
-    if (ends_with(path, ".cue") || ends_with(path, ".bin")) take_ps1(path);
-    else if (ends_with(path, ".iso") || is_dir(path)) snprintf(pc, sizeof pc, "%s", path);
+    int kind = is_image(path) || is_dir(path) ? disc_kind(path) : 0;
+    if (kind == 1) take_ps1(path); /* (by what is on it: a .cue or .bin can be either disc) */
+    else if (kind == 2) snprintf(pc, sizeof pc, "%s", path);
     else if (is_archive(path)) snprintf(message, sizeof message, "Extract the archive first, then drop the .cue file from it.");
-    else snprintf(message, sizeof message, "Drop the PlayStation disc's .cue file, or the PC version's .iso or folder.");
+    else if (is_image(path) || is_dir(path)) snprintf(message, sizeof message, "That disc image or folder can't be read.");
+    else snprintf(message, sizeof message, "Drop the PlayStation disc's .cue file, or the PC version's disc image or folder.");
     SDL_UnlockMutex(picks);
 }
 
@@ -205,13 +225,13 @@ static void draw(Image *im, int mode, int mx, int my, int forced)
     say(im, "The PlayStation disc (USA): the .cue file (needed)", x0, L(100), L(15), WHITE);
     path_box(im, l.ps1_box, ps1, "Browse, or drop the .cue on this window");
     say(im, "Extract the .cue and all its .bin files into one folder first, then choose the .cue.", x0, L(156), L(13), PALE);
-    say(im, "The 1997 PC version: its .iso, or its installed folder (either one)", x0, L(182), L(15), WHITE);
+    say(im, "The 1997 PC version: its disc image (.iso, .cue, .mdf...) or its installed folder", x0, L(182), L(15), WHITE);
     path_box(im, l.pc_box, pc, "None: the pictures from the PlayStation disc alone");
     int have_pc = *pc != 0;
     SDL_UnlockMutex(picks);
     if (mode == FORM) {
         button(im, l.ps1_pick, "Browse...", inside(l.ps1_pick, mx, my), 0);
-        button(im, l.pc_iso, ".iso...", inside(l.pc_iso, mx, my), 0);
+        button(im, l.pc_iso, "Image...", inside(l.pc_iso, mx, my), 0);
         button(im, l.pc_dir, "Folder...", inside(l.pc_dir, mx, my), 0);
         say(im, have_pc ? "PlayStation + PC (recommended): the sharpest pictures."
                         : "Recommended: PlayStation + PC, for pictures twice as sharp. You can add the PC version later (Options).",
@@ -283,7 +303,7 @@ int setup_pregame(const char *base, int forced, char *disc, size_t cap)
     image_resize(&im, w, h);
     SDL_Thread *thread = NULL;
     static const SDL_DialogFileFilter CUE[] = {{"PlayStation disc image (.cue)", "cue;bin"}};
-    static const SDL_DialogFileFilter ISO[] = {{"Disc image (.iso)", "iso"}};
+    static const SDL_DialogFileFilter ISO[] = {{"Disc image (.iso, .cue, .mdf, .mds, .img, .ccd, .bin)", "iso;cue;mdf;mds;img;ccd;bin"}};
     const char *shot = getenv("TM2PC_SETUP_SHOT"); /* tests: the window, as a picture */
     int frames = 0, start_build = automatic;
     while (!done && !quit) {
@@ -320,7 +340,10 @@ int setup_pregame(const char *base, int forced, char *disc, size_t cap)
             else if (*ps1 && is_archive(ps1)) snprintf(message, sizeof message, "Extract the archive first, then choose the .cue file from it.");
             else if (*ps1 && ends_with(ps1, ".bin")) snprintf(message, sizeof message, "That .bin has no .cue beside it: extract the .cue too, then choose the .cue.");
             else if (!ok_ps1) snprintf(message, sizeof message, "Choose the PlayStation disc's .cue file (its .bin files beside it).");
-            else if (!ok_pc) snprintf(message, sizeof message, "The PC version's .iso or folder cannot be found.");
+            else if (!ok_pc) snprintf(message, sizeof message, "The PC version's disc image or folder cannot be found.");
+            else if (*pc && disc_kind(pc) != 2) /* (unreadable, or the PlayStation disc chosen twice) */
+                snprintf(message, sizeof message, disc_kind(pc) == 1 ? "That's the PlayStation disc: choose the PC version's disc image or folder."
+                                                                     : "The PC version's disc image or folder can't be read.");
             else if (*pc || automatic || confirm_ps1_only(win)) {
                 message[0] = 0;
                 mode = BUILDING;
@@ -394,7 +417,9 @@ int setup_prepare(const char *base, const char *ps1_in, const char *pc_in)
     else if (cue_missing(ps1, gone, sizeof gone))
         printf("%.120s is missing: extract it beside the .cue.\n", gone);
     else if (pc_path && !is_dir(pc_path) && !is_file(pc_path))
-        printf("The PC version's .iso or folder cannot be found.\n");
+        printf("The PC version's disc image or folder cannot be found.\n");
+    else if (pc_path && disc_kind(pc_path) != 2)
+        printf("The PC version's disc image or folder can't be read.\n");
     else if (!(ok = ui_build(ps1, pc_path, ui_dir, prepare_progress, NULL)))
         printf("%s\n", ui_build_error());
     if (ok) {

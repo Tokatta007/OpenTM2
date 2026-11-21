@@ -4211,7 +4211,7 @@ static void build(PageId page)
         add_page("Stats", PAGE_STATS, "Every profile's counts: kills, deaths, wins and more.");
         add_page("Online Services", PAGE_ONLINE, "Your player ID (your friend code), and the master servers online play uses.");
         if (*settings_pc_version()) add_page("Game discs", PAGE_DISCS, "The discs the menu pictures are made from: choose them again (the game restarts into its setup).");
-        else add_page("Game discs", PAGE_DISCS, "Recommended: add the 1997 PC version (its .iso or folder) for menu pictures twice as sharp. The game restarts into its setup.");
+        else add_page("Game discs", PAGE_DISCS, "Recommended: add the 1997 PC version (its disc image or folder) for menu pictures twice as sharp. The game restarts into its setup.");
         rows[row_count - 1].text = *settings_pc_version() ? "PS1 + PC" : "PS1 ONLY";
         add_page("Mods", PAGE_MODS, "Skins, cars, arenas and tournaments from your mods folder: turn each on or off.");
         break;
