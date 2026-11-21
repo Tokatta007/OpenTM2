@@ -1,7 +1,7 @@
 """A release's zip (docs/RELEASE.md): the port's own files from build/port, in one folder named for the version
 (CMakeLists.txt TM2PC_VERSION), as the updater (src/runtime/update.c) puts them next to the executable.
 
-    python tools/release/pack_release.py        -> build/release/TM2PC-<version>-win64.zip
+    python tools/release/pack_release.py        -> build/release/OpenTM2-<version>-win64.zip
 
 Only what the port made: tm2pc.exe, fonts/ (the menu fonts, SIL OFL; flexure.atlas by permission of T26, its notice beside it) and art/ (the mode symbols, CC BY 3.0). Never the game's art or anything made from it
 (ui/, extracted/), nor a player's files (tm2pc.ini, profiles/, music/, mods/, screenshots/)."""
@@ -20,9 +20,9 @@ def main():
     if not m:
         sys.exit('no TM2PC_VERSION in CMakeLists.txt')
     ver = m.group(1)
-    out = REPO / 'build' / 'release' / ('TM2PC-%s-win64.zip' % ver)
+    out = REPO / 'build' / 'release' / ('OpenTM2-%s-win64.zip' % ver)
     out.parent.mkdir(parents=True, exist_ok=True)
-    top = 'TM2PC-%s/' % ver
+    top = 'OpenTM2-%s/' % ver
     n = 0
     with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
         for name in SHIP:
