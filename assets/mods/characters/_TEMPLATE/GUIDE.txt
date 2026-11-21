@@ -16,11 +16,11 @@ drivers.
 
 Making one
 ----------
-1. Run tm2pc.exe --new-mod character crimson-fox: it makes mods\characters\crimson-fox with a mod.ini, its id and
+1. Run tm2pc.exe --new-mod character crimson-fury: it makes mods\characters\crimson-fury with a mod.ini, its id and
    a new uid filled in. (Or copy this _TEMPLATE folder there and make a uid yourself: ../../README.txt.)
 2. Edit mod.ini: the character's name, your name, and its base car (see "The cars" below).
 3. Add the files below.
-4. Run tm2pc.exe --check-mod mods\characters\crimson-fox until it prints OK.
+4. Run tm2pc.exe --check-mod mods\characters\crimson-fury until it prints OK.
 5. Start the game. In car select, press Left from Roadkill (or go Right past the last car): your character is there.
    Options > Mods turns each character on or off.
 
