@@ -63,10 +63,15 @@ static void mic_open(void)
 {
     if (mic && strcmp(mic_name, settings_game.mic)) mic_close(); /* (another device chosen) */
     if (mic) return;
+    static Uint64 tried; /* (no microphone: tried again every 2 s, not every frame, and said once) */
+    static int said;
+    if (strcmp(mic_name, settings_game.mic)) tried = 0; /* (another device chosen: at once) */
+    if (tried && SDL_GetTicks() - tried < 2000) return;
+    tried = SDL_GetTicks();
     mic = SDL_OpenAudioDeviceStream(mic_device(), &SPEC, NULL, NULL);
     snprintf(mic_name, sizeof mic_name, "%s", settings_game.mic);
-    if (mic) SDL_ResumeAudioStreamDevice(mic);
-    else fprintf(stderr, "voice: no microphone (%s)\n", SDL_GetError());
+    if (mic) { SDL_ResumeAudioStreamDevice(mic); tried = 0; said = 0; }
+    else if (!said++) fprintf(stderr, "voice: no microphone (%s)\n", SDL_GetError());
 }
 static float loudness(const int16_t *pcm) /* 0..1 on a decibel scale: -60 dB (silence) to 0 */
 {

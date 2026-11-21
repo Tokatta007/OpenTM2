@@ -83,7 +83,9 @@ static void walk(DiscFs *fs, uint32_t lba, uint32_t size, const char *prefix, in
     }
 }
 
-/* a .cue's first FILE (the data track), beside the .cue */
+int cue_bin_fallback(const char *cue, char *out, size_t cap); /* (runtime/cd.c) */
+
+/* a .cue's first FILE (the data track), beside the .cue (or the .bin beside it: cue_bin_fallback) */
 static int cue_data_track(const char *cue, char *out, size_t cap)
 {
     FILE *f = fopen(cue, "r");
@@ -100,6 +102,9 @@ static int cue_data_track(const char *cue, char *out, size_t cap)
         const char *slash = strrchr(cue, '/'), *back = strrchr(cue, '\\');
         if (back > slash) slash = back;
         snprintf(out, cap, "%.*s%s", slash ? (int)(slash - cue + 1) : 0, cue, q1 + 1);
+        FILE *there = fopen(out, "rb");
+        if (there) fclose(there);
+        else cue_bin_fallback(cue, out, cap);
         ok = 1;
     }
     fclose(f);

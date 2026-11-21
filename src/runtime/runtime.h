@@ -113,6 +113,8 @@ extern Track cd_tracks[100];
 extern int cd_track_count;
 int cd_read_raw(uint32_t lba, uint8_t *dst);
 int cd_open(const char *cue_or_bin);
+/* a .cue listing one .bin that is not there under its name: the .bin beside it (cd.c); 1 with out set */
+int cue_bin_fallback(const char *cue, char *out, size_t cap);
 int cd_read_sector(uint32_t lba, uint8_t *dst2048);
 int cd_find_file(const char *path, uint32_t *lba, uint32_t *size);
 

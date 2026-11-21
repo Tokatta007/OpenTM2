@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "runtime.h"
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #define RAW 2352
 
@@ -29,6 +32,52 @@ static long file_size(const char *path)
     long n = ftell(f);
     fclose(f);
     return n;
+}
+
+/* A .cue with one FILE whose .bin is not there under that name (a .cue made for another dump's name, e.g. "[SCUS-94306]"
+ * against "(U)"): the .bin named as the .cue, else the only .bin in its folder, as emulators take it. 1 with out set. */
+int cue_bin_fallback(const char *cue, char *out, size_t cap)
+{
+    FILE *f = fopen(cue, "r");
+    if (!f) return 0;
+    char line[1024], named[1024] = "";
+    int files = 0;
+    while (fgets(line, sizeof line, f)) {
+        char *p = line;
+        while (isspace((unsigned char)*p)) p++;
+        if (strncmp(p, "FILE", 4)) continue;
+        char *q1 = strchr(p, '"'), *q2 = q1 ? strchr(q1 + 1, '"') : 0;
+        if (q1 && q2) snprintf(named, sizeof named, "%.*s", (int)(q2 - q1 - 1), q1 + 1);
+        files++;
+    }
+    fclose(f);
+    char dir[512], path[1100];
+    dir_of(cue, dir, sizeof dir);
+    snprintf(path, sizeof path, "%s%s", dir, named);
+    if (files != 1 || !*named || file_size(path) >= 0) return 0; /* (several files, or it is there: nothing to do) */
+    const char *ext = strrchr(cue, '.');
+    snprintf(path, sizeof path, "%.*s.bin", ext ? (int)(ext - cue) : (int)strlen(cue), cue);
+    if (file_size(path) > 0) {
+        snprintf(out, cap, "%s", path);
+        return 1;
+    }
+#ifdef _WIN32
+    char pat[1100];
+    snprintf(pat, sizeof pat, "%s*.bin", dir);
+    WIN32_FIND_DATAA d;
+    HANDLE h = FindFirstFileA(pat, &d);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    int n = 0;
+    do {
+        if (!(d.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && n++ == 0) snprintf(path, sizeof path, "%s%s", dir, d.cFileName);
+    } while (FindNextFileA(h, &d));
+    FindClose(h);
+    if (n == 1) {
+        snprintf(out, cap, "%s", path);
+        return 1;
+    }
+#endif
+    return 0;
 }
 
 int cd_open(const char *image)
@@ -57,6 +106,10 @@ int cd_open(const char *image)
                 if (!q1 || !q2) continue;
                 *q2 = 0;
                 snprintf(path, sizeof path, "%s%s", dir, q1 + 1);
+                if (file_size(path) < 0) { /* (not under that name: the .bin beside it, cue_bin_fallback) */
+                    char alt[512];
+                    if (cue_bin_fallback(image, alt, sizeof alt)) snprintf(path, sizeof path, "%s", alt);
+                }
                 long size = file_size(path);
                 file_lba = lba;
                 file_sectors = size > 0 ? (uint32_t)(size / RAW) : 0;

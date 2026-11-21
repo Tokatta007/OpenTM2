@@ -174,6 +174,16 @@ void cd_audio_play(uint32_t lba)
     if (getenv("TM2PC_NO_CDDA")) /* debugging: sound effects only */
         return;
     int t = track_of(lba);
+    /* The game starts a track a little before its INDEX 01, in the 2-second pregap every audio track has on the disc.
+     * An image that left the pregap out (a PREGAP line in its .cue, no INDEX 00, or one .bin with no gap) puts that
+     * place in the track before it, or in the data: there it is this track's start (else stage music stays silent, and
+     * the title song lasts a moment so the attract demo starts at once). An image with its pregaps has it already. */
+    for (int i = 1; i < cd_track_count; i++)
+        if (i != t && cd_tracks[i].audio && lba < cd_tracks[i].start && lba + 150 >= cd_tracks[i].start) {
+            t = i;
+            if (lba < cd_tracks[i].file_start) lba = cd_tracks[i].file_start;
+            break;
+        }
     if (t < 1 || !cd_tracks[t].audio) {
         cd_audio_stop();
         rt_unexpected("CD play outside an audio track", lba, (uint32_t)t);
