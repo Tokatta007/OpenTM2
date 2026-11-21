@@ -23,6 +23,7 @@
 #include "settings.h"
 #include "runtime/update.h"
 #include "runtime/setup.h"
+#include "assets/discfs.h"
 #include "profile/profile.h"
 #include "profile/feats.h"
 #include "ui/ui.h"
@@ -433,10 +434,63 @@ static void error_box(const char *msg)
 {
 #ifdef _WIN32
     if (!M.headless)
-        MessageBoxA(NULL, msg, "Twisted Metal 2", MB_OK | MB_ICONERROR);
+        MessageBoxA(NULL, msg, "OpenTM2", MB_OK | MB_ICONERROR);
 #else
     (void)msg;
 #endif
+}
+
+/* The disc image before the game starts, with what is wrong in words a player can act on (0: it is the retail USA
+ * disc): not there, a .bin its .cue lists missing, not a disc image, or another disc (a prototype, another region,
+ * another game). The retail SCUS_943.06 is 737,280 bytes; the port is built from that executable and no other. */
+#define RETAIL_EXE_SIZE 737280u
+int cue_bin_fallback(const char *cue, char *out, size_t cap); /* runtime/cd.c */
+static int disc_problem(const char *disc, char *msg, size_t cap)
+{
+    FILE *f = fopen(disc, "rb");
+    if (!f) {
+        snprintf(msg, cap, "The disc image isn't there:\n%s\n\nThe setup opens next: choose your Twisted Metal 2 (USA) "
+                 ".cue file there.", disc);
+        return 1;
+    }
+    char line[1024];
+    const char *ext = strrchr(disc, '.');
+    int is_cue = ext && !SDL_strcasecmp(ext, ".cue");
+    while (is_cue && fgets(line, sizeof line, f)) { /* every .bin the .cue lists, beside it */
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        char *q1 = SDL_strncasecmp(p, "FILE", 4) ? NULL : strchr(p, '"'), *q2 = q1 ? strchr(q1 + 1, '"') : NULL;
+        if (!q1 || !q2) continue;
+        *q2 = 0;
+        const char *slash = strrchr(disc, '/'), *back = strrchr(disc, '\\');
+        if (back > slash) slash = back;
+        char path[1200], alt[1100];
+        snprintf(path, sizeof path, "%.*s%s", slash ? (int)(slash - disc + 1) : 0, disc, q1 + 1);
+        FILE *b = fopen(path, "rb");
+        if (b) { fclose(b); continue; }
+        if (cue_bin_fallback(disc, alt, sizeof alt)) continue;
+        fclose(f);
+        snprintf(msg, cap, "A file of the disc image is missing:\n%s\n\nExtract the .cue and all its .bin files into one "
+                 "folder, then choose the .cue again.", q1 + 1);
+        return 1;
+    }
+    fclose(f);
+    DiscFs *fs = discfs_open(disc);
+    if (!fs) {
+        snprintf(msg, cap, "This file can't be read as a PlayStation disc image:\n%s\n\nOpenTM2 needs the Twisted Metal 2 "
+                 "(USA) disc as a .cue with its .bin files.", disc);
+        return 1;
+    }
+    int i = discfs_find(fs, "/SCUS_943.06");
+    uint32_t size = i >= 0 ? discfs_size(fs, i) : 0;
+    discfs_close(fs);
+    if (size != RETAIL_EXE_SIZE) {
+        snprintf(msg, cap, "This isn't the retail Twisted Metal 2 (USA) disc (SCUS-94306):\n%s\n\nOpenTM2 only works with "
+                 "that version: a prototype, a demo, another region or another game won't run. The setup opens next: choose "
+                 "the USA disc's .cue there.", disc);
+        return 1;
+    }
+    return 0;
 }
 
 extern const unsigned rc_exe_image_size, rc_port_section_count; /* gen/exe_image.c */
@@ -672,6 +726,14 @@ int main(int argc, char **argv)
     M.pad_buttons[0] = M.pad_buttons[1] = 0xFFFF;
     M.pad_connected[0] = 1;
     for (int i = 0; i < 4; i++) M.rcnt_autoclear[i] = 1; /* BIOS default */
+    char msg_disc[1600];
+    if (disc_problem(disc, msg_disc, sizeof msg_disc)) { /* (what is wrong with it, in words a player can act on) */
+        fprintf(stderr, "%s\n", msg_disc);
+        error_box(msg_disc);
+        if (!M.headless && !settings_path && !setup_forced) setup_restart(); /* (play: the setup window, to choose
+                                                                               * another; not again from it: no loop) */
+        return 1;
+    }
     if (!cd_open(disc)) {
         char msg[1200];
         snprintf(msg, sizeof msg, "Cannot open the disc image\n%s", disc);
