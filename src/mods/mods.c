@@ -657,7 +657,7 @@ int mods_new(const char *kind, const char *id)
         if (!SDL_strcasecmp(kind, kind_names[i]) || !SDL_strcasecmp(kind, mod_kind_folders[i])) k = i;
     if (k < 0) { printf("--new-mod: the kind is character, skin, arena or tournament\n"); return 0; }
     if (!id[0] || strspn(id, "abcdefghijklmnopqrstuvwxyz0123456789-") != strlen(id)) {
-        printf("--new-mod: the id \"%s\": only lowercase letters, digits and '-' (as crimson-fox)\n", id);
+        printf("--new-mod: the id \"%s\": only lowercase letters, digits and '-' (as crimson-fury)\n", id);
         return 0;
     }
     const char *base = SDL_GetBasePath();
