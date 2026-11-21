@@ -9,7 +9,7 @@ The newest update is at the top.
 
 ## v1.0.0 (November 20, 2026)
 
-### General
+### General (V1.0.0)
 
 - **Fire missile:** 7 → 10 damage.
 - **Homing missile:** 10 → 7 damage.
@@ -23,31 +23,33 @@ The newest update is at the top.
 - **Antarctica:** the fire missile on the ice floes can now be picked up.
 - **Computer cars:** no longer jam against other cars and pile up; they back out and take another way.
 
-### Roadkill
+### Characters (V1.0.0)
+
+#### Roadkill
 
 - **Boomerang:** no longer vanishes next to him; it always gives its charge back when it returns.
 
-### Twister
+#### Twister
 
 - **Special recharge:** 18 → 30 seconds.
 - **Tornado:** no weapons while it spins, and she takes no ram damage during it.
 - **Tornado's throw:** the cars still caught are now thrown out when the tornado ends (it never happened before, a bug).
 
-### Axel
+#### Axel
 
 - **Rams:** 100% → 110% damage.
 - **Crush:** 15 → 0 damage. His rams no longer crush for free (essentially giving Axel unlimited free Hammerhead specials).
 
-### Mr. Slam
+#### Mr. Slam
 
 - **Arm swing:** Mr. Slam can't use additional weapons until the swing ends. His shield and machine guns still work.
 
-### Shadow
+#### Shadow
 
 - **Special:** no longer does extra damage on slanted surfaces (a bug).
 - **Special damage:** 25 → 28, to compensate.
 
-### Hammerhead
+#### Hammerhead
 
 - **Rams:** 100% → 120% damage.
 - **Crush:** 15 → 20 damage.
@@ -55,27 +57,27 @@ The newest update is at the top.
 - **Brakes:** 1 → 2.
 - **Grip speed:** 25 → 60.
 
-### Outlaw 2
+#### Outlaw 2
 
 - **Special recharge:** 55 → 45 seconds.
 - **Taser:** a shot that missed can still connect while it lasts (one hit of 10, instead of 2 totaling 20).
 
-### Mr. Grimm
+#### Mr. Grimm
 
 - **Special recharge:** 70 → 60 seconds.
 
-### Grasshopper
+#### Grasshopper
 
 - **Special damage:** 15 → 18.
 - **Special:** now pushes the car it hits.
 - **Leap:** she takes no ram damage while leaping, and lands cleaner.
 - **Energy jump:** 120 → 0 energy.
 
-### Thumper
+#### Thumper
 
 - **Special recharge:** 80 → 75 seconds.
 
-### Minion
+#### Minion
 
 - **Rams:** 100% → 110% damage.
 - **Crush:** 15 → 0 damage. His rams no longer crush for free (essentially giving Minion unlimited free Hammerhead specials).
