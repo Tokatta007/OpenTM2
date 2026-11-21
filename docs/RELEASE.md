@@ -33,7 +33,7 @@ answer before the game goes on), `TM2PC_UPDATE_AUTO` (download and swap at once)
 ## Making a release
 
 1. Raise `TM2PC_VERSION` in CMakeLists.txt (for example v0.9.0 to v0.9.1) and build `build/port`.
-2. `python tools/release/pack_release.py` writes `build/release/TM2PC-<version>-win64.zip`: `tm2pc.exe` and `fonts/`
+2. `python tools/release/pack_release.py` writes `build/release/OpenTM2-<version>-win64.zip`: `tm2pc.exe` and `fonts/`
    in a folder named for the version.
 3. On GitHub, a new release with the tag exactly the version (`v0.9.1`) and the zip attached.
 
