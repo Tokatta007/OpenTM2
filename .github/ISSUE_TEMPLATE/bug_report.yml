@@ -64,7 +64,7 @@ body:
     id: log
     attributes:
       label: tm2pc.log
-      description: Drag tm2pc.log from your OpenTM2 folder into this box. It's rewritten every time the game starts, so copy it right after the problem happens.
+      description: "Drag tm2pc.log from your OpenTM2 folder into this box. If the game crashed and you've started it again since, send tm2pc-prev.log instead (the run before)."
     validations:
       required: true
   - type: textarea
