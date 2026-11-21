@@ -1,4 +1,4 @@
-/* Disc image access: a .cue with one .bin per track (raw 2352-byte sectors),
+/* Disc image access: a .cue with one .bin per track (raw 2352-byte sectors) or one .bin for the whole disc,
  * or a single track-1 .bin. Data reads come from track 1 (Mode 2 Form 1,
  * 2048 user bytes at offset 24); the track table serves CdGetToc and CD
  * audio. ISO 9660 lookup for CdSearchFile. */
@@ -38,37 +38,62 @@ int cd_open(const char *image)
     if (ext && (!strcmp(ext, ".cue") || !strcmp(ext, ".CUE"))) {
         FILE *f = fopen(image, "r");
         if (!f) return 0;
-        char dir[512], line[1024];
+        char dir[512], line[1024], path[512] = "";
         dir_of(image, dir, sizeof dir);
-        uint32_t lba = 0;
+        /* Each FILE holds one track (a .bin per track, as Redump's) or several (one .bin for the whole disc): a
+         * track's INDEX lines are offsets into its file. A file's first track starts at the file's start (its pregap
+         * in the file); a later one at its INDEX 00 (else 01); each runs to the next track of its file or the file's end. */
+        uint32_t lba = 0, file_lba = 0, file_sectors = 0;
+        int first_in_file = 0, have_file = 0;
+        static int32_t idx0[100], idx1[100];
+        static uint8_t first[100];
+        static uint32_t file_end[100];
         while (fgets(line, sizeof line, f)) {
             char *p = line;
             while (isspace((unsigned char)*p)) p++;
+            int n, m, s, fr;
             if (!strncmp(p, "FILE", 4)) {
                 char *q1 = strchr(p, '"'), *q2 = q1 ? strchr(q1 + 1, '"') : 0;
-                if (!q1 || !q2 || cd_track_count >= 99) continue;
+                if (!q1 || !q2) continue;
                 *q2 = 0;
-                Track *t = &cd_tracks[cd_track_count++];
-                snprintf(t->path, sizeof t->path, "%s%s", dir, q1 + 1);
-                long size = file_size(t->path);
-                t->start = t->file_start = lba;
-                t->sectors = size > 0 ? (uint32_t)(size / RAW) : 0;
-                t->audio = 0;
-                lba += t->sectors;
-            } else if (!strncmp(p, "TRACK", 5) && cd_track_count) {
-                cd_tracks[cd_track_count - 1].audio = strstr(p, "AUDIO") != 0;
-            } else if (!strncmp(p, "INDEX 01", 8) && cd_track_count) {
-                int m, s, fr;
-                if (sscanf(p + 8, "%d:%d:%d", &m, &s, &fr) == 3)
-                    cd_tracks[cd_track_count - 1].start += (uint32_t)((m * 60 + s) * 75 + fr);
+                snprintf(path, sizeof path, "%s%s", dir, q1 + 1);
+                long size = file_size(path);
+                file_lba = lba;
+                file_sectors = size > 0 ? (uint32_t)(size / RAW) : 0;
+                lba += file_sectors;
+                first_in_file = have_file = 1;
+            } else if (!strncmp(p, "TRACK", 5) && have_file && cd_track_count < 99) {
+                int i = cd_track_count++;
+                Track *t = &cd_tracks[i];
+                snprintf(t->path, sizeof t->path, "%s", path);
+                t->file_lba = file_lba;
+                t->audio = strstr(p, "AUDIO") != 0;
+                idx0[i] = -1;
+                idx1[i] = 0;
+                first[i] = (uint8_t)first_in_file;
+                file_end[i] = file_lba + file_sectors;
+                first_in_file = 0;
+            } else if (!strncmp(p, "INDEX", 5) && cd_track_count && sscanf(p + 5, "%d %d:%d:%d", &n, &m, &s, &fr) == 4) {
+                int32_t at = (m * 60 + s) * 75 + fr;
+                if (n == 0) idx0[cd_track_count - 1] = at;
+                else if (n == 1) idx1[cd_track_count - 1] = at;
             }
         }
         fclose(f);
+        for (int i = 0; i < cd_track_count; i++) {
+            Track *t = &cd_tracks[i];
+            t->file_start = first[i] ? t->file_lba : t->file_lba + (uint32_t)(idx0[i] >= 0 ? idx0[i] : idx1[i]);
+            t->start = t->file_lba + (uint32_t)idx1[i];
+        }
+        for (int i = 0; i < cd_track_count; i++) {
+            uint32_t end = i + 1 < cd_track_count && !first[i + 1] ? cd_tracks[i + 1].file_start : file_end[i];
+            cd_tracks[i].sectors = end > cd_tracks[i].file_start ? end - cd_tracks[i].file_start : 0;
+        }
     } else {
         Track *t = &cd_tracks[cd_track_count++];
         snprintf(t->path, sizeof t->path, "%s", image);
         long size = file_size(image);
-        t->start = t->file_start = 0;
+        t->start = t->file_start = t->file_lba = 0;
         t->sectors = size > 0 ? (uint32_t)(size / RAW) : 0;
     }
     if (!cd_track_count) return 0;
@@ -91,7 +116,9 @@ int cd_read_raw(uint32_t lba, uint8_t *dst)
         if (lba >= t->start && lba < t->start + t->sectors) {
             FILE *f = fopen(t->path, "rb");
             if (!f) return 0;
-            fseek(f, (long)(lba - t->start) * RAW, SEEK_SET);
+            /* (a track of a whole-disc .bin: from the file's start; a .bin per track: as before, from INDEX 01) */
+            uint32_t base = t->file_lba != t->file_start ? t->file_lba : t->start;
+            fseek(f, (long)(lba - base) * RAW, SEEK_SET);
             int ok = fread(dst, 1, RAW, f) == RAW;
             fclose(f);
             return ok;

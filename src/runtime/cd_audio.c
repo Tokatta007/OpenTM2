@@ -114,7 +114,7 @@ static void play_disc(int t, uint32_t lba)
         if (cda.file) fclose(cda.file);
         cda.file = fopen(cd_tracks[t].path, "rb");
         cda.track = t;
-        cda.file_start = cd_tracks[t].file_start;
+        cda.file_start = cd_tracks[t].file_lba; /* (where the .bin starts: a whole-disc .bin holds every track) */
     }
     cda.start = cda.pos = lba;
     cda.end = cd_tracks[t].file_start + cd_tracks[t].sectors;
