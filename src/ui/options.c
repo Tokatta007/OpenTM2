@@ -7677,7 +7677,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
     }
 
     char title[64];
-    snprintf(title, sizeof title, "%s", naming.active ? (naming.game_type == 4 ? "SAY" : naming.game_type == 5 ? "SERVER NAME" : naming.game_type == 6 ? "SERVER ADDRESS" : naming.game_type ? "GAME TYPE NAME" : naming.renaming ? "RENAME" : "NEW PROFILE")
+    snprintf(title, sizeof title, "%s", naming.active ? (naming.game_type == 4 ? "SAY" : naming.game_type == 5 ? "SERVER NAME" : naming.game_type == 6 ? "SERVER ADDRESS" : naming.game_type == 7 ? "FRIEND'S PLAYER ID" : naming.game_type == 8 ? "MASTER SERVERS" : naming.game_type ? "GAME TYPE NAME" : naming.renaming ? "RENAME" : "NEW PROFILE")
                                         : page == PAGE_BATTLE_EDIT ? edit_gt.name
                                         : pgrid.active ? "PORTRAIT"
                                         : page == PAGE_PROFILE ? profile_name()
@@ -8800,7 +8800,9 @@ static int run(PageId start)
                     build(page);
                     sel = row_count - 1;
                     scroll = 0;
-                } else if (r->act >= ACT_NET_MODE && r->act <= ACT_NET_BACK) { /* Network Play's menus */
+                } else if ((r->act >= ACT_NET_MODE && r->act <= ACT_NET_BACK) ||
+                           (r->act >= ACT_FRIEND_ADD && r->act <= ACT_NET_MODS_GET)) { /* Network Play's menus (and Friends,
+                    * Online Services and a server's mods, listed after ACT_UPDATE / ACT_SETUP: they never got here before) */
                     if (r->act == ACT_NET_GAME) net_game_from = (int)page; /* (the game's pages: back to here at the end) */
                     int to = net_action(r->act, r->arg);
                     if (to >= 0) { /* a page opened (its way back: this one, or the one given) */
