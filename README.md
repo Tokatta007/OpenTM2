@@ -29,7 +29,7 @@ OpenTM2 includes no game files. You need your own copy of Twisted Metal 2 for th
 2. Start `tm2pc.exe`. The first time, a setup window asks for your game discs:
    - **The PlayStation disc (USA), needed:** a disc image as a `.cue` file with its `.bin` file(s). Extract the `.cue`
      and all its `.bin` files into one folder, then choose the `.cue`.
-   - **The 1997 PC version, optional:** its `.iso` or installed folder. With it, the menus and arena textures are
+   - **The 1997 PC version, optional, but highly recommended:** its `.iso` or installed folder. With it, the menus and arena textures are
      sharper.
 3. OpenTM2 makes its menu pictures from your discs (nothing made from them leaves your PC) and starts the game.
 
