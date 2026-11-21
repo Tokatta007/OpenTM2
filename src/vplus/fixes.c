@@ -2083,8 +2083,44 @@ static unsigned long long win_at, vs_at; /* (the tests' hooks below: kept with t
 static unsigned freeze_fired, fired;
 int vp_versus_on(void);
 int vp_versus_points(int h);
+int vp_human_handover(int h);
+void vp_human_back(int h);
+static void test_handover(void) /* tests: TM2PC_TEST_HANDOVER="H@V": from VBlank V, once human H (1-based) has the spawn
+                                 * shield on, a computer driver takes the car (as a player leaving online), 120 VBlanks
+                                 * later H takes it back; each 60 VBlanks after, both records' shield flags */
+{
+    static int h = -2, step, j;
+    static unsigned long long at, next;
+    if (h == -2) {
+        const char *e = getenv("TM2PC_TEST_HANDOVER");
+        unsigned long long v = 0;
+        h = e && sscanf(e, "%d@%llu", &h, &v) == 2 ? h - 1 : -1;
+        at = v;
+    }
+    if (h < 0 || vp_gv() < at) return;
+    if (step == 0 && mem_r8(&M.cpu, HUMAN_REC(h) + 0xAA)) {
+        j = vp_human_handover(h) ? handed[h] - 1 : -1;
+        fprintf(stderr, "test: handover of player %d (shield on) to computer record %d\n", h + 1, j);
+        step = j >= 0 ? 1 : 9;
+        at = vp_gv() + 120;
+    } else if (step == 1) {
+        vp_human_back(h);
+        fprintf(stderr, "test: player %d back\n", h + 1);
+        step = 2;
+        next = vp_gv();
+        at = vp_gv() + 900;
+    } else if (step == 2) {
+        if (vp_gv() >= next) {
+            fprintf(stderr, "test: +%llu shield: player %d %d, computer record %d %d\n", vp_gv() + 900 - at, h + 1,
+                    mem_r8(&M.cpu, HUMAN_REC(h) + 0xAA), j, mem_r8(&M.cpu, AI_REC(j) + 0x7A));
+            next = vp_gv() + 60;
+        }
+        if (vp_gv() >= at) step = 9;
+    }
+}
 static void test_kills(void) /* tests: TM2PC_TEST_KILL="1@2400,2@3000" destroys player P at VBlank V */
 {
+    test_handover();
     static int flashed;
     if (!flashed && getenv("TM2PC_TEST_FLASH") && vp_gv() >= (getenv("TM2PC_TEST_FLASH_AT") ? strtoull(getenv("TM2PC_TEST_FLASH_AT"), 0, 10) : 2000)) { /* tests: a port message at VBlank 2000 */
         flashed = 1;
@@ -2357,14 +2393,14 @@ void vp_lives_frame(void)
     vp_duo_frame();
     spectate_frame();
     vp_ai_frame();
-    if (!lives_round) return;
-    for (int i = 0; i < CARS_HUMANS_MAX; i++) {
-        if (life[i].at && vp_gv() >= life[i].at) { life[i].at = 0; respawn_human(i); }
+    for (int i = 0; i < CARS_HUMANS_MAX; i++) /* (a shield's end: also with no respawns, a car back from a computer driver) */
         if (life[i].shield_off && vp_gv() >= life[i].shield_off) {
             life[i].shield_off = 0;
             mem_w8(&M.cpu, HUMAN_REC(i) + 0xAA, 0);
         }
-    }
+    if (!lives_round) return;
+    for (int i = 0; i < CARS_HUMANS_MAX; i++)
+        if (life[i].at && vp_gv() >= life[i].at) { life[i].at = 0; respawn_human(i); }
 }
 
 /* ---- computer cars: lives, and whom they hunt ----
@@ -5845,6 +5881,16 @@ static int duo_player_out(int i)
 }
 /* online (net/game_tm2.c): human h's machine left the match; at the same step on every machine, its car out for good:
  * destroyed (no one's kill) and no life left, as a player out of lives */
+/* The spawn shield (state.energy_shield: human +0xAA, AI +0x07A) goes with the car when its driver changes (the state
+ * block is copied, portHandOverCopy), so its end goes too: the time left on the old driver's timer, or (a shield
+ * bubble's, ended by the game for the old record) a spawn shield's from now. Without it the shield never ended: the
+ * car was invincible for good (a player leaving and rejoining online, Discord 2026-11-21). */
+static uint64_t shield_end_moved(uint64_t old_end)
+{
+    int shield = battle_rules() && !ui_survival() ? battle_rules()->spawn_shield : 2;
+    return old_end ? old_end : vp_gv() + 60u * (uint64_t)(shield > 0 ? shield : 2);
+}
+
 void vp_human_left(int h)
 {
     int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
@@ -5892,7 +5938,9 @@ int vp_human_handover(int h)
     handed[h] = j + 1;
     ai_team_plus1[j] = teams_on() ? team + 1 : 0;
     ai_life[j].left = gone_left[h];
-    ai_life[j].at = ai_life[j].shield_off = 0;
+    ai_life[j].at = 0;
+    ai_life[j].shield_off = mem_r8(&M.cpu, AI_REC(j) + 0x07A) ? shield_end_moved(life[h].shield_off) : 0; /* (a shield on) */
+    life[h].shield_off = 0;
     mem_w32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)j, (uint32_t)-1); /* (its target: the game's nearest player) */
     fprintf(stderr, "lives: player %d's car is a computer car now (record %d)\n", h + 1, j);
     return 1;
@@ -6007,6 +6055,7 @@ void vp_human_back(int h)
         handed[h] = 0;
         ai_team_plus1[j] = 0;
         ai_life[j].left = 0;
+        uint64_t shield_end = ai_life[j].shield_off;
         ai_life[j].at = ai_life[j].shield_off = 0;
         if (r < 0) { /* (destroyed for good, or another hand-over since: the computer records leave in reverse order;
                       * the player watches) */
@@ -6020,6 +6069,7 @@ void vp_human_back(int h)
         surv_down[h] = 0;
         life[h].left = left;
         life[h].at = 0;
+        life[h].shield_off = mem_r8(&M.cpu, HUMAN_REC(h) + 0xAA) ? shield_end_moved(shield_end) : 0; /* (a shield on) */
         lives_hud_put(h);
         fprintf(stderr, "lives: player %d drives their car again (from computer record %d)\n", h + 1, j);
         return;
