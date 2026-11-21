@@ -116,7 +116,7 @@ All of these come from the runtime (BIOS `rand`, the root counter, VSync),
 so the PC build controls every source by construction. For online play:
 - `srand` gets the lobby's seed;
 - `GetCurTics` reads from the fixed game tick, so the car update and camera see the same time on every machine;
-- `rand` callers are split into game-state and visual-only streams (the list requested in `DECOMP_REQUESTS.md`).
+- `rand` callers are split into game-state and visual-only streams (a list requested from the decomp).
 
 ## Requirements for the recompiler
 

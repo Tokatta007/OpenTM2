@@ -74,7 +74,7 @@ of the data around them, and those are split around them.
   the animations draw `rand()` (`animStepWeightedRandom` 80151CB8), and the game's random sequence
   drifts from there. The port cannot move the table itself in the variant (as it does in retail):
   16 of the 27 instructions that address it are in functions the variant rewrote (`viewCreate`,
-  `viewProc`, two accessors). The fix is in the decomp (`docs/DECOMP_REQUESTS.md`, section 4).
+  `viewProc`, two accessors). The fix is in the decomp (a request to the decomp).
 - Still to do after it: the split-screen mirrors (row 13), and the port's own 4-player rebasing
   (`four.c`) reconciled with the variant's native arrays.
 
@@ -193,7 +193,7 @@ game function it extends, under `TM2_PORT_HOOKS`, with `portConfig` carrying wha
 
 Each step is checked with `compare_builds.py --only four` (and a 3-player run): the overlay build
 against the play build, equal frame for frame and in the screenshot. The shared code (helpers used by
-several functions) needs the decomp's `.port_text` (DECOMP_REQUESTS.md section 5); until then, macros.
+several functions) needs the decomp's `.port_text` (a request to the decomp); until then, macros.
 Rough effort: 2-4 days.
 
 ## Next

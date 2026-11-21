@@ -10,7 +10,7 @@ extern const unsigned rc_addrmap_count, rc_view_mode_rows; /* (gen/exe_image.c: 
 uint32_t ga(uint32_t retail);
 #define RB_AT(moved, retail) (rc_addrmap_count ? ga(retail) : (moved))
 /* the view-mode table's rows the port may use: 16 moved; the decomp's port variant keeps retail's 9 (for
- * now: decomp request, docs/DECOMP_REQUESTS.md): no quarter views (four.c) or split-screen mirrors there */
+ * now: a request to the decomp): no quarter views (four.c) or split-screen mirrors there */
 #define RB_VIEW_ROWS (rc_addrmap_count ? rc_view_mode_rows : 16)
 
 #define RB_humanCars RB_AT(0x80DE0000u, 0x80187B10u)

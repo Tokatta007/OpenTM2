@@ -1,7 +1,7 @@
 # Render plan: widescreen, draw distance, 60 fps, no wobble
 
 Research notes (2026-10-07) for four in-battle features. Sources: the decomp's `docs/WIDESCREEN.md`,
-`DRAW_DISTANCE.md` and `MAIN_LOOP.md` (these already answer most of `DECOMP_REQUESTS.md` section 2), its
+`DRAW_DISTANCE.md` and `MAIN_LOOP.md` (these already answer most of what the port asked), its
 C in `src/semantic`, and the port's `src/runtime`, `src/ui/options.c`, `tools/recomp/recompile.py` and
 PSY-Z (`third_party/psyz`, patches in `third_party/patches`). Nothing here was run.
 
@@ -509,7 +509,7 @@ step (t = 1/3, 2/3, 1).
 Widescreen before no wobble: anamorphic squeezing makes integer rounding slightly more visible, and no
 wobble fixes that. No wobble before 60 fps: the redraws at 60 Hz show vertex snapping more clearly.
 
-## 7. Decomp requests (drafts, to add to DECOMP_REQUESTS.md)
+## 7. Decomp requests (drafts)
 
 **R1. Near-polygon pass (no wobble).**
 - `renderNearPolys` 80154690 and its helpers 80154E30, 80154E84, 80155088 (asm): how are the subdivided

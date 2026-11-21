@@ -297,7 +297,7 @@ void vp_SettingsSetHumanCar(CPU *c)
  * or load, and between levels. The lives (settings +20, the only counter;
  * the runner takes one for any human's death) are set there: 3 (2 more after
  * the first; the HUD shows the 2 to come), co-op too (one pool for now; each
- * player's own when the decomp shows how, DECOMP_REQUESTS.md 10); 3 players 2, 4 players 1 (kept, the user's
+ * player's own when the decomp shows how, a request to the decomp); 3 players 2, 4 players 1 (kept, the user's
  * 2026-10-27, though players 3-4 no longer bring computer cars more: vplus/four.c). */
 #define LIVES_PER_LEVEL 3
 void F_801334C0_orig(CPU *c);
