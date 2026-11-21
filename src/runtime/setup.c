@@ -120,12 +120,14 @@ static int is_image(const char *p)
            ends_with(p, ".mds") || ends_with(p, ".img") || ends_with(p, ".ccd");
 }
 
-/* what a disc image or folder holds: 1 the PlayStation disc (SCUS_943.06), 2 another readable one (the PC version), 0 none */
+/* what a disc image or folder holds: 1 the retail PlayStation disc (SCUS_943.06 of 737,280 bytes: the executable the
+ * port is built from), 3 another SCUS_943.06 (a prototype, a demo), 2 another readable one (the PC version), 0 none */
 static int disc_kind(const char *path)
 {
     DiscFs *fs = discfs_open(path);
     if (!fs) return 0;
-    int kind = discfs_find(fs, "/SCUS_943.06") >= 0 ? 1 : 2;
+    int i = discfs_find(fs, "/SCUS_943.06");
+    int kind = i < 0 ? 2 : discfs_size(fs, i) == 737280u ? 1 : 3;
     discfs_close(fs);
     return kind;
 }
@@ -136,6 +138,7 @@ static void dropped(const char *path)
     int kind = is_image(path) || is_dir(path) ? disc_kind(path) : 0;
     if (kind == 1) take_ps1(path); /* (by what is on it: a .cue or .bin can be either disc) */
     else if (kind == 2) snprintf(pc, sizeof pc, "%s", path);
+    else if (kind == 3) snprintf(message, sizeof message, "That's not the retail USA disc (SCUS-94306): a prototype or demo won't run.");
     else if (is_archive(path)) snprintf(message, sizeof message, "Extract the archive first, then drop the .cue file from it.");
     else if (is_image(path) || is_dir(path)) snprintf(message, sizeof message, "That disc image or folder can't be read.");
     else snprintf(message, sizeof message, "Drop the PlayStation disc's .cue file, or the PC version's disc image or folder.");
@@ -340,9 +343,12 @@ int setup_pregame(const char *base, int forced, char *disc, size_t cap)
             else if (*ps1 && is_archive(ps1)) snprintf(message, sizeof message, "Extract the archive first, then choose the .cue file from it.");
             else if (*ps1 && ends_with(ps1, ".bin")) snprintf(message, sizeof message, "That .bin has no .cue beside it: extract the .cue too, then choose the .cue.");
             else if (!ok_ps1) snprintf(message, sizeof message, "Choose the PlayStation disc's .cue file (its .bin files beside it).");
+            else if (disc_kind(ps1) != 1) /* (a prototype, a demo, another disc: the port is built from the retail one) */
+                snprintf(message, sizeof message, disc_kind(ps1) == 3 ? "That's not the retail USA disc (SCUS-94306): a prototype or demo won't run."
+                                                                     : "That's not the Twisted Metal 2 (USA) PlayStation disc.");
             else if (!ok_pc) snprintf(message, sizeof message, "The PC version's disc image or folder cannot be found.");
             else if (*pc && disc_kind(pc) != 2) /* (unreadable, or the PlayStation disc chosen twice) */
-                snprintf(message, sizeof message, disc_kind(pc) == 1 ? "That's the PlayStation disc: choose the PC version's disc image or folder."
+                snprintf(message, sizeof message, disc_kind(pc) == 1 || disc_kind(pc) == 3 ? "That's the PlayStation disc: choose the PC version's disc image or folder."
                                                                      : "The PC version's disc image or folder can't be read.");
             else if (*pc || automatic || confirm_ps1_only(win)) {
                 message[0] = 0;
@@ -416,6 +422,9 @@ int setup_prepare(const char *base, const char *ps1_in, const char *pc_in)
         printf("Choose the PlayStation disc's .cue file (its .bin files beside it).\n");
     else if (cue_missing(ps1, gone, sizeof gone))
         printf("%.120s is missing: extract it beside the .cue.\n", gone);
+    else if (disc_kind(ps1) != 1)
+        printf("%s\n", disc_kind(ps1) == 3 ? "That's not the retail USA disc (SCUS-94306): a prototype or demo won't run."
+                                           : "That's not the Twisted Metal 2 (USA) PlayStation disc.");
     else if (pc_path && !is_dir(pc_path) && !is_file(pc_path))
         printf("The PC version's disc image or folder cannot be found.\n");
     else if (pc_path && disc_kind(pc_path) != 2)
