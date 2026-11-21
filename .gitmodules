@@ -1,0 +1,9 @@
+[submodule "references/TM2-Decomp"]
+	path = references/TM2-Decomp
+	url = https://github.com/Tokatta007/TM2-Decomp.git
+[submodule "third_party/psyz"]
+	path = third_party/psyz
+	url = https://github.com/Xeeynamo/psyz.git
+[submodule "third_party/opus"]
+	path = third_party/opus
+	url = https://github.com/xiph/opus.git

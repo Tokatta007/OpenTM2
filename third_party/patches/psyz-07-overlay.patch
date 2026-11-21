@@ -1,0 +1,237 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -256,6 +256,22 @@ void Psyz_VideoSetDisplayRGB24(const unsigned char* rgb, int w, int h);
+  */
+ void Psyz_VideoSetDisplayRGB24Fill(int on);
+ 
++/**
++ * @brief Copy rectangles of an RGB picture over each presented frame
++ *
++ * For drawing over the game's own picture at the window's resolution
++ * without blending: the picture (made at the window's size, see
++ * Psyz_VideoGetDisplaySize) is copied, rectangle by rectangle, to the same
++ * place in the window. Opaque only.
++ *
++ * @param rgb RGB888 pixels (copied), or NULL for no overlay
++ * @param w Width in pixels
++ * @param h Height in pixels
++ * @param rects n rectangles, 4 ints each: x, y, width, height
++ * @param n How many (at most 64)
++ */
++void Psyz_VideoSetOverlay(const unsigned char* rgb, int w, int h, const int* rects, int n);
++
+ /**
+  * @brief Dump the whole video memory plane as RGB888
+  *
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -733,6 +733,15 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+     return pixels;
+ }
+ 
++void Psyz_VideoSetOverlay(const unsigned char* rgb, int w, int h, const int* rects, int n) {
++    // not supported by this renderer
++    (void)rgb;
++    (void)w;
++    (void)h;
++    (void)rects;
++    (void)n;
++}
++
+ void Psyz_VideoSetDisplayRGB24Fill(int on) {
+     // not supported by this renderer
+     (void)on;
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -782,6 +782,127 @@ static SDL_GPUTexture* UploadRgb24(SDL_GPUCommandBuffer* cmd) {
+     return rgb24_tex;
+ }
+ 
++// overlay: rectangles of an RGB picture copied over the presented frame
++#define OVERLAY_RECTS 64
++static u8* ov_pixels; // RGBA8888
++static int ov_w, ov_h, ov_dirty, ov_n;
++static int ov_rects[OVERLAY_RECTS][4];
++static SDL_GPUTexture* ov_tex;
++static SDL_GPUTransferBuffer* ov_xfer;
++static int ov_tex_w, ov_tex_h;
++static SDL_Rect ov_game;      // where the game was last shown in the window
++static int ov_sc_w, ov_sc_h; // the window's size then
++
++// Draws the overlay's rectangles into a captured frame of the game (w x h,
++// the game's picture), so screenshots show what the window does.
++static void CaptureOverlay(unsigned char* rgb, int w, int h) {
++    if (!ov_n || !ov_pixels || ov_game.w <= 0 || ov_game.h <= 0 || ov_sc_w <= 0) {
++        return;
++    }
++    const float wx = (float)ov_sc_w / ov_w, wy = (float)ov_sc_h / ov_h;
++    for (int y = 0; y < h; y++) {
++        // the capture's row in window, then overlay, coordinates
++        const float win_y = ov_game.y + (y + 0.5f) * ov_game.h / h;
++        const int oy = (int)(win_y / wy);
++        for (int x = 0; x < w; x++) {
++            const float win_x = ov_game.x + (x + 0.5f) * ov_game.w / w;
++            const int ox = (int)(win_x / wx);
++            for (int i = 0; i < ov_n; i++) {
++                const int* r = ov_rects[i];
++                if (ox >= r[0] && ox < r[0] + r[2] && oy >= r[1] && oy < r[1] + r[3] && ox < ov_w && oy < ov_h) {
++                    const u8* p = ov_pixels + ((size_t)oy * ov_w + ox) * 4;
++                    rgb[((size_t)y * w + x) * 3 + 0] = p[0];
++                    rgb[((size_t)y * w + x) * 3 + 1] = p[1];
++                    rgb[((size_t)y * w + x) * 3 + 2] = p[2];
++                    break;
++                }
++            }
++        }
++    }
++}
++
++void Psyz_VideoSetOverlay(const unsigned char* rgb, int w, int h, const int* rects, int n) {
++    if (!rgb || w <= 0 || h <= 0 || n <= 0) {
++        ov_n = 0;
++        return;
++    }
++    if (w != ov_w || h != ov_h) {
++        free(ov_pixels);
++        ov_pixels = malloc((size_t)w * h * 4);
++        if (!ov_pixels) {
++            ov_w = ov_h = ov_n = 0;
++            return;
++        }
++    }
++    ov_w = w;
++    ov_h = h;
++    for (size_t i = 0; i < (size_t)w * h; i++) {
++        ov_pixels[i * 4 + 0] = rgb[i * 3 + 0];
++        ov_pixels[i * 4 + 1] = rgb[i * 3 + 1];
++        ov_pixels[i * 4 + 2] = rgb[i * 3 + 2];
++        ov_pixels[i * 4 + 3] = 255;
++    }
++    ov_n = n > OVERLAY_RECTS ? OVERLAY_RECTS : n;
++    memcpy(ov_rects, rects, (size_t)ov_n * 4 * sizeof(int));
++    ov_dirty = 1;
++}
++
++static SDL_GPUTexture* UploadOverlay(SDL_GPUCommandBuffer* cmd) {
++    if (!ov_n) {
++        return NULL;
++    }
++    if (!ov_tex || ov_tex_w != ov_w || ov_tex_h != ov_h) {
++        if (ov_tex) {
++            SDL_ReleaseGPUTexture(device, ov_tex);
++        }
++        if (ov_xfer) {
++            SDL_ReleaseGPUTransferBuffer(device, ov_xfer);
++        }
++        const SDL_GPUTextureCreateInfo tex_info = {
++            .type = SDL_GPU_TEXTURETYPE_2D,
++            .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
++            .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
++            .width = (Uint32)ov_w,
++            .height = (Uint32)ov_h,
++            .layer_count_or_depth = 1,
++            .num_levels = 1,
++        };
++        const SDL_GPUTransferBufferCreateInfo xfer_info = {
++            .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
++            .size = (Uint32)(ov_w * ov_h * 4),
++        };
++        ov_tex = SDL_CreateGPUTexture(device, &tex_info);
++        ov_xfer = SDL_CreateGPUTransferBuffer(device, &xfer_info);
++        if (!ov_tex || !ov_xfer) {
++            ERRORF("overlay texture: %s", SDL_GetError());
++            ov_n = 0;
++            return NULL;
++        }
++        ov_tex_w = ov_w;
++        ov_tex_h = ov_h;
++        ov_dirty = 1;
++    }
++    if (ov_dirty) {
++        u8* map = SDL_MapGPUTransferBuffer(device, ov_xfer, true);
++        if (!map) {
++            return NULL;
++        }
++        memcpy(map, ov_pixels, (size_t)ov_w * ov_h * 4);
++        SDL_UnmapGPUTransferBuffer(device, ov_xfer);
++        SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
++        const SDL_GPUTextureTransferInfo src = {
++            .transfer_buffer = ov_xfer,
++            .pixels_per_row = (Uint32)ov_w,
++            .rows_per_layer = (Uint32)ov_h,
++        };
++        const SDL_GPUTextureRegion dst = {.texture = ov_tex, .w = (Uint32)ov_w, .h = (Uint32)ov_h, .d = 1};
++        SDL_UploadToGPUTexture(copy, &src, &dst, true);
++        SDL_EndGPUCopyPass(copy);
++        ov_dirty = 0;
++    }
++    return ov_tex;
++}
++
+ static void PlatformBackend_Present(void) {
+     if (!sdl3_window && !InitPlatform()) {
+         return;
+@@ -798,6 +919,7 @@ static void PlatformBackend_Present(void) {
+         return;
+     }
+     SDL_GPUTexture* display24 = UploadRgb24(cmd);
++    SDL_GPUTexture* overlay = UploadOverlay(cmd);
+     if (swapchain_ok) {
+         SDL_GPUTexture* swapchain = NULL;
+         Uint32 sc_w = 0, sc_h = 0;
+@@ -866,6 +988,34 @@ static void PlatformBackend_Present(void) {
+                                                             : SDL_GPU_FILTER_NEAREST,
+                 };
+                 SDL_BlitGPUTexture(cmd, &blit);
++                // the overlay's rectangles, at their places (scaled if the
++                // window changed size since the picture was made)
++                for (int i = 0; overlay && i < ov_n; i++) {
++                    const int* r = ov_rects[i];
++                    if (r[2] <= 0 || r[3] <= 0 || r[0] < 0 || r[1] < 0 || r[0] + r[2] > ov_w ||
++                        r[1] + r[3] > ov_h) {
++                        continue;
++                    }
++                    const float sx = (float)sc_w / ov_w, sy = (float)sc_h / ov_h;
++                    const SDL_GPUBlitInfo ob = {
++                        .source = {.texture = overlay,
++                                   .x = (Uint32)r[0],
++                                   .y = (Uint32)r[1],
++                                   .w = (Uint32)r[2],
++                                   .h = (Uint32)r[3]},
++                        .destination = {.texture = swapchain,
++                                        .x = (Uint32)(r[0] * sx),
++                                        .y = (Uint32)(r[1] * sy),
++                                        .w = (Uint32)(r[2] * sx + 0.5f),
++                                        .h = (Uint32)(r[3] * sy + 0.5f)},
++                        .load_op = SDL_GPU_LOADOP_LOAD,
++                        .filter = SDL_GPU_FILTER_LINEAR,
++                    };
++                    SDL_BlitGPUTexture(cmd, &ob);
++                }
++                ov_game = dst;
++                ov_sc_w = (int)sc_w;
++                ov_sc_h = (int)sc_h;
+             }
+             if (overlay_frame_cb) {
+                 overlay_frame_cb();
+@@ -1094,11 +1244,16 @@ unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h) {
+         }
+         *w = (int)sw;
+         *h = (int)sh;
++        CaptureOverlay(rgb, *w, *h);
+         return rgb;
+     }
+     *w = display_size.x;
+     *h = display_size.y;
+-    return AllocRgb888Region(display_area.x, display_area.y, *w, *h);
++    unsigned char* region = AllocRgb888Region(display_area.x, display_area.y, *w, *h);
++    if (region) {
++        CaptureOverlay(region, *w, *h);
++    }
++    return region;
+ }
+ 
+ unsigned char* Psyz_VideoAllocVramDump(int* w, int* h) {

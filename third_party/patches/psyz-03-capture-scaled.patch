@@ -1,0 +1,57 @@
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -1041,6 +1041,53 @@
+         *h = rgb24_h;
+         return rgb;
+     }
++    if (internal_res > 1 && scaled_vram_render) {
++        // the frame as rendered: the display area of the scaled target
++        const Uint32 n = internal_res;
++        const Uint32 sw = (Uint32)display_size.x * n, sh = (Uint32)display_size.y * n;
++        const SDL_GPUTransferBufferCreateInfo info = {
++            .usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD,
++            .size = sw * sh * 4,
++        };
++        SDL_GPUTransferBuffer* xfer = SDL_CreateGPUTransferBuffer(device, &info);
++        SDL_GPUCommandBuffer* cmd = xfer ? AcquireCmd() : NULL;
++        unsigned char* rgb = malloc((size_t)sw * sh * 3);
++        if (!cmd || !rgb) {
++            if (xfer) SDL_ReleaseGPUTransferBuffer(device, xfer);
++            free(rgb);
++            return NULL;
++        }
++        SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
++        const SDL_GPUTextureRegion region = {
++            .texture = scaled_vram_render,
++            .x = (Uint32)display_area.x * n,
++            .y = (Uint32)display_area.y * n,
++            .w = sw,
++            .h = sh,
++            .d = 1,
++        };
++        const SDL_GPUTextureTransferInfo transfer = {.transfer_buffer = xfer};
++        SDL_DownloadFromGPUTexture(copy, &region, &transfer);
++        SDL_EndGPUCopyPass(copy);
++        SubmitCmdAndWait();
++        const u8* map = SDL_MapGPUTransferBuffer(device, xfer, false);
++        if (map) {
++            for (size_t i = 0; i < (size_t)sw * sh; i++) {
++                rgb[i * 3 + 0] = map[i * 4 + 0];
++                rgb[i * 3 + 1] = map[i * 4 + 1];
++                rgb[i * 3 + 2] = map[i * 4 + 2];
++            }
++            SDL_UnmapGPUTransferBuffer(device, xfer);
++        }
++        SDL_ReleaseGPUTransferBuffer(device, xfer);
++        if (!map) {
++            free(rgb);
++            return NULL;
++        }
++        *w = (int)sw;
++        *h = (int)sh;
++        return rgb;
++    }
+     *w = display_size.x;
+     *h = display_size.y;
+     return AllocRgb888Region(display_area.x, display_area.y, *w, *h);

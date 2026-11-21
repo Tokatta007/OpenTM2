@@ -1,0 +1,105 @@
+diff --git a/psyz/include/psyz/spu.h b/psyz/include/psyz/spu.h
+index ee46b49..b78ebc6 100644
+--- a/psyz/include/psyz/spu.h
++++ b/psyz/include/psyz/spu.h
+@@ -133,6 +133,30 @@ void Psyz_SpuMemRead(unsigned int offset, void* dst, unsigned int size);
+  */
+ void Psyz_SpuSetVoiceGain(int voice, int gain);
+ 
++/**
++ * @brief Play a voice's sample from a bank of the host's instead of SPU RAM
++ *
++ * For sounds the game never loaded (a host's own samples): from the voice's
++ * next key-on it decodes from `ram`, PSYZ_SPU_RAM_SIZE bytes of SPU ADPCM
++ * blocks laid out as SPU RAM (their loop flags as the hardware reads them),
++ * starting at byte `start` (a multiple of 16), and its pitch register is
++ * scaled by `pitch_scale` (4096 = unchanged; the result capped at 0x3FFF).
++ * `ram` NULL: SPU RAM again, unscaled. Call with the audio lock held, before
++ * the key-on is written. The bank must stay valid while the voice plays.
++ *
++ * @param voice 0..PSYZ_SPU_ALL_VOICES-1
++ */
++void Psyz_SpuSetVoiceBank(
++    int voice, const unsigned char* ram, unsigned int start, int pitch_scale);
++
++/**
++ * @brief Change the pitch scale of a voice playing from a host's bank
++ *
++ * As Psyz_SpuSetVoiceBank's `pitch_scale`, now, for the sound it plays
++ * (nothing for a voice playing from SPU RAM). With the audio lock held.
++ */
++void Psyz_SpuSetVoicePitchScale(int voice, int pitch_scale);
++
+ /**
+  * @brief Drop the CD audio already pulled but not yet played
+  *
+diff --git a/psyz/src/psyz/psyz_spu.c b/psyz/src/psyz/psyz_spu.c
+index 7df8d56..fbc989a 100644
+--- a/psyz/src/psyz/psyz_spu.c
++++ b/psyz/src/psyz/psyz_spu.c
+@@ -71,6 +71,31 @@ void Psyz_SpuSetVoiceGain(int voice, int gain) {
+ 
+ u8* Psyz_SpuGetRam(void) { return spu.ram; }
+ 
++// a host's bank per voice (Psyz_SpuSetVoiceBank): set for its next key-on,
++// in use from that key-on until the next one without a bank
++static struct {
++    const u8* ram;      // set: the next key-on's
++    unsigned start;
++    int pitch_scale;
++    const u8* playing;  // the bank the voice decodes from now, NULL SPU RAM
++    int playing_scale;
++} voice_bank[PSYZ_SPU_ALL_VOICES];
++
++void Psyz_SpuSetVoiceBank(
++    int voice, const unsigned char* ram, unsigned int start, int pitch_scale) {
++    if (voice < 0 || voice >= PSYZ_SPU_ALL_VOICES)
++        return;
++    voice_bank[voice].ram = ram;
++    voice_bank[voice].start = start & (PSYZ_SPU_RAM_SIZE - 16);
++    voice_bank[voice].pitch_scale = pitch_scale > 0 ? pitch_scale : 4096;
++}
++
++void Psyz_SpuSetVoicePitchScale(int voice, int pitch_scale) {
++    if (voice < 0 || voice >= PSYZ_SPU_ALL_VOICES || !voice_bank[voice].playing)
++        return;
++    voice_bank[voice].playing_scale = pitch_scale > 0 ? pitch_scale : 4096;
++}
++
+ void Psyz_SpuInit(void) {
+     if (spu.initialized)
+         return;
+@@ -86,6 +111,7 @@ static void spu_reset(void) {
+     }
+     memset(&spu, 0, sizeof(spu));
+     memset(&spu_ext, 0, sizeof(spu_ext));
++    memset(&voice_bank, 0, sizeof(voice_bank));
+ }
+ 
+ static void spu_reset_hot(void) {
+@@ -149,6 +175,10 @@ void Psyz_SpuMemWrite(unsigned int offset, const void* src, unsigned int size) {
+ 
+ static void spu_key_on_voice(int v) {
+     spu_voice_key_on(&spu.voice[v], voice_regs(v));
++    voice_bank[v].playing = voice_bank[v].ram;
++    voice_bank[v].playing_scale = voice_bank[v].ram ? voice_bank[v].pitch_scale : 4096;
++    if (voice_bank[v].ram) // the bank's sample, from its start
++        spu.voice[v].cur_addr = spu.voice[v].repeat_addr = voice_bank[v].start;
+     if (v < PSYZ_SPU_NUM_VOICES) // key-on clears the voice's ENDX bit
+         _spu_RXX->rxx.chan_on &= ~(1u << v);
+     else
+@@ -406,7 +436,13 @@ static void spu_tick(short* out) {
+         SPU_VOICE_REG* vr = voice_regs(v);
+         SPU_RXX* own = v < PSYZ_SPU_NUM_VOICES ? rxx : (SPU_RXX*)&spu_ext.rxx; // (its key, ENDX and reverb bits)
+         int bit = v < PSYZ_SPU_NUM_VOICES ? v : v - PSYZ_SPU_NUM_VOICES;
+-        short s = spu_voice_step(&spu.voice[v], vr->pitch, spu.ram);
++        unsigned pitch = vr->pitch;
++        if (voice_bank[v].playing && voice_bank[v].playing_scale != 4096) {
++            pitch = ((pitch & 0x3FFF) * (unsigned)voice_bank[v].playing_scale) >> 12;
++            pitch = pitch > 0x3FFF ? 0x3FFF : pitch;
++        }
++        short s = spu_voice_step(&spu.voice[v], pitch,
++                                 voice_bank[v].playing ? voice_bank[v].playing : spu.ram);
+         if (!spu.voice[v].active) {
+             // The sample ended on an "end + mute" block: the hardware sets
+             // ENDX and forces Release at level 0, so software polling the

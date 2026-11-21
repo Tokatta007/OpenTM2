@@ -1,0 +1,150 @@
+Arenas: a new map
+=================
+
+Status: the game loads and plays arena mods. An arena mod that is on (Options > Mods) is listed after the secret
+arenas in every arena list, and Random can pick it. Online, players joining a server download its mods first. The
+formats of the level files are still being written down.
+
+
+Files
+-----
+    mod.ini        the manifest (../../README.txt), kind = arena
+    arena.dmd      geometry, objects and textures' use, in the game's level format (as the disc's DMD\<level>.DMD);
+                   pickups, breakables and pedestrians are objects in it
+    arena.tms      the textures (as TMS\<level>.TMS)
+    arena.grp      the sections (floors, edges) and the computer cars' route tables (as TERRAIN\<level>.GRP)
+    arena.rmp      ramps and raised surfaces (as TERRAIN\<level>.RMP)
+    arena.pts      the computer cars' route points (below; as TERRAIN\<level>.PTS)
+    arena.ini      name, route and section counts, start points, sky color, teleporters, the hidden health spot,
+                   fall heights (below)
+    card.bmp       its level-select card: 344 x 260, its name on it (required)
+    lineup.bmp     the picture behind the opponents' cards before a match: 320 x 240 or larger, 4:3 (required)
+    wide.bmp       a 2:1 picture for the brick frame (Survival): 512 x 256 (optional: made from the card)
+    music.wav / .mp3 / .flac / .ogg   its own music (optional: else a random arena's track from the game)
+    radar.bmp      (optional, for later)
+
+The picture frames: mods\arenas\_TEMPLATE gets card_template.png and wide_template.png from your own disc's art
+(the game's tools make them); draw the scene under the frame and save as card.bmp / wide.bmp.
+
+
+What the level files hold
+-------------------------
+- arena.dmd: everything you see and hit. Besides the arena's own meshes it must carry the shared objects every
+  level's DMD has (explosions and effects, the dashboard icons, the radar arrows, car and weapon parts): start from
+  a disc level's DMD and keep those objects. Its pointers are for the address the game loads levels at, as the
+  disc's are.
+- Objects in the DMD the game treats by number: pickups (401-430, at most 50 in a level), breakables (500-520),
+  teleporter pads (693-697, at most 3: below). Don't use target 510: it is Holland's barn, and destroying one switches
+  off parts of the map (Holland's sections), whatever arena it is in.
+- Room: the level's DMD shares the game's level memory (about 720 KB) with the cars' models; the disc's levels are
+  300 to 540 KB, so keep a mod's DMD in that range. The TMS images go where each TIM says in video memory, as the
+  disc's levels do: keep the places a disc level leaves free for the cars, the shadows and the turbo flame. The
+  bosses need room too: Dark Tooth (Survival's last round, a custom tournament's boss) has many textures, and on an
+  arena whose textures leave him no room, Minion comes in his place (as on Paris).
+- arena.grp: at most 35 sections, and the tables that join them (below). arena.rmp: at most 225 surfaces.
+- The radar shows only the cars (the game has no map picture): radar.bmp is for the port's own radar, later.
+
+
+Teleporters
+-----------
+A teleporter is a pad object in arena.dmd (693-697) and a line in arena.ini. An arena without warp lines has no
+teleporters. Up to 3:
+
+    warp1 = x, y, z, x, y, z, 2  ; the pad's place, where it sends a car, and its pair (0 to 2)
+    warp1_exit = 46, 9           ; a computer car leaving it: the route point it comes out at, the one it heads for
+
+The pad's place and the place it sends a car are the game's coordinates (x, y the ground, z the height), as the
+route points'. Without a warpN_exit line computer cars don't come out of that teleporter in a planned place. The
+copy of Holland that tools/mods/clone_arena.py makes has Holland's own lines, as an example.
+
+
+The hidden health spot
+----------------------
+    health_spot = -1168, -6200   ; the low corner of a 64 x 64 square on the ground (x, y)
+
+A player's car that stops inside the square gets its health back, once a match. Without the line the arena has
+none. (Holland's is the example above.)
+
+
+Pickups
+-------
+Yes, an arena needs its own pickups: the game has no pickup list anywhere but in the level's DMD. Each pickup is an
+object placed in arena.dmd, and its object number says what it is (401-430: the weapons, turbo, health and the
+rest, as in the disc's levels). At most 50 in a level. Spread weapons and health through every part of the arena,
+and put a few near the start points. A game type's Weapons and pickups settings then work on them as on the
+game's arenas. Copy the placements' look from a disc level of a similar size.
+
+
+Start points and respawns
+-------------------------
+The start points (route points 0..14, listed in arena.ini) are also where cars come back in the respawn modes
+(Deathmatch, Juggernaut, Gun Game, Hunted, King of the Hill). A match can have up to 16 cars: give all 15, spread
+far apart and facing open ground, never at an edge. With fewer, cars land on each other (Los Angeles has 10), and the
+port then picks the clearest route point instead.
+
+
+Routes for computer cars
+------------------------
+Without route points, computer cars cannot drive an arena. The game's limits:
+
+- at most 140 route points and 35 sections;
+- up to 15 start points (route points 0..14);
+- each point links to up to 4 others, each link with a lane byte that sets its top speed
+  (-2 a quarter, -1 a third, 0 half, 1 two thirds, 2 full speed);
+- two tables join the sections: next node [from section][to section] (the exit point to drive to) and
+  next section [from section][to section].
+
+How a computer car uses them: in its target's section it chases the target; anywhere else it drives to the exit
+point toward the target's section, then on into the next section. At each point it takes the link nearest where it
+is going. So lay out every section so that heading for any of its points works from anywhere in it.
+
+What worked for the port's own routes (Cyburbia, Roof Tops):
+
+- one junction point per fork; thin out points on curves;
+- links both ways unless a one-way drop is really meant;
+- keep points at least 700 units from any edge a car can fall from, and no dead-end points near one;
+- cap a link's speed by how much ground is left past its end;
+- jumps as New York's: a run-up point about 900 before the edge and a landing point about 850 past the far edge,
+  and the jump's speed in the speed table [from section][to section];
+- point 0 should not be in a closed-off spot: Dark Tooth's warp can send cars to point 0 on any level;
+- check every trip: from each point to each other point, the walk above must arrive. The port's generators
+  (tools/routes/cyburbia.py, roof_tops.py in its source) each include such a check; a mod checker will run the same
+  walk.
+
+
+arena.ini
+---------
+The game sets these per level in its code; a mod arena gives them here. The game reads these now:
+
+    [arena]
+    name = Suburbs              ; the level select, the line-up
+    sky = 40, 60, 120           ; the background color (r, g, b)
+    points = 58                 ; the route points in arena.pts (1 to 140)
+    starts = 0, 2, 13, 15       ; the start points: route points, up to 15
+    sections = 7                ; the sections in arena.grp (1 to 35)
+    surfaces = 8                ; the surfaces in arena.rmp (0 to 225)
+    short_chase = 1             ; 1: computer cars chase from nearer (small arenas), 0: from farther (big ones)
+    warp1 = x, y, z, x, y, z, 1 ; a teleporter: its pad, where it sends a car, its pair (0 to 2); up to 3
+                                ; (no warp lines: no teleporters)
+    fall_limit = -8000          ; how far below the floor a car may fall before it is lost (optional)
+    fall_death = 80             ; the height under which a car is destroyed (optional)
+    health_spot = x, y          ; the hidden health (above; optional: none without it)
+    warp1_exit = a, b           ; the computer cars' way out of teleporter 1 (above)
+
+Music: put music.wav, music.mp3, music.flac or music.ogg in the mod's folder and it plays in this arena. Without one,
+a random arena's track from the game plays. Players can set it themselves in Options > Custom Music (the "Mod
+arenas" row).
+
+Planned (not read yet):
+
+    hill1 = x, y, z             ; King of the Hill hills (5 to 8)
+
+Where the game's code has per-level rules that no line above sets (the computer cars' strength, for one), a mod
+arena plays by Holland's.
+
+To start from one of your own disc's arenas: python tools/mods/clone_arena.py <your disc's track 1 .bin> 7
+mods/arenas/<id> makes a copy of Holland as a mod (its files from your disc: never share them).
+
+Arena events that are code in the original game (Los Angeles's quakes, Moscow's collapse, the Eiffel tower, Hong
+Kong's trains, New York's and Holland's targets) cannot come from a mod. Breakables and pedestrians, which are
+objects in the DMD, can.

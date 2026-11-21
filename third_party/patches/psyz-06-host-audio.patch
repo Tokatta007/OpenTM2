@@ -1,0 +1,71 @@
+diff --git a/psyz/include/psyz/spu.h b/psyz/include/psyz/spu.h
+--- a/psyz/include/psyz/spu.h
++++ b/psyz/include/psyz/spu.h
+@@ -109,6 +109,26 @@
+ void Psyz_SpuMemRead(unsigned int offset, void* dst, unsigned int size);
+ 
+ /**
++ * @brief Host volume for one voice, on top of everything the game sets
++ *
++ * Scales the voice (and what it sends to reverb) as it is mixed; CD audio
++ * is not affected. For host-side volume controls, e.g. music and effects.
++ *
++ * @param voice 0-23, or -1 for every voice
++ * @param gain 0 (silent) to 32768 (unchanged, the default)
++ */
++void Psyz_SpuSetVoiceGain(int voice, int gain);
++
++/**
++ * @brief Drop the CD audio already pulled but not yet played
++ *
++ * The SPU reads CD audio ahead (up to CD_RING_FRAMES frames). When the
++ * source jumps to a new position, call this (with the audio lock held) so
++ * the old position's last frames are not heard first.
++ */
++void Psyz_SpuCdFlush(void);
++
++/**
+  * @brief Write bytes into SPU RAM
+  *
+  * Wraps at 512 KB. Does not affect xfer_addr. Useful for debugging.
+diff --git a/psyz/src/psyz/psyz_spu.c b/psyz/src/psyz/psyz_spu.c
+--- a/psyz/src/psyz/psyz_spu.c
++++ b/psyz/src/psyz/psyz_spu.c
+@@ -40,6 +40,27 @@
+     u8 initialized;
+ } spu;
+ 
++// host volume per voice (Psyz_SpuSetVoiceGain), 32768 = unchanged
++static int voice_gain[PSYZ_SPU_NUM_VOICES];
++static int voice_gain_set;
++
++void Psyz_SpuCdFlush(void) {
++    spu.cd_ring_read = 0;
++    spu.cd_ring_count = 0;
++}
++
++void Psyz_SpuSetVoiceGain(int voice, int gain) {
++    gain = gain < 0 ? 0 : gain > 32768 ? 32768 : gain;
++    if (!voice_gain_set) {
++        for (int v = 0; v < PSYZ_SPU_NUM_VOICES; v++)
++            voice_gain[v] = 32768;
++        voice_gain_set = 1;
++    }
++    for (int v = 0; v < PSYZ_SPU_NUM_VOICES; v++)
++        if (voice < 0 || v == voice)
++            voice_gain[v] = gain;
++}
++
+ u8* Psyz_SpuGetRam(void) { return spu.ram; }
+ 
+ void Psyz_SpuInit(void) {
+@@ -359,6 +380,9 @@
+         }
+         rxx->voice[v].volumex = (unsigned short)spu.voice[v].env_vol;
+         s = (short)(((int)s * spu.voice[v].env_vol) >> 15);
++        if (voice_gain_set && voice_gain[v] != 32768) {
++            s = (short)(((int)s * voice_gain[v]) >> 15);
++        }
+         if (v == 1) {
+             v1_sample = s;
+         } else if (v == 3) {

@@ -1,0 +1,29 @@
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -1570,6 +1570,9 @@
+     Draw_FlushBuffer();
+     depth_clear = true;
+ }
++static bool PreciseQueued(int n) { // the next polygon has precise corners waiting (a 3D one)
++    return precise_on && precise_tail != precise_head && precise_fifo[precise_tail % PRECISE_FIFO_SIZE].n == n;
++}
+ static void PreciseApply(Vertex* v, int n, int semi) {
+     if (!precise_on || precise_tail == precise_head) {
+         return;
+@@ -1719,7 +1722,15 @@
+             }
+ 
+             if (isTextured) {
+-                FixupFlipUV(vertex_cur, code & EXTRA_VERTEX);
++                // the PS1's flipped-texture offset only for flat drawing (the HUD, menus, sprites): a 3D polygon with
++                // precise corners spans its own texels, and the test's answer flipped as the camera moved (Los
++                // Angeles' skyline panels, their textures turned and mirrored, sliding a texel); tests:
++                // TM2PC_FLIP_3D=1 as before (read once: getenv per polygon took the 4K frame to 50 ms)
++                static int flip_3d = -1;
++                if (flip_3d < 0)
++                    flip_3d = getenv("TM2PC_FLIP_3D") != NULL;
++                if (flip_3d || !PreciseQueued(nVertices))
++                    FixupFlipUV(vertex_cur, code & EXTRA_VERTEX);
+             } else {
+                 clut = -1;
+                 tpage = cur_tpage | TPAGE_NOTEXTURE;

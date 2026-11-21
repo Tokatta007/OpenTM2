@@ -1,0 +1,74 @@
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -1068,7 +1068,7 @@
+         }
+ 
+         // accumulate line points first, then convert them to triangles
+-        short px[4], py[4];
++        short px[4], py[4], rx[4], ry[4]; // rx, ry: as written (px, py: the GPU's 11 bits)
+         unsigned char cr[4], cg[4], cb[4], ca[4];
+         int parsed = 0;
+         cr[0] = v->r;
+@@ -1076,8 +1076,10 @@
+         cb[0] = v->b;
+         ca[0] = v->a;
+         for (int i = 0; len > 0 && i < nPoints; i++) {
+-            px[i] = s11(((short*)packets)[0]);
+-            py[i] = s11(((short*)packets)[1]);
++            rx[i] = ((short*)packets)[0];
++            ry[i] = ((short*)packets)[1];
++            px[i] = s11(rx[i]);
++            py[i] = s11(ry[i]);
+             packets++;
+             len--;
+             parsed = i + 1;
+@@ -1113,6 +1115,12 @@
+                 short y1 = py[s + 1];
+                 int dx = x1 - x0;
+                 int dy = y1 - y0;
++                // a point past the GPU's 11 bits would wrap into the view (a taser arc's end just
++                // in front of the camera came back as a long line across the screen); and the PS1
++                // GPU draws no primitive more than 1023 wide or 511 high: both are left out
++                if (rx[s] != x0 || ry[s] != y0 || rx[s + 1] != x1 || ry[s + 1] != y1 ||
++                    (dx < 0 ? -dx : dx) > 1023 || (dy < 0 ? -dy : dy) > 511)
++                    continue;
+ 
+                 // decides to thicken horizontally or vertically
+                 short ox, oy, ex, ey;
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -1675,7 +1675,7 @@
+         }
+ 
+         // accumulate line points first, then convert them to triangles
+-        short px[4], py[4];
++        short px[4], py[4], rx[4], ry[4]; // rx, ry: as written (px, py: the GPU's 11 bits)
+         unsigned char cr[4], cg[4], cb[4], ca[4];
+         int parsed = 0;
+         cr[0] = v->r;
+@@ -1683,8 +1683,10 @@
+         cb[0] = v->b;
+         ca[0] = v->a;
+         for (int i = 0; len > 0 && i < nPoints; i++) {
+-            px[i] = s11(((short*)packets)[0]);
+-            py[i] = s11(((short*)packets)[1]);
++            rx[i] = ((short*)packets)[0];
++            ry[i] = ((short*)packets)[1];
++            px[i] = s11(rx[i]);
++            py[i] = s11(ry[i]);
+             packets++;
+             len--;
+             parsed = i + 1;
+@@ -1720,6 +1722,12 @@
+                 short y1 = py[s + 1];
+                 int dx = x1 - x0;
+                 int dy = y1 - y0;
++                // a point past the GPU's 11 bits would wrap into the view (a taser arc's end just
++                // in front of the camera came back as a long line across the screen); and the PS1
++                // GPU draws no primitive more than 1023 wide or 511 high: both are left out
++                if (rx[s] != x0 || ry[s] != y0 || rx[s + 1] != x1 || ry[s + 1] != y1 ||
++                    (dx < 0 ? -dx : dx) > 1023 || (dy < 0 ? -dy : dy) > 511)
++                    continue;
+ 
+                 // decides to thicken horizontally or vertically
+                 short ox, oy, ex, ey;

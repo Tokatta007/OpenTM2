@@ -1,0 +1,59 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -246,6 +246,17 @@
+ void Psyz_VideoSetDisplayRGB24(const unsigned char* rgb, int w, int h);
+ 
+ /**
++ * @brief Show the RGB888 image at its own aspect ratio
++ *
++ * By default the image from Psyz_VideoSetDisplayRGB24 is fitted like the
++ * PS1 display (4:3). With fill on, its own width and height give the aspect
++ * ratio, so an image made at the window's size covers the whole window.
++ *
++ * @param on 1: the image's own aspect ratio, 0: the display's
++ */
++void Psyz_VideoSetDisplayRGB24Fill(int on);
++
++/**
+  * @brief Dump the whole video memory plane as RGB888
+  *
+  * @param w Output VRAM width
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -733,6 +733,11 @@
+     return pixels;
+ }
+ 
++void Psyz_VideoSetDisplayRGB24Fill(int on) {
++    // not supported by this renderer
++    (void)on;
++}
++
+ void Psyz_VideoSetDisplayRGB24(const unsigned char* rgb, int w, int h) {
+     // not supported by this renderer: the display area is shown as 15-bit
+     (void)rgb;
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -689,6 +689,9 @@
+ // 24-bit display: an RGB picture from the caller replaces the display area
+ static u8* rgb24_pixels; // RGBA8888
+ static int rgb24_w, rgb24_h, rgb24_dirty;
++static int rgb24_fill; // fitted at its own aspect ratio, not the display's
++
++void Psyz_VideoSetDisplayRGB24Fill(int on) { rgb24_fill = on; }
+ static SDL_GPUTexture* rgb24_tex;
+ static SDL_GPUTransferBuffer* rgb24_xfer;
+ static int rgb24_tex_w, rgb24_tex_h;
+@@ -836,6 +839,9 @@
+                     src.y = 0;
+                     src.w = (Uint32)rgb24_w;
+                     src.h = (Uint32)rgb24_h;
++                    if (rgb24_fill) {
++                        game_aspect = (float)rgb24_w / (float)rgb24_h;
++                    }
+                 }
+ 
+                 WndSize win = {(int)sc_w, (int)sc_h};

@@ -1,0 +1,120 @@
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index 7fe4505..112dfeb 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -84,13 +84,17 @@ typedef struct {
+ static HdBlock hd_block;
+ static SDL_GPUTexture* scaled_vram_render = NULL;
+ // Texture banks (Psyz_VideoBankLoadImage, the TM2 decomp's TEXTURE_BANKS.md 6.5): more VRAMs, for textures only.
+-// Bank b (1..BANK_MAX-1) is layer b of bank_tex, a 2D array grown at a bank's first upload (layer 0 unused); a
+-// textured polygon names its bank in its tpage's bits 9..13. Only uploads write a bank (nothing draws into one), so
+-// a CPU copy of each answers StoreImage.
+-#define BANK_MAX 32
++// Bank b (1..BANK_NUMBERS-1, any of them: TM2's matches take 1 up, its car select 124..127) has a layer of bank_tex,
++// a 2D array grown at a bank's first upload (layer 0 unused), the layers handed out in the order the banks are first
++// used (BANK_MAX - 1 banks at most). A textured polygon names its bank in its tpage's bits 9..15. Only uploads write
++// a bank (nothing draws into one), so a CPU copy of each answers StoreImage.
++#define BANK_MAX 40
++#define BANK_NUMBERS 128
+ static SDL_GPUTexture* bank_tex = NULL;  // (1 x 1 x 1 until a bank is used)
+ static unsigned bank_layers = 0;          // layers of bank_tex holding banks (0: the placeholder)
+-static u16* bank_cpu[BANK_MAX];
++static unsigned char bank_layer[BANK_NUMBERS]; // bank b's layer, 0 none yet
++static unsigned bank_used = 0;            // layers handed out
++static u16* bank_cpu[BANK_NUMBERS];
+ static unsigned internal_res = 1;
+ static unsigned set_internal_res = 1;
+ static SDL_GPUBuffer* vbuf = NULL;
+@@ -438,6 +442,8 @@ static bool CreateGpuResources(void) {
+     };
+     bank_tex = SDL_CreateGPUTexture(device, &bank_info);
+     bank_layers = 0;
++    bank_used = 0;
++    SDL_memset(bank_layer, 0, sizeof bank_layer);
+     if (!bank_tex) {
+         ERRORF("texture banks: %s", SDL_GetError());
+         return false;
+@@ -1191,9 +1197,11 @@ static void QuitPlatform(void) {
+             bank_tex = NULL;
+         }
+         bank_layers = 0;
+-        for (int i = 0; i < BANK_MAX; i++) {
++        bank_used = 0;
++        for (int i = 0; i < BANK_NUMBERS; i++) {
+             SDL_free(bank_cpu[i]);
+             bank_cpu[i] = NULL;
++            bank_layer[i] = 0;
+         }
+         if (hd_sampler) {
+             SDL_ReleaseGPUSampler(device, hd_sampler);
+@@ -1725,8 +1733,8 @@ int Draw_PushPrim(u_long* packets, int max_len) {
+             }
+ 
+             if (isTextured) { // its texture bank (bits 9..15): one that holds textures, else the VRAM
+-                unsigned bank = (tpage >> 9) & 0x7F;
+-                tpage = (u16)((tpage & 0x1FF) | (bank < bank_layers ? bank << 9 : 0));
++                unsigned layer = bank_layer[(tpage >> 9) & 0x7F];
++                tpage = (u16)((tpage & 0x1FF) | (layer && layer < bank_layers ? layer << 9 : 0));
+             }
+             PreciseApply(vertex_cur, nVertices, (code & 2) != 0);
+             SET_TC_ALL(vertex_cur, tpage, clut);
+@@ -2058,11 +2066,14 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
+     SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
+ }
+ 
+-// texture banks: bank b's layer (grown in steps of 8 layers, the old ones copied over)
++// texture banks: layer b of bank_tex (grown in steps of 8 layers, the old ones copied over)
+ static bool BankEnsure(unsigned b) {
+     if (b < bank_layers) {
+         return true;
+     }
++    if (b >= BANK_MAX) {
++        return false;
++    }
+     unsigned layers = (b + 8) & ~7u;
+     if (layers > BANK_MAX) {
+         layers = BANK_MAX;
+@@ -2109,16 +2120,21 @@ void Psyz_VideoBankLoadImage(int bank, int x, int y, int w, int h, const unsigne
+         Draw_LoadImage(rect, p);
+         return;
+     }
+-    if (bank >= BANK_MAX || rect->w <= 0 || rect->h <= 0 || rect->x < 0 || rect->y < 0 ||
++    if (bank >= BANK_NUMBERS || rect->w <= 0 || rect->h <= 0 || rect->x < 0 || rect->y < 0 ||
+         rect->x + rect->w > VRAM_W || rect->y + rect->h > VRAM_H) {
+-        return; // (a bank past the ones kept: its textures are not shown)
++        return; // (no such bank: its textures are not shown)
+     }
+     if (!sdl3_window && !InitPlatform()) {
+         return;
+     }
+     Draw_FlushBuffer(); // the primitives before it see the bank as it was
+-    if (!BankEnsure((unsigned)bank)) {
+-        return;
++    unsigned layer = bank_layer[bank] ? bank_layer[bank] : bank_used + 1;
++    if (!BankEnsure(layer)) {
++        return; // (more banks than layers: this one's textures are not shown)
++    }
++    if (!bank_layer[bank]) {
++        bank_layer[bank] = (unsigned char)layer;
++        bank_used = layer;
+     }
+     if (!bank_cpu[bank] && !(bank_cpu[bank] = SDL_calloc((size_t)VRAM_W * VRAM_H, 2))) {
+         return;
+@@ -2147,7 +2163,7 @@ void Psyz_VideoBankLoadImage(int bank, int x, int y, int w, int h, const unsigne
+     };
+     const SDL_GPUTextureRegion dst = {
+         .texture = bank_tex,
+-        .layer = (Uint32)bank,
++        .layer = (Uint32)layer,
+         .x = (Uint32)rect->x,
+         .y = (Uint32)rect->y,
+         .w = rect->w,
+@@ -2165,7 +2181,7 @@ void Psyz_VideoBankStoreImage(int bank, int x, int y, int w, int h, unsigned sho
+         Draw_StoreImage(rect, p);
+         return;
+     }
+-    if (bank >= BANK_MAX || rect->w <= 0 || rect->h <= 0 || rect->x < 0 || rect->y < 0 ||
++    if (bank >= BANK_NUMBERS || rect->w <= 0 || rect->h <= 0 || rect->x < 0 || rect->y < 0 ||
+         rect->x + rect->w > VRAM_W || rect->y + rect->h > VRAM_H) {
+         return;
+     }

@@ -1,0 +1,98 @@
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -101,6 +101,11 @@
+ static SDL_GPUBuffer* ibuf = NULL;
+ static SDL_GPUBuffer* clear_vbuf = NULL;
+ static SDL_GPUTransferBuffer* vtx_transfer = NULL;
++// the batches' buffers as a ring of VTX_RING slots, cycled (SDL_GPU's "cycle") only when the ring starts again: a
++// cycle on every flush grew each buffer's container by one in-flight buffer a flush, and SDL looks through all of
++// them at each cycle (D3D12_INTERNAL_CycleActiveBuffer): a third of the main thread at the farthest draw distance
++#define VTX_RING 32
++static int vtx_slot = 0;
+ static SDL_GPUTransferBuffer* tex_upload_transfer = NULL;
+ static SDL_GPUTransferBuffer* tex_download_transfer = NULL;
+ static SDL_GPUGraphicsPipeline* pipe_tri[BLEND_COUNT];
+@@ -459,12 +464,12 @@
+ 
+     const SDL_GPUBufferCreateInfo vbuf_info = {
+         .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
+-        .size = MAX_VERTEX_COUNT * sizeof(Vertex),
++        .size = VTX_RING * MAX_VERTEX_COUNT * sizeof(Vertex),
+     };
+     vbuf = SDL_CreateGPUBuffer(device, &vbuf_info);
+     const SDL_GPUBufferCreateInfo ibuf_info = {
+         .usage = SDL_GPU_BUFFERUSAGE_INDEX,
+-        .size = MAX_INDEX_COUNT * sizeof(u16),
++        .size = VTX_RING * MAX_INDEX_COUNT * sizeof(u16),
+     };
+     ibuf = SDL_CreateGPUBuffer(device, &ibuf_info);
+     const SDL_GPUBufferCreateInfo clear_vbuf_info = {
+@@ -479,10 +484,11 @@
+ 
+     const SDL_GPUTransferBufferCreateInfo vtx_transfer_info = {
+         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+-        .size =
+-            MAX_VERTEX_COUNT * sizeof(Vertex) + MAX_INDEX_COUNT * sizeof(u16),
++        .size = VTX_RING * (MAX_VERTEX_COUNT * sizeof(Vertex) +
++                            MAX_INDEX_COUNT * sizeof(u16)),
+     };
+     vtx_transfer = SDL_CreateGPUTransferBuffer(device, &vtx_transfer_info);
++    vtx_slot = 0;
+     const SDL_GPUTransferBufferCreateInfo upload_info = {
+         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+         .size = VRAM_BYTES,
+@@ -2514,27 +2520,34 @@
+         return;
+     }
+ 
+-    u8* map = SDL_MapGPUTransferBuffer(device, vtx_transfer, true);
++    // this batch's slot of the ring: a fresh buffer (cycled) only at slot 0, else the slot's own part of the buffers,
++    // which nothing drawn since the last cycle has used
++    const bool cycle = vtx_slot == 0;
++    const Uint32 slot_vtx = (Uint32)(vtx_slot * MAX_VERTEX_COUNT * sizeof(Vertex));
++    const Uint32 slot_idx = (Uint32)(vtx_slot * MAX_INDEX_COUNT * sizeof(u16));
++    const Uint32 slot_transfer = (Uint32)(vtx_slot * (MAX_VERTEX_COUNT * sizeof(Vertex) + MAX_INDEX_COUNT * sizeof(u16)));
++    vtx_slot = (vtx_slot + 1) % VTX_RING;
++    u8* map = SDL_MapGPUTransferBuffer(device, vtx_transfer, cycle);
+     if (!map) {
+         ERRORF("SDL_MapGPUTransferBuffer: %s", SDL_GetError());
+         return;
+     }
+     const Uint32 vtx_size = (Uint32)(sizeof(Vertex) * n_vertices);
+     const Uint32 idx_size = (Uint32)(sizeof(*index_buf) * n_indices);
+-    const Uint32 idx_offset = MAX_VERTEX_COUNT * sizeof(Vertex);
+-    memcpy(map, vertex_buf, vtx_size);
++    const Uint32 idx_offset = slot_transfer + MAX_VERTEX_COUNT * sizeof(Vertex);
++    memcpy(map + slot_transfer, vertex_buf, vtx_size);
+     memcpy(map + idx_offset, index_buf, idx_size);
+     SDL_UnmapGPUTransferBuffer(device, vtx_transfer);
+ 
+     SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
+     const SDL_GPUTransferBufferLocation vtx_src = {
+-        .transfer_buffer = vtx_transfer};
+-    const SDL_GPUBufferRegion vtx_dst = {.buffer = vbuf, .size = vtx_size};
+-    SDL_UploadToGPUBuffer(copy, &vtx_src, &vtx_dst, true);
++        .transfer_buffer = vtx_transfer, .offset = slot_transfer};
++    const SDL_GPUBufferRegion vtx_dst = {.buffer = vbuf, .offset = slot_vtx, .size = vtx_size};
++    SDL_UploadToGPUBuffer(copy, &vtx_src, &vtx_dst, cycle);
+     const SDL_GPUTransferBufferLocation idx_src = {
+         .transfer_buffer = vtx_transfer, .offset = idx_offset};
+-    const SDL_GPUBufferRegion idx_dst = {.buffer = ibuf, .size = idx_size};
+-    SDL_UploadToGPUBuffer(copy, &idx_src, &idx_dst, true);
++    const SDL_GPUBufferRegion idx_dst = {.buffer = ibuf, .offset = slot_idx, .size = idx_size};
++    SDL_UploadToGPUBuffer(copy, &idx_src, &idx_dst, cycle);
+     if (batch_has_texture && vram_dirty.w > 0 && vram_dirty.h > 0) {
+         const SDL_GPUTextureLocation vram_src = {.texture = vram_render,
+                                                  .x = (Uint32)vram_dirty.x,
+@@ -2613,9 +2626,9 @@
+         scissor_rect.x * (int)internal_res, scissor_rect.y * (int)internal_res,
+         scissor_rect.w * (int)internal_res, scissor_rect.h * (int)internal_res};
+     SDL_SetGPUScissor(pass, &scaled_scissor);
+-    const SDL_GPUBufferBinding vb = {.buffer = vbuf};
++    const SDL_GPUBufferBinding vb = {.buffer = vbuf, .offset = slot_vtx};
+     SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+-    const SDL_GPUBufferBinding ib = {.buffer = ibuf};
++    const SDL_GPUBufferBinding ib = {.buffer = ibuf, .offset = slot_idx};
+     SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+     const SDL_GPUTextureSamplerBinding sampler_binding[3] = {
+         {.texture = vram_sample, .sampler = vram_sampler},

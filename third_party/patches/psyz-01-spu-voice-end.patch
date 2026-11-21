@@ -1,0 +1,31 @@
+diff --git a/psyz/src/psyz/psyz_spu.c b/psyz/src/psyz/psyz_spu.c
+index d6e79f5..2d0cb81 100644
+--- a/psyz/src/psyz/psyz_spu.c
++++ b/psyz/src/psyz/psyz_spu.c
+@@ -119,6 +119,7 @@ void Psyz_SpuMemWrite(unsigned int offset, const void* src, unsigned int size) {
+ 
+ static void spu_key_on_voice(int v) {
+     spu_voice_key_on(&spu.voice[v], &_spu_RXX->rxx.voice[v]);
++    _spu_RXX->rxx.chan_on &= ~(1u << v); // key-on clears the voice's ENDX bit
+ }
+ 
+ void Psyz_SpuWrite(unsigned int reg_offset, unsigned short value) {
+@@ -340,6 +341,18 @@ static void spu_tick(short* out) {
+         if (!spu.voice[v].active)
+             continue;
+         short s = spu_voice_step(&spu.voice[v], rxx->voice[v].pitch, spu.ram);
++        if (!spu.voice[v].active) {
++            // The sample ended on an "end + mute" block: the hardware sets
++            // ENDX and forces Release at level 0, so software polling the
++            // envelope (libspu SpuGetKeyStatus, libsnd voice allocation)
++            // sees the voice as free. Without this the last level stays in
++            // VOLUMEX and voices are never reused.
++            spu.voice[v].env_vol = 0;
++            spu.voice[v].env_state = ADSR_OFF;
++            rxx->voice[v].volumex = 0;
++            rxx->chan_on |= 1u << v;
++            continue;
++        }
+         spu_voice_envelope_step(&spu.voice[v]);
+         if (spu.voice[v].env_state == ADSR_OFF) {
+             s = 0;

@@ -1,0 +1,12 @@
+Symbols from game-icons.net (https://game-icons.net), CC BY 3.0
+(https://creativecommons.org/licenses/by/3.0/), unchanged; rasterized to mode_icons.png
+(tools/art/icons: the .svg files and sheet.html, headless Edge) in this order:
+  death-skull.svg    sbed          Last Car Standing
+  crosshair.svg      Delapouite    Deathmatch
+  crowned-skull.svg  Lorc          Juggernaut
+  pistol-gun.svg     John Colburn  Gun Game
+  on-sight.svg       DarkZaitzev   Hunted
+  tower-flag.svg     Delapouite    King of the Hill
+  nailed-head.svg    Lorc          Survival
+  champions.svg      Delapouite    Co-op
+  trophy-cup.svg     Delapouite    Versus Tournament

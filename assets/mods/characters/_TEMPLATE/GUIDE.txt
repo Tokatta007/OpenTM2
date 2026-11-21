@@ -1,0 +1,217 @@
+Characters: a new driver and car
+================================
+
+A character is a new car in car select, with its own name, driver portraits, model and textures. It sits at the
+end of the Left / Right order, after every regular car (after Spectre, and after Sweet Tooth, Minion and Dark Tooth
+when they are unlocked or at the end).
+
+Every character is built on a base car, one of the game's 15. The base gives everything the character does not set
+itself: its special weapon's behavior, its sounds when it brings none (see "Sounds"), and every number left out of
+[character] and [ai] (see "Stats" and "The computer driver").
+
+Computer cars drive characters too: pick one as a Challenge Match opponent, or let Random pick one in Challenge
+Match, Custom Tournament and Survival (Options > Mods, "Mod Cars in Random"). The game's own Tournament keeps its
+drivers.
+
+
+Making one
+----------
+1. Run tm2pc.exe --new-mod character crimson-fox: it makes mods\characters\crimson-fox with a mod.ini, its id and
+   a new uid filled in. (Or copy this _TEMPLATE folder there and make a uid yourself: ../../README.txt.)
+2. Edit mod.ini: the character's name, your name, and its base car (see "The cars" below).
+3. Add the files below.
+4. Run tm2pc.exe --check-mod mods\characters\crimson-fox until it prints OK.
+5. Start the game. In car select, press Left from Roadkill (or go Right past the last car): your character is there.
+   Options > Mods turns each character on or off.
+
+
+Files
+-----
+    mod.ini          the manifest (../../README.txt) and [character] base = <the base car>
+    car.dmd          the car's model, in the game's own format (as the disc's DMD\<code>.DMD)
+    car.tms          the car's textures, in the game's own format (as the disc's TMS\<code>.TMS)
+    portrait_1.bmp   the driver's portrait in car select: 64 x 128, or larger in the same shape (128 x 256 ...)
+    portrait_2.bmp   the same once the car is chosen (the game shows a second portrait)
+    carinfo.bmp      the CAR INFO screen: 640 x 480, the whole screen as a picture (its ratings and story are yours
+                     to draw: make them match its stats)
+    plate.bmp        the car's picture in the match line-up, the lobby and the opponents page: 128 x 64, or larger
+                     in the same shape
+
+Optional:
+    carselect.dmd, carselect.tms     the car turning in car select, as a pair; without them car select turns
+                     car.dmd / car.tms (the DMD at most 128 KB, the TMS at most 32 pictures)
+    engine.wav       its engine (see "Sounds")
+    special.wav      its special weapon's sound (see "Sounds")
+    ending.txt       the story shown when it wins the tournament (see "The ending")
+    ending.bmp       the ending's picture: 640 x 480, or 16:9 (see "The ending")
+    ending.mpg       the ending's video: MPEG-1, at most 2 minutes (see "The video")
+
+The name shown in car select and in matches is [mod] name. The car-select font has no round brackets: "(" and ")"
+show as square ones.
+
+
+The model
+---------
+The game finds parts of a car's model by number (the special weapon's objects, moving parts such as Axel's wheels or
+Mr. Slam's arm, the damage looks), the numbers of the base car. Start from the base car's own DMD and change its
+meshes, keeping its node tree and numbers, or those parts go missing. Pick the base whose special and moving parts
+fit your car.
+
+The hit box comes from the size numbers (see "Stats"), not from the model: when the model is bigger or smaller than
+the base car, set track_width, the axles and the heights to match it.
+
+A converter from common 3D formats is planned; until then a new model needs a tool that writes the game's DMD format.
+The game's file codes: HH Hammerhead, OT Outlaw 2, WH Warthog, MG Mr. Grimm, PV Grasshopper, TH Thumper,
+SP Spectre, RK Roadkill, IR Twister, AX Axel, FL Mr. Slam, HS Shadow, ST Sweet Tooth, MN Minion, BB Dark Tooth.
+
+
+The cars
+--------
+[character] base = one of:
+    Hammerhead, Outlaw 2, Warthog, Mr. Grimm, Grasshopper, Thumper, Spectre, Roadkill, Twister, Axel, Mr. Slam,
+    Shadow, Sweet Tooth, Minion, Dark Tooth
+
+
+Stats
+-----
+Each key under [character] is optional: one left out keeps the base car's number. The game's cars' own values are in
+brackets, for comparison. A value outside its range is a problem (the mod is grayed in Options > Mods with the reason).
+
+    top_speed = 80..150         (92 Sweet Tooth, Mr. Slam .. 141 Twister)
+    acceleration = 3..12        (4 Mr. Slam .. 11 Mr. Grimm)
+    brakes = 1..5               (1 Hammerhead .. 4 Thumper)
+    turning = 60..110           the speed below which it turns less: lower turns tighter (65 .. 105)
+    steering = 2..9             low-speed steering (3 .. 8)
+    slide_speed = 20..150       above it the car slides (25 Hammerhead .. 150 Minion)
+    armor = 50..300             max health (65 Mr. Grimm .. 300 Dark Tooth); a player gets 20 more, as every car
+    mass = 5..90                weight in hits and rams (5 Mr. Grimm .. 60 Minion)
+
+The size, which is also the hit box:
+    track_width = 40..180       left to right wheels (50 Shadow .. 173 Dark Tooth); it also sets how easily the car
+                                tips over, in proportion to the base car's
+    front_axle = 30..230        front wheels ahead of the middle (41 .. 216)
+    rear_axle = 30..280         rear wheels behind the middle (33 .. 269)
+    ride_height = 8..120        the body above the ground (12 .. 116)
+    roof_height = 24..110       the roof, when the car is upside down (32 .. 106)
+    step_height = 40..160       the highest step it drives up (40 Mr. Grimm .. 160 Dark Tooth)
+
+The special:
+    special = own                   the base car's own special (the default), or another one to fire instead:
+                                    a driver's: sweet_tooth, outlaw, warthog, mr_grimm, thumper, spectre, roadkill,
+                                    axel, shadow, minion; or a pickup weapon's: fire_missile, homing_missile,
+                                    remote_bomb, power_missile, napalm, ricochet, mega_napalm, freeze_missile.
+                                    (Hammerhead's, Grasshopper's, Twister's, Mr. Slam's and Dark Tooth's need their own
+                                    car: a character built on one of them keeps its own special.)
+    special_recharge = 300..2400    frames for one more special (360 Sweet Tooth .. 1600 Thumper)
+    special_max = 1..6              specials held at most (3 .. 5)
+    special_damage = 0..8191        each shot's damage (also the taser's hits, the flame each frame, Shadow's strike)
+    special_life = 1..8191          how long each shot flies, in frames (most 50; the spiral and boomerang 200)
+    special_speed = 1..150          each shot's speed (150 is the game's limit for every shot)
+    special_turn = 1..4095          how hard a homing shot turns
+    special_range = 1..4000         the taser's reach (80) or Axel's shockwave radius (800)
+    special_height = 1..4000        Axel's shockwave height (200)
+    special_duration = 40..400      the taser's arc (40)
+    special_freeze_damage = 0..8191 Minion's freeze missile's damage (7)
+    special_freeze_time = 1..6000   how long its freeze missiles freeze, in ticks (300)
+    special_burn_time = 1..2000     how long its flame or napalm burns a car, in frames (100)
+    special_blast_damage = 0..8191  Shadow's blast at its center (25)
+    special_blast_radius = 1..400   Shadow's blast radius (75)
+    special_turn_back = 1..4000     how far the boomerang flies before it turns back (300)
+    ai_special_ahead = 1..100       computer drivers: their chance (percent) to fire it at a car ahead
+    ai_special_behind = 1..100      ... and at a car behind (else the special's own habits)
+The numbers apply to whatever special the car fires, its own or the one chosen. A mass of 100 doubles the damage of
+every special a player fires (Dark Tooth's rule), so keep mass under 100.
+
+And:
+    radar_color = r, g, b       its dot on the radar, 0..255 each (else the base car's)
+
+The name over a targeted car is the character's name in capital letters (letters, digits and spaces).
+
+
+Team colors
+-----------
+In team games the game repaints part of each car in its team's color (red, blue, green or yellow): some palette
+entries of the car's body texture, the first picture in its TMS, shifted to the team's color, while the windows,
+tires, weapons and driver keep theirs. List your car's paint entries in mod.ini, under [character]:
+
+    team_paint = 16-47, 80, 82-95     ; palette entries 0..255 of car.tms's first picture
+
+Keep the paint in palette entries of its own (not shared with the glass or the tires), so only the paint turns.
+Without team_paint the car keeps its own colors in team games.
+
+
+The computer driver
+-------------------
+A computer car on your character drives with the base car's habits, changed by these keys under [ai] (each optional;
+the cars' own values in the brackets). Every so often the driver picks a mood: hunt (chase its target), attack, or
+else flee. The chances blend from the full-health ones to the hurt ones as it loses health; hunt and attack together
+are at most 100, and what is left of 100 is fleeing.
+
+    hunt = 0..100           its chance to hunt at full health (20 Outlaw 2 .. 100 Hammerhead, Mr. Slam)
+    hunt_hurt = 0..100      ... with no health left (0 .. 100)
+    attack = 0..100         its chance to attack at full health (0 .. 80 Outlaw 2)
+    attack_hurt = 0..100    ... with no health left (0 .. 100)
+    hunt_time = 150..3600   how long a hunt lasts, in ticks (300 .. 3600; most cars 600)
+    attack_time = 150..3600 how long an attack lasts (300 .. 1800)
+    flee_time = 150..3600   how long it flees (300 .. 600)
+    retaliate = 0..100      how much of its health one car may take before it turns on that car, percent (7 .. 100)
+    pass = 0..100           its chance to try to pass a car in its way (0 .. 90)
+    patience = 10..200      how long a target may pull away before it plans a new way to it (12 .. 180)
+    fire_chance = 1..100    how often it fires its weapons (the base car's own when left out)
+
+ai_special_ahead and ai_special_behind under [character] (see "The special") are its chance to fire its special.
+
+
+Sounds
+------
+engine.wav replaces the base car's engine and special.wav the sound of its special weapon. Each is optional: without
+it the car has its base's sound.
+
+    WAV, PCM, 8 or 16 bits, mono or stereo (mixed to mono), 8000 to 48000 Hz
+    engine.wav      at most 4 seconds: the engine at idle, made to loop (its end runs into its start). The game
+                    raises its pitch as the car speeds up, as it does its own engines'.
+    special.wav     at most 6 seconds. It loops when the base car's special sound loops (Thumper's flame), else it
+                    plays once each time.
+
+The game plays them through its own sound chip's voices: its volume, distance, echo and pitch apply as to its own.
+
+
+The ending
+----------
+Winning the tournament with your character on Medium or Hard earns its ending in that player's profile. Earned
+endings are in Options > Movies > Mods. A character's win never unlocks a game driver's ending, nor what those
+unlock.
+
+An ending can be a video, a page, or both:
+- ending.mpg: a video, played first, with its sound. A button skips it after half a second.
+- The page: ending.bmp (else its portrait), "<NAME> WINS", and the text of ending.txt (a few short paragraphs; a
+  blank line between them). With a video, the page follows only when there is an ending.txt.
+- Without either, the page shows its portrait and "<NAME> WINS".
+
+The video
+---------
+ending.mpg must be MPEG-1 video with MP2 sound, in an MPEG file (.mpg). This is not the same as an .mp4, .mkv or
+.avi, even renamed: those hold other kinds of video the game cannot play. Convert yours with ffmpeg (free,
+ffmpeg.org), from any video it can read:
+
+    ffmpeg -i my_ending.mp4 -c:v mpeg1video -b:v 2000k -c:a mp2 -b:a 192k -s 640x480 ending.mpg
+
+    -b:v 2000k      the picture's data rate: about 16 MB a minute, sharper than the game's own movies
+    -s 640x480      the size: 640 x 480 (4:3), or 854 x 480 for a 16:9 video
+    no sound        leave out "-c:a mp2 -b:a 192k" and add -an
+
+ffmpeg may say "VBV buffer size not set, using default size": that is fine.
+
+The limits:
+    picture         MPEG-1 (not MPEG-2: ffmpeg's -c:v mpeg1video, not mpeg2video), at most 854 x 480
+    sound           MP2 (not MP3 or AAC), or none
+    length          at most 2 minutes
+    file            at most 40 MB (2 minutes with the command above: about 33 MB)
+
+tm2pc.exe --check-mod tells you when the video breaks a rule ("is MPEG-2 video", "has sound that is not MP2",
+"is 1280 x 720", ...). A video that breaks one is never played (the page is shown instead).
+
+
+Online
+------
+A server uses the host's characters that are on, as with skins: joining asks to download the ones you lack.

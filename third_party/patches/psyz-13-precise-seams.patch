@@ -1,0 +1,48 @@
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index 4bdf92c..7ad7b07 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -1484,7 +1484,7 @@ void Psyz_GpuPushPrecise(const float* xyw, int n) {
+         memcpy(precise_fifo[k].xyw, xyw, sizeof(float) * 3 * (size_t)n);
+     }
+ }
+-static void PreciseApply(Vertex* v, int n) {
++static void PreciseApply(Vertex* v, int n, int semi) {
+     if (!precise_on || precise_tail == precise_head) {
+         return;
+     }
+@@ -1503,6 +1503,25 @@ static void PreciseApply(Vertex* v, int n) {
+         v0 = v[i].v < v0 ? v[i].v : v0;
+         v1 = v[i].v > v1 ? v[i].v : v1;
+     }
++    // an opaque polygon a little bigger (0.3 of a PS1 pixel out from its middle): two meshes meeting at an edge
++    // (a tire's tread and its side) were glued by the PS1's whole pixels; at subpixel places they can miss each
++    // other by a hair, the background seen through. A see-through polygon stays as it is (no double blend).
++    if (!semi && n >= 3) {
++        float cx = 0, cy = 0;
++        for (int i = 0; i < n; i++) {
++            cx += v[i].x;
++            cy += v[i].y;
++        }
++        cx /= n;
++        cy /= n;
++        for (int i = 0; i < n; i++) {
++            float dx = v[i].x - cx, dy = v[i].y - cy, d = sqrtf(dx * dx + dy * dy);
++            if (d > 0.5f) {
++                v[i].x += dx / d * 0.3f;
++                v[i].y += dy / d * 0.3f;
++            }
++        }
++    }
+     // the texels the polygon spans: its far edges' are not drawn (as the PS1)
+     if (u1 > u0) u1--;
+     if (v1 > v0) v1--;
+@@ -1590,7 +1609,7 @@ int Draw_PushPrim(u_long* packets, int max_len) {
+                     VRGBA(vertex_cur[3]) = VRGBA(vertex_cur[0]);
+             }
+ 
+-            PreciseApply(vertex_cur, nVertices);
++            PreciseApply(vertex_cur, nVertices, (code & 2) != 0);
+             SET_TC_ALL(vertex_cur, tpage, clut);
+             Draw_EnqueueBuffer(nVertices, nIndices);
+         } else {

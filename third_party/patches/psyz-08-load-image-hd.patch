@@ -1,0 +1,139 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+index 05969d8..0aafe09 100644
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -272,6 +272,21 @@ void Psyz_VideoSetDisplayRGB24Fill(int on);
+  */
+ void Psyz_VideoSetOverlay(const unsigned char* rgb, int w, int h, const int* rects, int n);
+ 
++/**
++ * @brief Put a larger picture where an image was just loaded into VRAM
++ *
++ * For sharper pictures than the game's: after LoadImage put the native image
++ * at (x, y, w, h) of VRAM, this picture (any size, scaled smoothly) replaces
++ * that rectangle of the renderer's upscaled VRAM, so what is drawn there
++ * next (and the display) shows it at the internal resolution. Native VRAM
++ * keeps the game's image. Does nothing (and returns 0) at internal resolution 1.
++ *
++ * @param x, y, w, h The VRAM rectangle, in native pixels
++ * @param rgb RGB888 pixels of the picture
++ * @param pw, ph Its size
++ */
++int Psyz_VideoLoadImageHD(int x, int y, int w, int h, const unsigned char* rgb, int pw, int ph);
++
+ /**
+  * @brief Dump the whole video memory plane as RGB888
+  *
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index d2b6d99..68a997d 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -733,6 +733,18 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+     return pixels;
+ }
+ 
++int Psyz_VideoLoadImageHD(int x, int y, int w, int h, const unsigned char* rgb, int pw, int ph) {
++    // not supported by this renderer
++    (void)x;
++    (void)y;
++    (void)w;
++    (void)h;
++    (void)rgb;
++    (void)pw;
++    (void)ph;
++    return 0;
++}
++
+ void Psyz_VideoSetOverlay(const unsigned char* rgb, int w, int h, const int* rects, int n) {
+     // not supported by this renderer
+     (void)rgb;
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index dd550b1..eb681da 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -1793,6 +1793,85 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
+     SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
+ }
+ 
++// a larger picture over a rectangle of the upscaled VRAM (Psyz_VideoLoadImageHD)
++static SDL_GPUTexture* hd_tex;
++static SDL_GPUTransferBuffer* hd_xfer;
++static int hd_w, hd_h;
++
++int Psyz_VideoLoadImageHD(int x, int y, int w, int h, const unsigned char* rgb, int pw, int ph) {
++    if (internal_res <= 1 || !scaled_vram_render || !rgb || pw <= 0 || ph <= 0 || w <= 0 || h <= 0 ||
++        x < 0 || y < 0 || x + w > VRAM_W || y + h > VRAM_H) {
++        return 0;
++    }
++    if (!hd_tex || hd_w != pw || hd_h != ph) {
++        if (hd_tex) {
++            SDL_ReleaseGPUTexture(device, hd_tex);
++        }
++        if (hd_xfer) {
++            SDL_ReleaseGPUTransferBuffer(device, hd_xfer);
++        }
++        const SDL_GPUTextureCreateInfo tex_info = {
++            .type = SDL_GPU_TEXTURETYPE_2D,
++            .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
++            .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
++            .width = (Uint32)pw,
++            .height = (Uint32)ph,
++            .layer_count_or_depth = 1,
++            .num_levels = 1,
++        };
++        const SDL_GPUTransferBufferCreateInfo xfer_info = {
++            .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
++            .size = (Uint32)(pw * ph * 4),
++        };
++        hd_tex = SDL_CreateGPUTexture(device, &tex_info);
++        hd_xfer = SDL_CreateGPUTransferBuffer(device, &xfer_info);
++        if (!hd_tex || !hd_xfer) {
++            ERRORF("HD image texture: %s", SDL_GetError());
++            hd_tex = NULL;
++            hd_xfer = NULL;
++            return 0;
++        }
++        hd_w = pw;
++        hd_h = ph;
++    }
++    SDL_GPUCommandBuffer* cmd = AcquireCmd();
++    if (!cmd) {
++        return 0;
++    }
++    u8* map = SDL_MapGPUTransferBuffer(device, hd_xfer, true);
++    if (!map) {
++        return 0;
++    }
++    for (size_t i = 0; i < (size_t)pw * ph; i++) {
++        map[i * 4 + 0] = rgb[i * 3 + 0];
++        map[i * 4 + 1] = rgb[i * 3 + 1];
++        map[i * 4 + 2] = rgb[i * 3 + 2];
++        map[i * 4 + 3] = 255;
++    }
++    SDL_UnmapGPUTransferBuffer(device, hd_xfer);
++    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
++    const SDL_GPUTextureTransferInfo src = {
++        .transfer_buffer = hd_xfer,
++        .pixels_per_row = (Uint32)pw,
++        .rows_per_layer = (Uint32)ph,
++    };
++    const SDL_GPUTextureRegion dst = {.texture = hd_tex, .w = (Uint32)pw, .h = (Uint32)ph, .d = 1};
++    SDL_UploadToGPUTexture(copy, &src, &dst, true);
++    SDL_EndGPUCopyPass(copy);
++    const SDL_GPUBlitInfo blit = {
++        .source = {.texture = hd_tex, .w = (Uint32)pw, .h = (Uint32)ph},
++        .destination = {.texture = scaled_vram_render,
++                        .x = (Uint32)(x * internal_res),
++                        .y = (Uint32)(y * internal_res),
++                        .w = (Uint32)(w * internal_res),
++                        .h = (Uint32)(h * internal_res)},
++        .load_op = SDL_GPU_LOADOP_LOAD,
++        .filter = SDL_GPU_FILTER_LINEAR,
++    };
++    SDL_BlitGPUTexture(cmd, &blit);
++    return 1;
++}
++
+ void Draw_StoreImage(PS1_RECT* rect, u_long* p) {
+     if (rect->w == 0 || rect->h == 0) {
+         return;

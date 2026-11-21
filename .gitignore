@@ -1,0 +1,24 @@
+# Retail game files
+ROMs/
+# Third-party tools (own checkouts)
+tools/m2c/
+tools/splat/
+tools/llvm-mingw/
+# PC version of TM2 (own install, reference only)
+references/TM2-PC-Version/
+# OpenPete source (its lead's copy, MIT; reference only)
+references/OpenPete-SourceCode/
+# Mods kept for study
+references/mods/
+__pycache__/
+*.pyc
+# Content extracted from the retail disc (tools/disc)
+extracted/
+# Generated build output
+build/
+references/art/
+# Flexure (T26): the glyph atlas is in git by T26's permission (assets/fonts/Flexure-NOTICE.txt); never any font file
+*.otf
+[Ff][Ll][Ee][Xx][Uu][Rr][Ee]*.ttf
+# The Rogue Trip partial decomp (its own repository, a separate checkout)
+references/Rogue-Trip-Vacation-2012-Decomp/

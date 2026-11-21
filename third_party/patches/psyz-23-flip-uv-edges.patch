@@ -1,0 +1,39 @@
+diff --git a/psyz/src/platform/sdl3_common.h b/psyz/src/platform/sdl3_common.h
+index 1b3b6f5..8f8dfa8 100644
+--- a/psyz/src/platform/sdl3_common.h
++++ b/psyz/src/platform/sdl3_common.h
+@@ -1131,9 +1131,13 @@ static int writePacket(Vertex* v, int code, int n, u_long* packet, u16* pOut) {
+     return w;
+ }
+ 
++// An edge tells the texture's direction only where both its screen and its texture coordinate change: a 3D polygon's
++// edge level in the texture (one row of texels) but a pixel off level on the screen counted as flipped, the texture
++// shifted a texel, on and off as the camera moved (Hong Kong's temple wall: its beam stepping between panels).
++#define FLIP_EDGE(a, b, p, t) (v[a].p != v[b].p && v[a].t != v[b].t && ((v[a].p > v[b].p) ^ (v[a].t > v[b].t)))
+ static void FixupFlipUV(Vertex* v, int hasFourVertices) {
+-    bool fix_u = (v[0].x > v[1].x) ^ (v[0].u > v[1].u);
+-    fix_u |= (v[0].x > v[2].x) ^ (v[0].u > v[2].u);
++    bool fix_u = FLIP_EDGE(0, 1, x, u);
++    fix_u |= FLIP_EDGE(0, 2, x, u);
+     if (fix_u) {
+         v[0].u++;
+         v[1].u++;
+@@ -1143,8 +1147,8 @@ static void FixupFlipUV(Vertex* v, int hasFourVertices) {
+         }
+     }
+ 
+-    bool fix_v = (v[0].y > v[1].y) ^ (v[0].v > v[1].v);
+-    fix_v |= (v[0].y > v[2].y) ^ (v[0].v > v[2].v);
++    bool fix_v = FLIP_EDGE(0, 1, y, v);
++    fix_v |= FLIP_EDGE(0, 2, y, v);
+     if (fix_v) {
+         v[0].v++;
+         v[1].v++;
+@@ -1154,6 +1158,7 @@ static void FixupFlipUV(Vertex* v, int hasFourVertices) {
+         }
+     }
+ }
++#undef FLIP_EDGE
+ 
+ static inline bool is_subtract_abr(const Vertex* v) {
+     return v->a == 0x80 && (v->t & 0x60) == 0x40;

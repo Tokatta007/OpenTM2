@@ -1,0 +1,14 @@
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -855,7 +855,9 @@
+                     // vertical bars around the game output are black
+                     .load_op = SDL_GPU_LOADOP_CLEAR,
+                     .clear_color = {0.0f, 0.0f, 0.0f, 1.0f},
+-                    .filter = SDL_GPU_FILTER_NEAREST,
++                    // the 24-bit picture (video) is scaled smoothly, VRAM pixel-sharp
++                    .filter = display24 && !debug_show_vram ? SDL_GPU_FILTER_LINEAR
++                                                            : SDL_GPU_FILTER_NEAREST,
+                 };
+                 SDL_BlitGPUTexture(cmd, &blit);
+             }

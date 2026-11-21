@@ -1,0 +1,56 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+index 0aafe09..4a1bbbe 100644
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -287,6 +287,15 @@ void Psyz_VideoSetOverlay(const unsigned char* rgb, int w, int h, const int* rec
+  */
+ int Psyz_VideoLoadImageHD(int x, int y, int w, int h, const unsigned char* rgb, int pw, int ph);
+ 
++/**
++ * @brief Present the game's picture at another aspect ratio
++ *
++ * For a wider view than 4:3: the game draws squeezed horizontally (its own
++ * camera), and its picture is presented stretched to this aspect ratio
++ * (width / height), centered. 0 gives the display's aspect back.
++ */
++void Psyz_VideoSetGameAspect(float aspect);
++
+ /**
+  * @brief Dump the whole video memory plane as RGB888
+  *
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index 68a997d..0ea7c3a 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -733,6 +733,8 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+     return pixels;
+ }
+ 
++void Psyz_VideoSetGameAspect(float aspect) { (void)aspect; }
++
+ int Psyz_VideoLoadImageHD(int x, int y, int w, int h, const unsigned char* rgb, int pw, int ph) {
+     // not supported by this renderer
+     (void)x;
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index eb681da..b05d8f5 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -690,6 +690,8 @@ static void ApplyPendingInternalRes(void) {
+ static u8* rgb24_pixels; // RGBA8888
+ static int rgb24_w, rgb24_h, rgb24_dirty;
+ static int rgb24_fill; // fitted at its own aspect ratio, not the display's
++static float game_aspect_override; // Psyz_VideoSetGameAspect
++void Psyz_VideoSetGameAspect(float aspect) { game_aspect_override = aspect > 0 ? aspect : 0; }
+ 
+ void Psyz_VideoSetDisplayRGB24Fill(int on) { rgb24_fill = on; }
+ static SDL_GPUTexture* rgb24_tex;
+@@ -949,6 +951,9 @@ static void PlatformBackend_Present(void) {
+                 };
+                 float game_aspect =
+                     GetCurrentGameAspectRatio(display_size.x, display_size.y);
++                if (game_aspect_override > 0) {
++                    game_aspect = game_aspect_override;
++                }
+                 if (debug_show_vram) {
+                     src.x = 0;
+                     src.y = 0;

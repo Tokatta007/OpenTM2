@@ -1,0 +1,91 @@
+Skins: a new look for an existing car
+=====================================
+
+A skin replaces how one of the game's cars looks in a match: its model and its textures. Everything else stays that
+car's: its stats, its special weapon, its sounds and its hit box. So a skin never changes how the car plays, and it
+cannot make a car stronger.
+
+
+Making one
+----------
+1. Run tm2pc.exe --new-mod skin spectre-gold: it makes mods\skins\spectre-gold with a mod.ini, its id and a new
+   uid filled in. (Or copy this _TEMPLATE folder there and make a uid yourself: ../../README.txt.)
+2. Edit mod.ini: your name for it, your name, and the car it is for (see "The cars" below).
+3. Add the two files below.
+4. Run tm2pc.exe --check-mod mods\skins\spectre-gold until it prints OK.
+5. Start the game. In car select, highlight its car and press Select: each press shows the car's next look (its
+   own, then each of its skins that is on). Options > Mods turns each skin on or off.
+
+
+Files
+-----
+    mod.ini         the manifest (../../README.txt) and [skin] car = <the car>
+    car.dmd         the car's model, in the game's own format (as the disc's DMD\<code>.DMD)
+    car.tms         the car's textures, in the game's own format (as the disc's TMS\<code>.TMS)
+
+Optional, as a pair:
+    carselect.dmd, carselect.tms     the car turning in car select (without them, car.dmd / car.tms)
+
+Optional pictures (BMP; without them the car's own are shown):
+    portrait_1.bmp   the driver's portrait in car select: 64 x 128, or larger in the same shape (128 x 256 ...)
+    portrait_2.bmp   the same once the car is chosen (the game shows a second portrait)
+    carinfo.bmp      the CAR INFO screen (the car's ratings and story): 640 x 480
+    plate.bmp        the car's picture in the match line-up and the lobby: 128 x 64, or larger in the same shape
+
+Both car.dmd and car.tms are needed. A skin that only recolors the car still ships the car's own car.dmd beside its
+new car.tms.
+
+
+Recoloring a car (the easiest skin)
+-----------------------------------
+A car's TMS file is a pack of PlayStation TIM images, each with its palettes (CLUTs). Changing the palette colors
+recolors the car without touching its shape:
+
+- Take the car's DMD and TMS from your own disc (DMD\SP.DMD and TMS\SP.TMS for Spectre).
+- Edit the palettes of the TIM images inside the TMS with a TIM editor, keeping each image's size, bit depth and
+  place. Color 0 (all zero) is see-through: keep it.
+- Save the result as car.tms, and the unchanged DMD as car.dmd.
+
+The game's file codes: HH Hammerhead, OT Outlaw 2, WH Warthog, MG Mr. Grimm, PV Grasshopper, TH Thumper,
+SP Spectre, RK Roadkill, IR Twister, AX Axel, FL Mr. Slam, HS Shadow, ST Sweet Tooth, MN Minion, BB Dark Tooth.
+
+Team colors
+-----------
+In team games the game repaints part of each car in its team's color (red, blue, green or yellow): some palette
+entries of the car's body texture, the first picture in its TMS, shifted to the team's color, while the windows,
+tires, weapons and driver keep theirs. List your car's paint entries in mod.ini, under [skin]:
+
+    team_paint = 16-47, 80, 82-95     ; palette entries 0..255 of car.tms's first picture
+
+Keep the paint in palette entries of its own (not shared with the glass or the tires), so only the paint turns.
+Without team_paint the car keeps its own colors in team games.
+
+
+A new model
+-----------
+A different body is possible, with limits:
+
+- The game finds parts of a car's model by number (the special weapon's objects, moving parts such as Axel's
+  wheels or Mr. Slam's arm, the damage looks). Start from the car's own DMD and change its meshes, keeping its node
+  tree and numbers, or those parts go missing.
+- Keep it about the same size as the original (within about 15%). The hit box stays the original car's, so a much
+  bigger body would be hit through and a much smaller one would be hit by nothing.
+- A car with its own size, stats or special is a character, not a skin (../../characters/_TEMPLATE/GUIDE.txt).
+
+A converter from common 3D formats is planned; until then a new model needs a tool that writes the game's DMD format.
+
+
+The cars
+--------
+[skin] car = one of:
+    Hammerhead, Outlaw 2, Warthog, Mr. Grimm, Grasshopper, Thumper, Spectre, Roadkill, Twister, Axel, Mr. Slam,
+    Shadow, Sweet Tooth, Minion, Dark Tooth
+
+
+Limits now
+----------
+- Online, a server uses the host's skins that are on; joining asks to download the ones you lack.
+- Every player picks with Select, in every car select. Computer cars always use the original look.
+- On a Playlist server, the vote screen between matches has each player's car: Up and Down step through its skins
+  (only the ones the server has, so everyone can load them).
+- Up to 128 skins can be installed. Each match loads only the skins its players picked.

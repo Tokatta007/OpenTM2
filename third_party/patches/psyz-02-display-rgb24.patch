@@ -1,0 +1,189 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+index ca7300e..d4f6d5d 100644
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -231,6 +231,20 @@ int Psyz_VideoStats(PsyzVideoStats* stats);
+  */
+ unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h);
+ 
++/**
++ * @brief Show an RGB888 image instead of the display area (24-bit display)
++ *
++ * The renderer does not decode the PS1's 24-bit display mode; the caller
++ * decodes the displayed VRAM area and passes the picture here before each
++ * present. It is shown, scaled like the normal display, until called with
++ * NULL.
++ *
++ * @param rgb RGB888 pixels (copied), or NULL to show VRAM again
++ * @param w Width in pixels
++ * @param h Height in pixels
++ */
++void Psyz_VideoSetDisplayRGB24(const unsigned char* rgb, int w, int h);
++
+ /**
+  * @brief Dump the whole video memory plane as RGB888
+  *
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index d6f60f4..d1b70e7 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -733,6 +733,13 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+     return pixels;
+ }
+ 
++void Psyz_VideoSetDisplayRGB24(const unsigned char* rgb, int w, int h) {
++    // not supported by this renderer: the display area is shown as 15-bit
++    (void)rgb;
++    (void)w;
++    (void)h;
++}
++
+ unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h) {
+     *w = display_size.x;
+     *h = display_size.y;
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index 1d8ba47..63bd67b 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -686,6 +686,99 @@ static void ApplyPendingInternalRes(void) {
+     INFOF("internal resolution set to %dx (%dx%d)", n, VRAM_W * n, VRAM_H * n);
+ }
+ 
++// 24-bit display: an RGB picture from the caller replaces the display area
++static u8* rgb24_pixels; // RGBA8888
++static int rgb24_w, rgb24_h, rgb24_dirty;
++static SDL_GPUTexture* rgb24_tex;
++static SDL_GPUTransferBuffer* rgb24_xfer;
++static int rgb24_tex_w, rgb24_tex_h;
++
++void Psyz_VideoSetDisplayRGB24(const unsigned char* rgb, int w, int h) {
++    if (!rgb || w <= 0 || h <= 0) {
++        rgb24_w = rgb24_h = 0;
++        return;
++    }
++    if (w != rgb24_w || h != rgb24_h) {
++        free(rgb24_pixels);
++        rgb24_pixels = malloc((size_t)w * h * 4);
++        if (!rgb24_pixels) {
++            rgb24_w = rgb24_h = 0;
++            return;
++        }
++    }
++    rgb24_w = w;
++    rgb24_h = h;
++    for (size_t i = 0; i < (size_t)w * h; i++) {
++        rgb24_pixels[i * 4 + 0] = rgb[i * 3 + 0];
++        rgb24_pixels[i * 4 + 1] = rgb[i * 3 + 1];
++        rgb24_pixels[i * 4 + 2] = rgb[i * 3 + 2];
++        rgb24_pixels[i * 4 + 3] = 255;
++    }
++    rgb24_dirty = 1;
++}
++
++// Uploads the 24-bit picture if there is one; returns its texture or NULL.
++static SDL_GPUTexture* UploadRgb24(SDL_GPUCommandBuffer* cmd) {
++    if (!rgb24_w) {
++        return NULL;
++    }
++    if (!rgb24_tex || rgb24_tex_w != rgb24_w || rgb24_tex_h != rgb24_h) {
++        if (rgb24_tex) {
++            SDL_ReleaseGPUTexture(device, rgb24_tex);
++        }
++        if (rgb24_xfer) {
++            SDL_ReleaseGPUTransferBuffer(device, rgb24_xfer);
++        }
++        const SDL_GPUTextureCreateInfo tex_info = {
++            .type = SDL_GPU_TEXTURETYPE_2D,
++            .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
++            .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
++            .width = (Uint32)rgb24_w,
++            .height = (Uint32)rgb24_h,
++            .layer_count_or_depth = 1,
++            .num_levels = 1,
++        };
++        const SDL_GPUTransferBufferCreateInfo xfer_info = {
++            .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
++            .size = (Uint32)(rgb24_w * rgb24_h * 4),
++        };
++        rgb24_tex = SDL_CreateGPUTexture(device, &tex_info);
++        rgb24_xfer = SDL_CreateGPUTransferBuffer(device, &xfer_info);
++        if (!rgb24_tex || !rgb24_xfer) {
++            ERRORF("24-bit display texture: %s", SDL_GetError());
++            rgb24_w = rgb24_h = 0;
++            return NULL;
++        }
++        rgb24_tex_w = rgb24_w;
++        rgb24_tex_h = rgb24_h;
++        rgb24_dirty = 1;
++    }
++    if (rgb24_dirty) {
++        u8* map = SDL_MapGPUTransferBuffer(device, rgb24_xfer, true);
++        if (!map) {
++            return NULL;
++        }
++        memcpy(map, rgb24_pixels, (size_t)rgb24_w * rgb24_h * 4);
++        SDL_UnmapGPUTransferBuffer(device, rgb24_xfer);
++        SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
++        const SDL_GPUTextureTransferInfo src = {
++            .transfer_buffer = rgb24_xfer,
++            .pixels_per_row = (Uint32)rgb24_w,
++            .rows_per_layer = (Uint32)rgb24_h,
++        };
++        const SDL_GPUTextureRegion dst = {
++            .texture = rgb24_tex,
++            .w = (Uint32)rgb24_w,
++            .h = (Uint32)rgb24_h,
++            .d = 1,
++        };
++        SDL_UploadToGPUTexture(copy, &src, &dst, true);
++        SDL_EndGPUCopyPass(copy);
++        rgb24_dirty = 0;
++    }
++    return rgb24_tex;
++}
++
+ static void PlatformBackend_Present(void) {
+     if (!sdl3_window && !InitPlatform()) {
+         return;
+@@ -701,6 +794,7 @@ static void PlatformBackend_Present(void) {
+     if (!cmd) {
+         return;
+     }
++    SDL_GPUTexture* display24 = UploadRgb24(cmd);
+     if (swapchain_ok) {
+         SDL_GPUTexture* swapchain = NULL;
+         Uint32 sc_w = 0, sc_h = 0;
+@@ -736,6 +830,12 @@ static void PlatformBackend_Present(void) {
+                     src.w = VRAM_W * n;
+                     src.h = VRAM_H * n;
+                     game_aspect = (float)VRAM_W / (float)VRAM_H;
++                } else if (display24) {
++                    src.texture = display24;
++                    src.x = 0;
++                    src.y = 0;
++                    src.w = (Uint32)rgb24_w;
++                    src.h = (Uint32)rgb24_h;
+                 }
+ 
+                 WndSize win = {(int)sc_w, (int)sc_h};
+@@ -927,6 +1027,20 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+ }
+ 
+ unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h) {
++    if (rgb24_w) {
++        unsigned char* rgb = malloc((size_t)rgb24_w * rgb24_h * 3);
++        if (!rgb) {
++            return NULL;
++        }
++        for (size_t i = 0; i < (size_t)rgb24_w * rgb24_h; i++) {
++            rgb[i * 3 + 0] = rgb24_pixels[i * 4 + 0];
++            rgb[i * 3 + 1] = rgb24_pixels[i * 4 + 1];
++            rgb[i * 3 + 2] = rgb24_pixels[i * 4 + 2];
++        }
++        *w = rgb24_w;
++        *h = rgb24_h;
++        return rgb;
++    }
+     *w = display_size.x;
+     *h = display_size.y;
+     return AllocRgb888Region(display_area.x, display_area.y, *w, *h);

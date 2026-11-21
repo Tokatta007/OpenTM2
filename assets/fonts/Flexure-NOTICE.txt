@@ -1,0 +1,16 @@
+Flexure glyph atlas: used by permission of T26
+==============================================
+
+flexure.atlas (the menu lettering's glyph atlas and glyph metrics) is made from the Flexure typeface, and is used by
+permission of T26 Digital Type Foundry (www.t26.com), under a Non-Commercial Game License Extension issued for
+this Twisted Metal 2 port.
+
+It is NOT covered by this project's open-source license, nor by the SIL Open Font License of the other fonts in this
+folder.
+
+- It may be used only in this Twisted Metal 2 port and its derivatives (its forks, community builds, mods and
+  builds for other platforms), as long as the game stays free and non-commercial.
+- It may not be taken out and used as a font, or in any other game, application or project.
+- No Flexure font file is part of this project or its releases, and none may be added.
+
+Flexure is a typeface of T26 Digital Type Foundry.

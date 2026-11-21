@@ -1,0 +1,83 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -322,6 +322,14 @@ void Psyz_VideoSetGameAspect(float aspect);
+ void Psyz_VideoSetWindowMode(int mode);
+ int Psyz_VideoGetWindowMode(void);
+ 
++/**
++ * @brief The display mode of exclusive fullscreen: w x h at hz (the closest
++ * the display has), or 0, 0, 0 for the desktop's mode (the default)
++ *
++ * Applied at once when exclusive fullscreen is on.
++ */
++void Psyz_VideoSetFullscreenMode(int w, int h, float hz);
++
+ /**
+  * @brief Dump the whole video memory plane as RGB888
+  *
+diff --git a/psyz/src/platform/sdl3_common.h b/psyz/src/platform/sdl3_common.h
+--- a/psyz/src/platform/sdl3_common.h
++++ b/psyz/src/platform/sdl3_common.h
+@@ -56,6 +56,8 @@ static bool debug_show_vram = false;
+ #ifndef PLATFORM_IOS
+ static int window_mode = 0;     // 0 window, 1 borderless fullscreen, 2 exclusive fullscreen
+ static int fullscreen_kind = 1; // what F4 goes to
++static int fullscreen_w, fullscreen_h; // exclusive fullscreen's mode (0: the desktop's)
++static float fullscreen_hz;
+ static bool window_shown = false;
+ #endif
+ 
+@@ -861,9 +863,15 @@ static void ApplyWindowMode(void) {
+             }
+             const SDL_DisplayMode* desktop =
+                 SDL_GetDesktopDisplayMode(display_id);
+-            if (desktop && SDL_GetClosestFullscreenDisplayMode(
+-                               display_id, desktop->w, desktop->h,
+-                               desktop->refresh_rate, false, &closest)) {
++            int w = fullscreen_w, h = fullscreen_h;
++            float hz = fullscreen_hz;
++            if (!w && desktop) {
++                w = desktop->w;
++                h = desktop->h;
++                hz = desktop->refresh_rate;
++            }
++            if (w && SDL_GetClosestFullscreenDisplayMode(
++                         display_id, w, h, hz, false, &closest)) {
+                 mode = &closest;
+             }
+         }
+@@ -926,9 +934,33 @@ void Psyz_VideoSetWindowMode(int mode) {
+ }
+ 
+ int Psyz_VideoGetWindowMode(void) { return window_mode; }
++
++void Psyz_VideoSetFullscreenMode(int w, int h, float hz) {
++    if (w <= 0 || h <= 0) {
++        w = h = 0;
++        hz = 0;
++    }
++    if (w == fullscreen_w && h == fullscreen_h && hz == fullscreen_hz) {
++        return;
++    }
++    fullscreen_w = w;
++    fullscreen_h = h;
++    fullscreen_hz = hz;
++    if (window_mode == 2 && window_shown) { // through a window, as between fullscreen kinds
++        window_mode = 0;
++        ApplyWindowMode();
++        window_mode = 2;
++        ApplyWindowMode();
++    }
++}
+ #else
+ void Psyz_VideoSetWindowMode(int mode) { (void)mode; }
+ int Psyz_VideoGetWindowMode(void) { return 1; }
++void Psyz_VideoSetFullscreenMode(int w, int h, float hz) {
++    (void)w;
++    (void)h;
++    (void)hz;
++}
+ #endif
+ 
+ static void PollEvents(void) {

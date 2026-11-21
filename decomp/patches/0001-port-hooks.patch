@@ -1,0 +1,486 @@
+diff --git a/config/US/port_variant_arrays.tsv b/config/US/port_variant_arrays.tsv
+--- a/config/US/port_variant_arrays.tsv
++++ b/config/US/port_variant_arrays.tsv
+@@ -48,6 +48,7 @@ hudRadarArrowRightSprites	80183ED8	8	2	huds	bss	linear	bss	arrow image per HUD
+ sessionPortHumanCars	-	1	0	humans-2	bss	new	-	car-select index of players 3..N (settings.h); no retail storage (FOUR_HUMANS.md 5.2)
+ portFarLod	-	4	0	one	bss	new	-	far-LOD switch the port sets from its settings: 0 retail, non-zero = LOD nodes keep their farthest band past its end (request 30, FAR_LOD.md; acts only with --port-define TM2_PORT_FAR_LOD)
+ portFarLodTable	-	16388	0	one	bss	new	-	the LOD records the far-LOD switch extends in this match: count, record pointers, retail maxes (2048 entries; request 30, FAR_LOD.md; filled only with TM2_PORT_FAR_LOD)
++portConfig	-	64	0	one	bss	new	-	the PC port's settings for its own changes (port_hooks.h, -DTM2_PORT_HOOKS)
+ portFarDistance	-	4	0	one	bss	new	-	far distance the port sets from its settings: 0 retail (renderFarDistanceDefault, 4800), else world units 1..32767 for the normal views; also turns on the GTE range pass and the effect culls (request 31, FAR_DISTANCE.md; acts only with --port-define TM2_PORT_FAR_DISTANCE)
+ portMeshListCap	-	4	0	one	bss	new	-	meshes queued per view: 0 retail (280, renderMeshList), else up to 2048 in portMeshList (request 31, FAR_DISTANCE.md; acts only with TM2_PORT_FAR_DISTANCE)
+ portPacketBufferBytes	-	4	0	one	bss	new	-	packet bytes per frame buffer: 0 retail (0x17CF0 in renderPacketBuffer0/1), else up to 390320 in portPacketBuffers (request 31, FAR_DISTANCE.md; acts only with TM2_PORT_FAR_DISTANCE)
+diff --git a/src/semantic/bitmap_init.c b/src/semantic/bitmap_init.c
+--- a/src/semantic/bitmap_init.c
++++ b/src/semantic/bitmap_init.c
+@@ -7,6 +7,7 @@ extern void bitmapSetupStorage(void);
+ /* bitmapMarkRect is void (v0 at its return is left over from its last call), but retail
+  * returns the last call's result here, so this unit keeps the int-returning view it was compiled with. */
+ extern s32 bitmapMarkRect(s32 x, s32 y, s32 width, s32 height);
++#include "semantic/port_hooks.h"
+ #if defined(TM2_PORT_TEXTURE_BANKS) || defined(TM2_PORT_CAR_CLUTS) || defined(TM2_PORT_DARK_TOOTH)
+ #include "semantic/tex_banks.h"   /* request 32 step 4; car_cluts.h: request 33-1 and 33-2e's rows 240..255 */
+ #endif
+diff --git a/src/semantic/camera.c b/src/semantic/camera.c
+--- a/src/semantic/camera.c
++++ b/src/semantic/camera.c
+@@ -34,6 +34,11 @@ extern s16 viewCameraZeroRotation[];
+ extern int GetCurTics(void);
+ extern void viewSetCameraPose(s32 i, s32 *pos, s16 *rot);
+ extern struct TM2AIRecord *aiGetWatchedCar(void);
++#include "semantic/port_hooks.h"
++#ifdef TM2_PORT_HOOKS
++extern s32 viewSplitScreenMode;
++extern void *viewCameraObjects[];
++#endif
+ extern int viewGetSplitMode(void);
+ extern void mathMulTransVec(MATRIX *, s32 *, s32 *);
+ extern long sub_8013FC44(long);
+@@ -52,6 +57,19 @@ int mathEase(int cur, int target, int p);
+ /* @80102BE8 */
+ void __attribute__((section(".text_80102BE8"))) viewCarCameraUpdate(struct TM2HumanRecord *c, s32 i)
+ {
++#ifdef TM2_PORT_HOOKS
++    /* the port's views 3-4: none made, nothing to place (viewSetRotation has no guard); with 3-4 players
++       each view's chase offsets are its shape's: player 1's half with 3 (side by side or top/bottom),
++       a quarter as one view */
++    s32 split_saved = viewSplitScreenMode, shaped = 0;
++
++    if (i >= 2 && viewCameraObjects[i & 3] == 0)
++        return;
++    if (portConfig.humans > 2 && viewSplitScreenMode == 2 && i >= 0 && i <= 3) {
++        viewSplitScreenMode = (i == 0 && portConfig.humans == 3) ? (portConfig.left ? 1 : 2) : 0;
++        shaped = 1;
++    }
++#endif
+     GetCurTics();
+     switch (c->view) {
+     case 1:
+@@ -79,6 +97,10 @@ void __attribute__((section(".text_80102BE8"))) viewCarCameraUpdate(struct TM2Hu
+     viewSetPosition(c->cam_pos, c->player);
+ #endif
+     GetCurTics();
++#ifdef TM2_PORT_HOOKS
++    if (shaped)
++        viewSplitScreenMode = split_saved;
++#endif
+ }
+ 
+ /* @80102CC4: chase camera. */
+diff --git a/src/semantic/car_damage.c b/src/semantic/car_damage.c
+--- a/src/semantic/car_damage.c
++++ b/src/semantic/car_damage.c
+@@ -19,6 +19,7 @@
+  * The stats, state and weapon blocks are the car record's (human +0x14C /
+  * +0x9C / +0x7C8, AI +0x4FC / +0x6C / +0x808), as in car_motion.c. */
+ #include "semantic/weapons.h"
++#include "semantic/port_hooks.h"
+ #include "semantic/car_groups.h"
+ #ifdef TM2_PORT_DARK_TOOTH
+ #include "semantic/car_specials.h"   /* request 33-2e (CAR_GROUPS.md 11) */
+diff --git a/src/semantic/car_object_contact.c b/src/semantic/car_object_contact.c
+--- a/src/semantic/car_object_contact.c
++++ b/src/semantic/car_object_contact.c
+@@ -74,6 +74,7 @@ extern void fxExplosion96(void *pos, u8 flag);
+ extern s32 *mathJitterPos(void *pos, s32, s32, s32);
+ extern void fxSheetStart(s32 time, s32 r, s32 g, s32 b);
+ #include "semantic/sound.h"
++#include "semantic/port_hooks.h"
+ extern void *RotMatrixYXZ(s16 *rot, void *m);
+ extern s32 rand(void);
+ extern void debrisBurstAt(s32, void *, s16 *, s16 *, s32 *, s32, s32, s32, s32);
+diff --git a/src/semantic/car_restart.c b/src/semantic/car_restart.c
+--- a/src/semantic/car_restart.c
++++ b/src/semantic/car_restart.c
+@@ -33,6 +33,7 @@ extern s32 humanCarCount(void);
+ extern u8 worldSectionHasMovingSurfaces(s32);
+ extern void humanCarPlaceAtStart(struct TM2HumanRecord *human);
+ #include "semantic/weapon_calls.h"
++#include "semantic/port_hooks.h"
+ #ifdef TM2_PORT_DARK_TOOTH
+ #include "semantic/car_groups.h"
+ #include "semantic/car_specials.h"   /* request 33-2e (CAR_GROUPS.md 11) */
+diff --git a/src/semantic/fx_explosions.c b/src/semantic/fx_explosions.c
+--- a/src/semantic/fx_explosions.c
++++ b/src/semantic/fx_explosions.c
+@@ -54,6 +54,7 @@ extern s32 rand(void);
+ extern s32 lightGetEnv(s32);
+ extern s32 objPoolGetStep(s32);
+ #include "semantic/world.h"
++#include "semantic/port_hooks.h"
+ #include "semantic/port_balance.h"
+ 
+ /* request 102 item 3 (portBalance bit 30, BALANCE.md 23): an explosion far from the one that last sounded sounds
+@@ -228,6 +229,10 @@ u8 __attribute__((section(".text_8011B7D8"))) aiCarShouldUpdate(s32 i)
+     u8 r = 1;
+     s32 v;
+ 
++#ifdef TM2_PORT_HOOKS
++    if (portConfig.ai_vs_ai) /* the port's AI vs AI: every live car drives, near a human or not */
++        return aiCars[i].wreck_state != 4;
++#endif
+     if (gameAttractDemoMode == 0) {
+         if (aiCars[i].wreck_state == 4)
+             goto no;
+diff --git a/src/semantic/port_variant_arrays.c b/src/semantic/port_variant_arrays.c
+--- a/src/semantic/port_variant_arrays.c
++++ b/src/semantic/port_variant_arrays.c
+@@ -115,6 +115,33 @@ int viewModeTable[TM2_MAX_VIEW_MODES][96 / 4] PORT_DATA = {
+         0x092DF2E5, 0x00000000, 0x092D0D1B, 0x00000000, 0x0FFF0000, 0x00000000,
+         0x05960000, 0x0000F102, 0x05960000, 0x00000EFE, 0xF0010000, 0x00000000,
+     },
++#ifdef TM2_PORT_HOOKS
++    /* the PC port's quarter views (3-4 players): row 1 at half size (H 114, 160x120) in each quarter */
++    { /* 9: quarter 1 (0, 0) */
++        0x00000046, 0x00000037, 0x00000072, 0x00000072, 0x00000140, 0x000000F0,
++        0x000000A0, 0x00000078, 0x00000000, 0x00000000, 0x0E6A1000, 0x00000E6A,
++        0x092DF2E5, 0x00000000, 0x092D0D1B, 0x00000000, 0x0FFF0000, 0x00000000,
++        0x07700000, 0x0000F1D6, 0x07700000, 0x00000E2A, 0xF0010000, 0x00000000,
++    },
++    { /* 10: quarter 2 (160, 0) */
++        0x00000046, 0x00000037, 0x00000072, 0x00000072, 0x00000140, 0x000000F0,
++        0x000000A0, 0x00000078, 0x000000A0, 0x00000000, 0x0E6A1000, 0x00000E6A,
++        0x092DF2E5, 0x00000000, 0x092D0D1B, 0x00000000, 0x0FFF0000, 0x00000000,
++        0x07700000, 0x0000F1D6, 0x07700000, 0x00000E2A, 0xF0010000, 0x00000000,
++    },
++    { /* 11: quarter 3 (0, 120) */
++        0x00000046, 0x00000037, 0x00000072, 0x00000072, 0x00000140, 0x000000F0,
++        0x000000A0, 0x00000078, 0x00000000, 0x00000078, 0x0E6A1000, 0x00000E6A,
++        0x092DF2E5, 0x00000000, 0x092D0D1B, 0x00000000, 0x0FFF0000, 0x00000000,
++        0x07700000, 0x0000F1D6, 0x07700000, 0x00000E2A, 0xF0010000, 0x00000000,
++    },
++    { /* 12: quarter 4 (160, 120) */
++        0x00000046, 0x00000037, 0x00000072, 0x00000072, 0x00000140, 0x000000F0,
++        0x000000A0, 0x00000078, 0x000000A0, 0x00000078, 0x0E6A1000, 0x00000E6A,
++        0x092DF2E5, 0x00000000, 0x092D0D1B, 0x00000000, 0x0FFF0000, 0x00000000,
++        0x07700000, 0x0000F1D6, 0x07700000, 0x00000E2A, 0xF0010000, 0x00000000,
++    },
++#endif
+ };
+ 
+ /* ---- zero (.port_bss) ---- */
+@@ -719,6 +746,10 @@ void PORT_TEXT portFarLodEnd(void)
+     }
+ }
+ #endif /* TM2_PORT_FAR_LOD */
++#ifdef TM2_PORT_HOOKS
++/* the PC port's settings for its own changes (include/semantic/port_hooks.h) */
++int portConfig[64 / 4] PORT_BSS = {0};
++#endif
+ 
+ /* ---- far distance (PC port request 31, docs/FAR_DISTANCE.md) ---- */
+ /* The port's settings, all 0 = retail. They act only in a build with --port-define
+diff --git a/src/semantic/projectile_hit.c b/src/semantic/projectile_hit.c
+--- a/src/semantic/projectile_hit.c
++++ b/src/semantic/projectile_hit.c
+@@ -74,6 +74,7 @@ extern void fxSmokeA48(void *, s32);
+ extern s32 worldGroundHeightAt(void *);
+ extern void groundFireSpawn(void *);
+ #include "semantic/weapon_calls.h"
++#include "semantic/port_hooks.h"
+ #ifdef TM2_PORT_DARK_TOOTH
+ #include "semantic/car_groups.h"
+ #include "semantic/car_specials.h"   /* request 33-2e (CAR_GROUPS.md 11) */
+diff --git a/src/semantic/rt_main.c b/src/semantic/rt_main.c
+--- a/src/semantic/rt_main.c
++++ b/src/semantic/rt_main.c
+@@ -13,6 +13,7 @@
+ #define renderView0Frames tm2_rt_record_array_view
+ #define D_80180EE4 tm2_rt_slot_array_view
+ #include "semantic/rt_buffers.h"
++#include "semantic/port_hooks.h"
+ #undef renderView0Frames
+ #undef D_80180EE4
+ #include "semantic/port_far_lod.h"
+@@ -198,6 +199,9 @@ loop:
+         RB_STEP(worldUpdate());
+ 
+         if (viewSplitScreenMode) {
++#ifdef TM2_PORT_HOOKS
++            portViewsDraw(); /* the PC port: views 2..N, one path for 2-4 players (src/port/port_views.c) */
++#else
+             buffer = &renderView1Frames;
+             if (renderBufferView1 == buffer)
+                 buffer++;
+@@ -209,6 +213,7 @@ loop:
+             debrisDraw(renderBufferView1);
+             fxSpritesDraw(renderBufferView1, 1);
+             renderScene(renderBufferView1, 1);
++#endif
+         } else if (rtRearViewActive) {
+             buffer = &renderMirrorFrames;
+             if (renderBufferRearView == buffer)
+@@ -235,6 +240,12 @@ loop:
+         PutDispEnv(&D_80180EE4->field_6C);
+         DrawOTag(D_80180EE4->field_0 + 4095);
+         if (!gameIsAttractDemo()) {
++#ifdef TM2_PORT_HOOKS
++            if (viewSplitScreenMode) /* the PC port: every split view and its HUD, one path for 2-4 players */
++                portViewsPresent(D_80180EE4 == first);
++            else
++                hudDrawSingleView(0, D_80180EE4 == first);
++#else
+             switch (viewSplitScreenMode) {
+             case 0:
+                 hudDrawSingleView(0, D_80180EE4 == first);
+@@ -252,6 +263,7 @@ loop:
+                 hudDrawSplitHorizontal(1, D_80180EE4 == first);
+                 break;
+             }
++#endif
+         }
+         if (rtRearViewActive) {
+             PutDrawEnv(&renderBufferRearView->field_10);
+diff --git a/src/semantic/scene_init.c b/src/semantic/scene_init.c
+--- a/src/semantic/scene_init.c
++++ b/src/semantic/scene_init.c
+@@ -3,6 +3,7 @@
+  * TM2AIRecord), unsized as before. */
+ #define TM2_OWN_CAR_ARRAYS
+ #include "semantic/cars.h"
++#include "semantic/port_hooks.h"
+ #include "semantic/settings.h"
+ #include "semantic/scene.h"
+ #ifdef TM2_PORT_HAZARDS
+@@ -203,6 +204,22 @@ void __attribute__((section(".text_8011C248"))) aiCarsCountRemaining(void)
+             aiCarsRemaining++;
+     if (aiCarsRemaining > 0)
+         return;
++    if (PORT_BOSS_ANYWHERE && (gameGetLevel() != 8 || aiCars[0].type != 0xF0)) { /* the PC port: Dark Tooth on any arena, wherever he is loaded */
++        for (i = 0; i < aiCarTotal; i++)
++            if (aiCars[i].type == 0xF0 && aiCars[i].stats.wreck_state != 4) /* (not one put out of play) */
++                break;
++        if (i >= aiCarTotal || aiBossDefeatedFlag != 0)
++            return;
++        aiCarsRemaining = 1;
++        if (aiCars[i].stats.wreck_timer <= 0) {
++            aiBossDefeatedFlag = 1;
++            carStatsDarkToothStage2(&aiCars[i].stats);
++            carBuildCollisionBox(&aiCars[i], 0);
++            aiCars[i].state.dead = 0;
++        } else if (aiCars[i].stats.wreck_timer >= 121)
++            carSpinOut(&aiCars[i], 0, 12, 0);
++        return;
++    }
+     if (gameGetLevel() != 8)
+         return;
+     if (aiCars[0].type != 0xF0)
+diff --git a/src/semantic/screen_card_draw.c b/src/semantic/screen_card_draw.c
+--- a/src/semantic/screen_card_draw.c
++++ b/src/semantic/screen_card_draw.c
+@@ -514,8 +514,15 @@ void __attribute__((section(".text_800D8230"))) streaksDraw(u32 **ctx, s32 view)
+     if (fxSheetTimer > 0) {
+         RB_VIEW_DRAW(fxSheetDisplay(ot));
+     }
++#ifdef TM2_PORT_HOOKS
++    if (view < 2) { /* (the PC port's views 3-4 draw their streaks; the updates stay once per view 1-2, as the game's) */
++        RB_VIEW_TICK(weaponDropsUpdate(ctx, view));
++        RB_VIEW_TICK(weaponFlameUpdate());
++    }
++#else
+     RB_VIEW_TICK(weaponDropsUpdate(ctx, view));
+     RB_VIEW_TICK(weaponFlameUpdate());
++#endif
+     RB_VIEW_DRAW(weaponArcsDraw(ctx, view));
+     for (i = 0; i < 40; i++) {
+         if (bulletRecords[i].life <= 0) {
+diff --git a/src/semantic/screen_pause_menu.c b/src/semantic/screen_pause_menu.c
+--- a/src/semantic/screen_pause_menu.c
++++ b/src/semantic/screen_pause_menu.c
+@@ -1,5 +1,6 @@
+ /* Game code (mixed). Names stay address-based. */
+ #include "semantic/cars.h"
++#include "semantic/port_hooks.h"
+ #include "semantic/scene.h"
+ #include "semantic/settings.h"
+ #ifdef TM2_PORT_DARK_TOOTH
+diff --git a/src/semantic/shell_machine.c b/src/semantic/shell_machine.c
+--- a/src/semantic/shell_machine.c
++++ b/src/semantic/shell_machine.c
+@@ -6,4 +6,9 @@ extern int sub_80145DE8(s32);extern void SetDispMask(s32);extern int ResetCallba
+    subsystem inits (incl. soundInit), shell object soundManagerObject, a virtual init
+    call on musicManagerObject, screen init with both buffers cleared, display on and
+    double buffering. */
+-void __attribute__((section(".text_80128B74"))) shellInitMachine(void){u8*object;u8*vtable;void*a;void*b;VirtualInit init;s16 delta;sub_80145DE8(0);SetDispMask(0);ResetCallback();shellInitGraphicsSystem();a=renderGetPacketBuffer();b=renderGetOrderingTable();fileioInit(a,b);soundDriverInit();sndPoolReset();soundInit();sndListenerInitDefaults();/* retail passes no player: cdAudioInit's a0 only reaches the empty cdPlayerBaseInit */((void (*)(void))cdAudioInit)();soundMgrInitLists(soundManagerObject);object=musicManagerObject;vtable=*(u8**)(object+8);delta=*(s16*)(vtable+8);init=*(VirtualInit*)(vtable+12);init(object+delta);fontInit();screenInit();screenClearScreen(0,0,320,240);screenClearScreen(320,0,320,240);screenSetEnv();SetDispMask(1);rtDoubleBufferInit();}
++#include "semantic/port_hooks.h"
++void __attribute__((section(".text_80128B74"))) shellInitMachine(void){u8*object;u8*vtable;void*a;void*b;VirtualInit init;s16 delta;sub_80145DE8(0);SetDispMask(0);ResetCallback();shellInitGraphicsSystem();a=renderGetPacketBuffer();b=renderGetOrderingTable();fileioInit(a,b);soundDriverInit();sndPoolReset();soundInit();sndListenerInitDefaults();/* retail passes no player: cdAudioInit's a0 only reaches the empty cdPlayerBaseInit */((void (*)(void))cdAudioInit)();soundMgrInitLists(soundManagerObject);object=musicManagerObject;vtable=*(u8**)(object+8);delta=*(s16*)(vtable+8);init=*(VirtualInit*)(vtable+12);init(object+delta);fontInit();screenInit();screenClearScreen(0,0,320,240);screenClearScreen(320,0,320,240);screenSetEnv();SetDispMask(1);rtDoubleBufferInit();
++#ifdef TM2_PORT_HOOKS
++portViewBuffersInit(); /* the PC port's views 3-4 (src/port/port_views.c) */
++#endif
++}
+diff --git a/src/semantic/view_system.c b/src/semantic/view_system.c
+--- a/src/semantic/view_system.c
++++ b/src/semantic/view_system.c
+@@ -19,6 +19,7 @@
+ #ifdef TM2_PORT_VISUAL
+ #include "semantic/port_visual.h"  /* request 99 (bit 9): portVisualMirrorEye */
+ #endif
++#include "semantic/port_hooks.h"
+ 
+ typedef unsigned char u8;
+ typedef signed short s16;
+@@ -340,6 +341,17 @@ void __attribute__((section(".text_80156344"))) viewSetFollowObj(TM2ViewObj *obj
+     viewFollowObjects[1] = csAlloc();
+     viewFollowObjects[1]->f0 = 0xFFF;
+     csSetModel(viewFollowObjects[1], obj->f11C);
++#ifdef TM2_PORT_HOOKS
++    { /* the port's views 3-4: their copies of the sky */
++        int k;
++
++        for (k = 2; k < portConfig.humans && k < TM2_MAX_VIEWS; k++) {
++            viewFollowObjects[k] = csAlloc();
++            viewFollowObjects[k]->f0 = 0xFFF;
++            csSetModel(viewFollowObjects[k], obj->f11C);
++        }
++    }
++#endif
+ }
+ 
+ /* @801563A0 */
+diff --git a/src/semantic/weapon_targets.c b/src/semantic/weapon_targets.c
+--- a/src/semantic/weapon_targets.c
++++ b/src/semantic/weapon_targets.c
+@@ -5,6 +5,7 @@ extern struct TM2Object *aiCarObject(int);
+ extern int aiCarCount(void);
+ extern int humanCarCount(void);
+ #include "semantic/world.h"
++#include "semantic/port_hooks.h"
+ 
+ #ifdef TM2_PORT_HUMANS
+ #include "semantic/port_humans.h"
+@@ -39,6 +40,10 @@ int owner; int *out; unsigned char mode;
+     int delta[3], local[3];
+ 
+     best = 0;
++#ifdef TM2_PORT_HOOKS
++    if (portAiAim(owner, out, MODE)) /* AI vs AI: the owner's own target (port_ai.c) */
++        return;
++#endif
+     if (!MODE && !(gameIsAttractDemo() & 0xff)) {
+         *out = AI_AIM_TARGET(owner);
+         return;
+@@ -112,6 +117,10 @@ int owner; int *out; unsigned char mode;
+     int delta[3], local[3];
+ 
+     best = 0;
++#ifdef TM2_PORT_HOOKS
++    if (portAiAim(owner, out, MODE)) /* AI vs AI: the owner's own target (port_ai.c) */
++        return;
++#endif
+     if (!MODE && !(gameIsAttractDemo() & 0xff)) {
+         *out = AI_AIM_TARGET(owner);
+         return;
+diff --git a/src/semantic/weapon_tick_init.c b/src/semantic/weapon_tick_init.c
+--- a/src/semantic/weapon_tick_init.c
++++ b/src/semantic/weapon_tick_init.c
+@@ -4,6 +4,7 @@ extern int rand(void);
+ extern int gameGetLevel(void);
+ extern int aiDarkToothBossUpdate(void *);
+ #include "semantic/weapon_calls.h"
++#include "semantic/port_hooks.h"
+ #ifdef TM2_PORT_DARK_TOOTH
+ #include "semantic/car_groups.h"
+ #include "semantic/car_specials.h"   /* request 33-2e (CAR_GROUPS.md 11) */
+diff --git a/src/semantic/world_collapse.c b/src/semantic/world_collapse.c
+--- a/src/semantic/world_collapse.c
++++ b/src/semantic/world_collapse.c
+@@ -14,6 +14,7 @@ extern void AddPrim(u32 *, void *);
+ extern s32 ratan2(s32, s32);
+ extern s32 rsin(s32);
+ extern s32 rcos(s32);
++#include "semantic/port_hooks.h"
+ 
+ /* 8-byte sprite frame: u, v, w, h, tpage, clut */
+ typedef struct {
+@@ -64,6 +65,7 @@ void __attribute__((section(".text_80110BE4"))) fxSpritesDraw(s32 *ctx, s32 view
+     u8 *prim;
+     Frame8 *tb;
+     s32 fi, s;
++    s32 sx16, sy16, half16, tx16, ty16, dx16, dy16; /* the PC port: the same places in 1/16 pixel (no wobble) */
+ 
+     ot = (u32 *)*ctx;
+     viewGetCentre(view, &ofsx, &ofsy);
+@@ -106,6 +108,9 @@ void __attribute__((section(".text_80110BE4"))) fxSpritesDraw(s32 *ctx, s32 view
+             half = 1;
+         sx = ofsx + out[0] * h1 / z;
+         sy = ofsy + out[1] * h2 / z;
++        sx16 = ofsx * 16 + PORT_DIV16(out[0] * h1, z);
++        sy16 = ofsy * 16 + PORT_DIV16(out[1] * h2, z);
++        half16 = half >= 512 ? 512 * 16 : half <= 1 ? 16 : PORT_DIV16(r->table->w * r->scale * h1, z) >> 3;
+         z0 = z;
+ #ifdef TM2_PORT_FAR_DISTANCE
+         z = portFarDistanceFxOtz(z);        /* the emitter's OT mapping in far mode */
+@@ -167,6 +172,14 @@ void __attribute__((section(".text_80110BE4"))) fxSpritesDraw(s32 *ctx, s32 view
+             *(s16 *)(prim + 26) = sy - dy;
+             *(s16 *)(prim + 32) = sx + dx;
+             *(s16 *)(prim + 34) = sy + dy;
++            tx16 = ofsx * 16 + PORT_DIV16(out[0] * h1, z0);
++            ty16 = ofsy * 16 + PORT_DIV16(out[1] * h2, z0);
++            dx16 = ((rcos(a) - rsin(a)) * half16) >> 12;
++            dy16 = ((rcos(a) + rsin(a)) * half16) >> 12;
++            PORT_PRECISE_PUT(prim + 8, tx16 - dx16, ty16 - dy16, z0);
++            PORT_PRECISE_PUT(prim + 16, tx16 + dx16, ty16 + dy16, z0);
++            PORT_PRECISE_PUT(prim + 24, sx16 - dx16, sy16 - dy16, z0);
++            PORT_PRECISE_PUT(prim + 32, sx16 + dx16, sy16 + dy16, z0);
+         } else {
+             *(s16 *)(prim + 8) = sx - half;
+             *(s16 *)(prim + 10) = sy - half;
+@@ -176,6 +189,10 @@ void __attribute__((section(".text_80110BE4"))) fxSpritesDraw(s32 *ctx, s32 view
+             *(s16 *)(prim + 26) = sy - half + half * 2;
+             *(s16 *)(prim + 32) = sx - half + half * 2;
+             *(s16 *)(prim + 34) = sy - half + half * 2;
++            PORT_PRECISE_PUT(prim + 8, sx16 - half16, sy16 - half16, z0);
++            PORT_PRECISE_PUT(prim + 16, sx16 + half16, sy16 - half16, z0);
++            PORT_PRECISE_PUT(prim + 24, sx16 - half16, sy16 + half16, z0);
++            PORT_PRECISE_PUT(prim + 32, sx16 + half16, sy16 + half16, z0);
+         }
+         AddPrim(ot + z, prim);
+     }
+diff --git a/src/semantic/world_update.c b/src/semantic/world_update.c
+--- a/src/semantic/world_update.c
++++ b/src/semantic/world_update.c
+@@ -17,6 +17,7 @@ typedef signed short s16;
+ typedef signed int s32;
+ 
+ #include "semantic/players.h"
++#include "semantic/port_hooks.h"
+ 
+ struct TM2HumanSim {
+     u8 pad_000[0x4];
+diff --git a/tools/build_source_only.py b/tools/build_source_only.py
+--- a/tools/build_source_only.py
++++ b/tools/build_source_only.py
+@@ -53,6 +53,7 @@ from pathlib import Path
+ import re
+ import subprocess
+ import sys
++import shutil
+ 
+ sys.path.insert(0, str(Path(__file__).resolve().parent))
+ from survey_layout import ROOT, RETAIL_SHA256, CONFIG, read_layout
+@@ -225,6 +226,26 @@ SECTION_VA = re.compile(r'^\.(?:text|tm2)_(?:string_|init_)?([0-9A-Fa-f]{8})$')
+ 
+ 
+ def compile_unit(source, item, cdir, defines=()):
++    """compile_unit_uncached with a cache keyed by the preprocessed source, the recipe and the defines (the PC
++    port's working copy: an edit recompiles only the units it changes). work/pv_cache/<key>.o"""
++    from semantic_compile import preprocess
++    cdir = Path(cdir)
++    pre = preprocess(source, cdir.parent / (cdir.name + '.key.i'), defines)
++    tools = b''.join((ROOT / 'tools' / t).read_bytes() for t in ('semantic_compile.py', 'match_unit.py', 'build_source_only.py'))
++    key = hashlib.sha256(pre + json.dumps(item, sort_keys=True).encode() + repr(list(defines)).encode() + tools).hexdigest()
++    cache = ROOT / 'work' / 'pv_cache' / (key + '.o')
++    if cache.exists():
++        cdir.mkdir(parents=True, exist_ok=True)
++        obj = cdir / 'cached.o'
++        shutil.copyfile(cache, obj)
++        return obj
++    obj = compile_unit_uncached(source, item, cdir, defines)
++    cache.parent.mkdir(parents=True, exist_ok=True)
++    shutil.copyfile(obj, cache)
++    return obj
++
++
++def compile_unit_uncached(source, item, cdir, defines=()):
+     """Compile `source` with the BUILD_MANIFEST.json recipe `item` (as build.py does) into cdir; the object.
+     `defines`: extra -D options (the port variant)."""
+     from semantic_compile import compile_source

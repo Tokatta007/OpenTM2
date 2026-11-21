@@ -1,0 +1,37 @@
+# The arrays the recompiled game uses at a new address (tools/recomp/rebase.py), sized for four
+# players. From the decomp's docs/FOUR_HUMANS.md 7 and FOUR_PLAYERS.md 4.4 / 5.1 (its port variant's
+# config/US/port_variant_arrays.tsv). retail_va, retail_size: the retail storage (left unused);
+# entries x entry_bytes: the new size. Not moved yet: hudOrderTables (its HUD count is the middle
+# dimension). The radar arrow sprites: retail's hudRadarArrowsLoad reaches Down/Left/Right as UpSprites[2..7]
+# (their own addresses, so each moves with its array); HUDs 3-4's copies come from vplus/four.c.
+# viewModeTable: rows 9-15 free for the port (quarter views, vplus/four.c).
+name	retail_va	retail_size	entries	entry_bytes
+humanCars	80187B10	0x1028	4	0x814
+humanCarObjects	80180FEC	0x8	4	0x4
+humanCarObjectSlots	80180FF4	0x8	4	0x4
+padConfigs	80180FFC	0x8	4	0x4
+humanCarTypes	80181004	0x8	4	0x4
+hudSmoothedSpeeds	8018100C	0x8	4	0x4
+carViewHotkeyReleased	80180B9C	0x8	4	0x4
+viewCameraObjectTable	80181024	0x8	4	0x4
+viewFollowObjects	80180DDC	0x8	4	0x4
+viewCameraObjects	80181110	0x8	4	0x4
+viewEnvs	80181118	0x8	4	0x4
+viewModes	80181120	0x8	4	0x4
+viewEyePositions	801A51A8	0x18	4	0xC
+viewMatrices	801A51C0	0x40	4	0x20
+hudMarkerBlinkCounters	80180A74	0x8	4	0x4
+hudMarkerBlinkPhases	80180A7C	0x8	4	0x4
+hudPlayerRecords	801828F0	0xED8	4	0x76C
+hudRadars	801837C8	0x6E0	4	0x370
+hudTargetNameModes	80182408	0x18	4	0xC
+hudTargetNameSprites	80182420	0x4B0	4	0x258
+viewModeTable	8017EC44	0x360	16	0x60
+hudRadarArrowUpPrims	80182308	0x40	4	0x20
+hudRadarArrowDownPrims	80182348	0x40	4	0x20
+hudRadarArrowLeftPrims	80182388	0x40	4	0x20
+hudRadarArrowRightPrims	801823C8	0x40	4	0x20
+hudRadarArrowUpSprites	80183EA8	0x10	4	0x8
+hudRadarArrowDownSprites	80183EB8	0x10	4	0x8
+hudRadarArrowLeftSprites	80183EC8	0x10	4	0x8
+hudRadarArrowRightSprites	80183ED8	0x10	4	0x8

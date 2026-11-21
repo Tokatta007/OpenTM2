@@ -1,0 +1,12 @@
+# Container Manager: Project -> Create, this folder as its path. The master on the NAS's own network (host: the
+# router's UDP 27522 forward reaches it as is), started again after a restart or a crash.
+services:
+  tm2-master:
+    build: .
+    container_name: tm2-master
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - tm2-master-data:/data   # (the players, friends and stats: a named volume, kept across rebuilds)
+volumes:
+  tm2-master-data:
