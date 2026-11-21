@@ -1366,6 +1366,14 @@ int vp_spectating_any(void);
 static void giveup_frame(void);
 void vp_battle_frame(void)
 {
+    static int steer_trace = -1; /* tests: TM2PC_STEER_TRACE=1, player 1's steering each game frame */
+    if (steer_trace < 0) steer_trace = getenv("TM2PC_STEER_TRACE") != NULL;
+    if (steer_trace) {
+        uint32_t r = HUMAN_REC(0);
+        fprintf(stderr, "steer: gv %llu vb %llu pad %04X inc %d dec %d steer %d yawrate %d\n", (unsigned long long)vp_gv(),
+                (unsigned long long)M.vblanks, (unsigned)(uint16_t)~M.pad_buttons[0], mem_r8(&M.cpu, r + 0xE0),
+                mem_r8(&M.cpu, r + 0xDF), (int16_t)mem_r16(&M.cpu, r + 0x6DC), (int16_t)mem_r16(&M.cpu, r + 0x6DC + 0x14));
+    }
     vp_lives_frame();
     render_stats_frame();
     if (battle_rules()) giveup_frame(); /* (a Challenge Match's or Survival's computer cars) */

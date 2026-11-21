@@ -212,10 +212,24 @@ static uint16_t action_key_bits(const bool *keys, int player)
     return bits;
 }
 
-static uint16_t one_direction(uint16_t b)
+/* A PS1 pad cannot press opposite directions at once. Left and right both held: the newer one (the user's, 2026-11-21).
+ * They cancelled out, so a keyboard player rolling from A to D, or a stick resting the other way from the D-pad, lost
+ * the steering until the first came up: "it wouldn't listen, then hooks back in". Both pressed in one go: neither.
+ * Per player, from the left/right held at the last call (the same answer when called again with the same buttons).
+ * Up and down both held: neither, as before (they are the gas and reverse: no newer one to prefer). */
+static uint16_t one_direction(int p, uint16_t b)
 {
-    /* a PS1 pad cannot press opposite directions at once */
-    if ((b & PSX_LEFT) && (b & PSX_RIGHT)) b &= ~(PSX_LEFT | PSX_RIGHT);
+    static uint16_t was[PLAYERS], pick[PLAYERS];
+    const uint16_t LR = PSX_LEFT | PSX_RIGHT;
+    uint16_t lr = b & LR;
+    if (p >= 0 && p < PLAYERS) {
+        if (lr != LR) pick[p] = lr;
+        else if (was[p] == PSX_LEFT) pick[p] = PSX_RIGHT;   /* (right pressed while left held: right) */
+        else if (was[p] == PSX_RIGHT) pick[p] = PSX_LEFT;
+        else if (was[p] == 0) pick[p] = 0;                  /* (both at once: neither) */
+        was[p] = lr;
+        b = (uint16_t)((b & ~LR) | pick[p]);
+    } else if (lr == LR) b &= ~LR;
     if ((b & PSX_UP) && (b & PSX_DOWN)) b &= ~(PSX_UP | PSX_DOWN);
     return b;
 }
@@ -244,8 +258,8 @@ void input_poll(void)
     for (unsigned i = 0; keys && i < sizeof menu_keys / sizeof menu_keys[0]; i++)
         if (keys[menu_keys[i].key]) p1 |= menu_keys[i].bits;
     M.pad_connected[1] = pads[1] != 0 || bind_player_has_keys(1); /* keys can change on the Controls page */
-    M.pad_buttons[0] = (uint16_t)~one_direction(p1);
-    M.pad_buttons[1] = M.pad_connected[1] ? (uint16_t)~one_direction(p2) : 0xFFFF;
+    M.pad_buttons[0] = (uint16_t)~one_direction(0, p1);
+    M.pad_buttons[1] = M.pad_connected[1] ? (uint16_t)~one_direction(1, p2) : 0xFFFF;
 }
 
 /* A player's controller in a battle: with energy attacks on the D-pad
@@ -267,7 +281,7 @@ static uint16_t player_pad_bits(int p)
 /* Players 3 and 4 in a battle (vplus/four.c): their controller's PS1 buttons (set = held). */
 uint16_t input_player_bits(int p)
 {
-    return p >= 0 && p < PLAYERS ? one_direction(player_pad_bits(p)) : 0;
+    return p >= 0 && p < PLAYERS ? one_direction(p, player_pad_bits(p)) : 0;
 }
 /* How far a player steers, 0..4096 of full lock: the left stick's tilt past the deadzone (analog
  * steering on), else 4096 (the D-pad, the keyboard: full lock as the game's). */
