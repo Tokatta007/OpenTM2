@@ -1,0 +1,14 @@
+name: Idea or request
+description: Something you'd like OpenTM2 to have or do.
+labels: [idea]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help?

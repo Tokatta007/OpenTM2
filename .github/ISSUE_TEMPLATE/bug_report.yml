@@ -1,0 +1,74 @@
+name: Bug report
+description: Something doesn't work right in OpenTM2.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Tell us what went wrong. If it's a crash, what were you doing right before?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen?
+      description: "Steps, if you know them: e.g. 1. Challenge Match on Hong Kong, 2. 4 players, 3. pick Minion..."
+  - type: input
+    id: version
+    attributes:
+      label: OpenTM2 version
+      placeholder: e.g. v1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options:
+        - Setup / first start
+        - Menus
+        - Tournament
+        - Challenge Match
+        - Survival
+        - Online / LAN
+        - Split-screen
+        - Mods
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+        - Other (say below)
+    validations:
+      required: true
+  - type: input
+    id: controller
+    attributes:
+      label: Controller
+      placeholder: e.g. Xbox Series controller, DualSense, keyboard
+  - type: dropdown
+    id: pc_disc
+    attributes:
+      label: Did you use the PC version disc in setup?
+      options:
+        - "Yes"
+        - "No"
+        - Not sure
+  - type: textarea
+    id: log
+    attributes:
+      label: tm2pc.log
+      description: Drag tm2pc.log from your OpenTM2 folder into this box. It's rewritten every time the game starts, so copy it right after the problem happens.
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: "Optional: drag them in here."
