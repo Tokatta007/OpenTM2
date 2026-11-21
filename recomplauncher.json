@@ -11,10 +11,10 @@
   "inputs": [
     {
       "id": "pc",
-      "label": "Optional, but highly recommended: the 1997 PC version of Twisted Metal 2, its .iso or its installed folder, for sharper menus and arena textures.",
+      "label": "Optional, but highly recommended: the 1997 PC version of Twisted Metal 2, its disc image (.iso, .cue, .mdf, .img) or its installed folder, for sharper menus and arena textures.",
       "optional": true,
       "formats": [
-        { "type": "file", "extensions": ["iso"] },
+        { "type": "file", "extensions": ["iso", "cue", "mdf", "mds", "img", "ccd", "bin"] },
         { "type": "folder" }
       ]
     }

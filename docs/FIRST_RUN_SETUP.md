@@ -19,6 +19,9 @@ PC version's files. The user's decision (2026-10-21): the game makes them itself
    .bin files into one folder first, then choose the .cue." (2026-11-20). Build checks that every `FILE` in the `.cue`
    is beside it ("<name> is missing: extract it beside the .cue"), and says what to do for a `.bin` without its `.cue`
    or a `.zip` / `.7z` / `.rar` still packed.
+   The PC version (v1.0.3): its installed folder or a disc image: `.iso`, `.cue` / `.bin`, Alcohol's `.mdf` / `.mds`,
+   CloneCD's `.img` / `.ccd`, in 2048-, 2352- or 2448-byte sectors (`discfs.c`). A dropped image goes to the box of the
+   disc it holds (the PS1 disc has `SCUS_943.06`); Build refuses an unreadable one, or the PS1 disc in the PC box.
 2. **Build**: a progress bar while it reads both, cleans the menu screens and writes `ui/`. The paths go into
    `tm2pc.ini`; the game starts.
 3. **PS1 only** (the user's): the pictures from the PS1 disc alone, at its resolution, with a note that the PC version
