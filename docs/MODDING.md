@@ -202,7 +202,7 @@ A mod picks a **special template** and sets its numbers; it cannot add new behav
 
 ### 4.4 Twisted Metal 1 characters
 
-A TM1 driver missing from TM2 (Crimson Fox, Darkside, Yellow Jacket) is a character: base car the closest
+A TM1 driver missing from TM2 (Crimson Fury, Darkside, Yellow Jacket) is a character: base car the closest
 TM2 car, its TM1 stats as numbers, its TM1 special as the nearest template. Its model and textures come from TM1's
 files through a converter (to be checked: TM1 is the same engine family). A TM1 look for a driver who is in both
 games (Mr. Grimm without his sidecar, TM1's Sweet Tooth...) is a skin (section 5).
@@ -259,7 +259,7 @@ Local Play > Tournament gains two entries:
 ```
 [tournament]
 name = Twisted Metal 1
-drivers = tm1-crimson-fox, tm1-mr-grimm, ...        ; the roster (original cars by name, mods by id)
+drivers = tm1-crimson-fury, tm1-mr-grimm, ...       ; the roster (original cars by name, mods by id)
 levels = 6
 [level1]
 arena = tm1-suburbs
@@ -268,7 +268,7 @@ boss =                                              ; or a driver
 text = level1.txt                                   ; shown before the level (optional picture: level1.bmp)
 ...
 [endings]
-tm1-crimson-fox = endings/crimson_fox/             ; a movie or pictures (section 6)
+tm1-crimson-fury = endings/crimson_fury/            ; a movie or pictures (section 6)
 ```
 
 ## 8. Arenas

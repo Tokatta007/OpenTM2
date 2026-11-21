@@ -3137,7 +3137,7 @@ static void net_refresh(void) /* the servers found (LAN: those answering; tests:
             {"Co-op Tour", "Axel", NET_GAME_TOURNAMENT, 0, 2, 4, 92, 0, 0, 0, NULL, 0, NULL, "Axel, Scarface"},
             {"Survival Night", "Grimm", NET_GAME_SURVIVAL, 5, 3, 8, 120, 0, 1, 1, NULL, 0, NULL, "Grimm, Mortimer, Twister"},
             {"TM1 Classics", "Spectre", NET_GAME_CHALLENGE, 10, 9, 16, 75, 1, 0, 0, "Twisted Metal", MODE_LAST_CAR, "Twisted Metal 1 Pack",
-             "Spectre, Yellow Jacket, Crimson Fox, Darkside"},
+             "Spectre, Yellow Jacket, Crimson Fury, Darkside"},
             {"Roof Top Rumble", "Thumper", NET_GAME_CHALLENGE, 11, 4, 8, 210, 0, 0, 1, "Three Hills", MODE_KING_OF_THE_HILL, NULL, "Thumper, Mr. Slam"},
             {"Juggernaut Hour", "Mr. Slam", NET_GAME_CHALLENGE, 2, 7, 12, 55, 0, 0, 1, "Juggernaut", MODE_JUGGERNAUT, NULL, "Mr. Slam, Roadkill"},
             {"Gun Game Gauntlet", "Roadkill", NET_GAME_CHALLENGE, 3, 5, 8, 81, 0, 0, 0, "Gun Game", MODE_GUN_GAME, NULL, "Roadkill, Pit Viper"},
