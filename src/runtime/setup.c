@@ -65,7 +65,10 @@ static void take_ps1(const char *path)
     }
 }
 
-/* the .cue's track files (FILE "..."): the first one not beside it, in missing (1), or 0 when all are there */
+int cue_bin_fallback(const char *cue, char *out, size_t cap); /* (runtime/cd.c) */
+
+/* the .cue's track files (FILE "..."): the first one not beside it, in missing (1), or 0 when all are there (or its only
+ * .bin is beside it under another name: cue_bin_fallback, as the game reads it) */
 static int cue_missing(const char *cue, char *missing, size_t cap)
 {
     FILE *f = fopen(cue, "r");
@@ -83,7 +86,8 @@ static int cue_missing(const char *cue, char *missing, size_t cap)
         *q2 = 0;
         char path[1200];
         snprintf(path, sizeof path, "%.*s%s", dir, cue, q1 + 1);
-        if (!is_file(path)) {
+        char alt[1100];
+        if (!is_file(path) && !cue_bin_fallback(cue, alt, sizeof alt)) {
             snprintf(missing, cap, "%s", q1 + 1);
             gone = 1;
         }
