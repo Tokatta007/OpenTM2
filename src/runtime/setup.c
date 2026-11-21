@@ -363,6 +363,45 @@ int setup_pregame(const char *base, int forced, char *disc, size_t cap)
     return version > 0 || tools_made; /* (closed: the pictures there are kept; none: the game cannot start) */
 }
 
+static void prepare_progress(int pct, const char *what, void *ctx)
+{
+    (void)ctx;
+    static int last = -1;
+    if (pct == last) return;
+    last = pct;
+    printf("progress %.2f Making the menu pictures from your discs%s%s\n", pct / 100.0, what && *what ? ": " : "",
+           what ? what : "");
+    fflush(stdout);
+}
+
+int setup_prepare(const char *base, const char *ps1_in, const char *pc_in)
+{
+    snprintf(ui_dir, sizeof ui_dir, "%sui", base);
+    char gone[256] = "";
+    if (!ps1_in || !*ps1_in) {
+        printf("No PlayStation disc given: its .cue file is needed.\n");
+        return 0;
+    }
+    take_ps1(ps1_in); /* (a .bin with its .cue beside it: the .cue) */
+    const char *pc_path = pc_in && *pc_in ? pc_in : NULL;
+    int ok = 0;
+    if (!is_file(ps1) || !ends_with(ps1, ".cue"))
+        printf("Choose the PlayStation disc's .cue file (its .bin files beside it).\n");
+    else if (cue_missing(ps1, gone, sizeof gone))
+        printf("%.120s is missing: extract it beside the .cue.\n", gone);
+    else if (pc_path && !is_dir(pc_path) && !is_file(pc_path))
+        printf("The PC version's .iso or folder cannot be found.\n");
+    else if (!(ok = ui_build(ps1, pc_path, ui_dir, prepare_progress, NULL)))
+        printf("%s\n", ui_build_error());
+    if (ok) {
+        settings_set_game_discs(ps1, pc_path ? pc_path : "");
+        printf("progress 1.00 Done\n");
+        fprintf(stderr, "setup: the pictures made (%s), without a window\n", pc_path ? "PlayStation and PC" : "PlayStation only");
+    } else fprintf(stderr, "setup: no pictures made\n");
+    fflush(stdout);
+    return ok;
+}
+
 int setup_restart(void)
 {
 #ifdef _WIN32

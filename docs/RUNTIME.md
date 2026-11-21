@@ -14,6 +14,12 @@ build/port/tm2pc.exe "path/to/Twisted Metal 2 (USA).cue" --frames 1200
 CMake and Ninja come with the Visual Studio Build Tools; clang is currently
 OpenPete's bundled llvm-mingw. Initialize `third_party/psyz` and its
 `external/SDL` submodule first. Options:
+- `--game FILE` (or `--game=FILE`): the disc image, as the first argument does.
+- `--prepare [--game=FILE] [--pc=PATH]`: the first-time setup without a window (RecompLauncher's setup step,
+  `recomplauncher.json`): the menu pictures from the PS1 disc (and the PC version's `.iso` or folder), `progress 0.42 Text`
+  lines on stdout, exit 0 when made (else 1, with the reason as the last line); log in `tm2pc-setup.log`.
+- `RECOMPLAUNCHER` set (started by RecompLauncher): no update check (the launcher updates), and the log still goes to
+  `tm2pc.log` (stdout stays the launcher's).
 - `--frames N`: stop after N frame boundaries (`SetFrameStart` calls).
 - `--tape FILE`: decoded pad words per frame boundary.
 - `--tape-vblank FILE`: one decoded pad word per VBlank, for menus that poll the pads between frame boundaries (the pause menu).

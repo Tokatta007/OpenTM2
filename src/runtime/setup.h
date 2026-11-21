@@ -8,5 +8,10 @@
  * 0: the player closed the window without pictures (the game quits). */
 int setup_pregame(const char *base, int forced, char *disc, size_t cap);
 
+/* --prepare (RecompLauncher's setup step): the same build without a window, "progress 0.42 Text" lines on stdout, the
+ * discs remembered in tm2pc.ini. ps1: the .cue (a .bin with its .cue beside it is taken as the .cue); pc: the PC
+ * version's .iso or folder, or NULL. 1: made. */
+int setup_prepare(const char *base, const char *ps1, const char *pc);
+
 /* The Options row: the game starts again, into the setup window (Windows; 0 if it could not) */
 int setup_restart(void);

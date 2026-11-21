@@ -1,0 +1,42 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "OpenTM2",
+  "repo": "Tokatta007/OpenTM2",
+  "game": {
+    "kind": "iso",
+    "label": "Your Twisted Metal 2 PlayStation disc (USA, SCUS-94306): its .cue file, with all its .bin files beside it.",
+    "check": { "iso9660": "SCUS_943.06" }
+  },
+  "inputs": [
+    {
+      "id": "pc",
+      "label": "Optional, but highly recommended: the 1997 PC version of Twisted Metal 2, its .iso or its installed folder, for sharper menus and arena textures.",
+      "optional": true,
+      "formats": [
+        { "type": "file", "extensions": ["iso"] },
+        { "type": "folder" }
+      ]
+    }
+  ],
+  "start": {
+    "program": ["tm2pc.exe"],
+    "args": ["--game={game}"]
+  },
+  "prepare": {
+    "program": ["tm2pc.exe"],
+    "args": ["--prepare", "--game={game}", "--pc={input:pc}"],
+    "label": "Making the menu pictures from your discs",
+    "timeout": 600,
+    "done": ["{install}/ui/setup.txt"],
+    "version": "3"
+  },
+  "saves": ["{install}/profiles", "{install}/tm2pc.ini"],
+  "folders": {
+    "saves": [{ "path": "{install}/profiles" }],
+    "logs": [{ "path": "{install}" }]
+  },
+  "system": {
+    "windows": { "version": "10" }
+  }
+}

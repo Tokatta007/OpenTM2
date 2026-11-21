@@ -33,8 +33,8 @@ answer before the game goes on), `TM2PC_UPDATE_AUTO` (download and swap at once)
 ## Making a release
 
 1. Raise `TM2PC_VERSION` in CMakeLists.txt (for example v0.9.0 to v0.9.1) and build `build/port`.
-2. `python tools/release/pack_release.py` writes `build/release/OpenTM2-<version>-win64.zip`: `tm2pc.exe` and `fonts/`
-   in a folder named for the version.
+2. `python tools/release/pack_release.py` writes `build/release/OpenTM2-<version>-Windows-x64.zip`: `tm2pc.exe`,
+   `fonts/`, `art/` and `recomplauncher.json` in a folder named for the version.
 3. On GitHub, a new release with the tag exactly the version (`v0.9.1`) and the zip attached.
 
 ## Where the releases live
@@ -42,3 +42,12 @@ answer before the game goes on), `TM2PC_UPDATE_AUTO` (download and swap at once)
 This repository's GitHub releases (public): `UPDATE_URL_DEFAULT` asks for its "latest". A release carries only
 `tm2pc.exe`, `fonts/` and `art/` (the mode symbols, CC BY 3.0); the game makes its menu pictures from the player's own
 discs at its first start (docs/FIRST_RUN_SETUP.md).
+
+## RecompLauncher
+
+[RecompLauncher](https://recomplauncher.com) installs OpenTM2 from these releases. `recomplauncher.json` (the repository's
+root, packed beside `tm2pc.exe`) tells it: the PS1 disc's `.cue` (checked by `SCUS_943.06`), the optional PC version, the
+setup step (`tm2pc.exe --prepare --game=... --pc=...`, done when `ui/setup.txt` is there; `prepare.version` follows
+`UI_BUILD_VERSION`, so raise both together), the start (`--game=...`) and the saves (`profiles/`, `tm2pc.ini`). Started by
+it (`RECOMPLAUNCHER` set), the game never offers its own update. The file's schema:
+https://recomplauncher.com/schema/recomplauncher.json.

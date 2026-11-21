@@ -5,6 +5,8 @@
   <a href="https://youtu.be/QdJrzCkjSc8">▶ Watch the release trailer</a>
 </p>
 
+<p align="center"><a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a></p>
+
 A PC port of **Twisted Metal 2** (PlayStation, 1996) for Windows. The game's own code is recompiled from your copy of
 the game and runs on a native PC runtime, with online play, split-screen and many optional improvements.
 
@@ -34,6 +36,8 @@ OpenTM2 includes no game files. You need your own copy of Twisted Metal 2 for th
 3. OpenTM2 makes its menu pictures from your discs (nothing made from them leaves your PC) and starts the game.
 
 New versions are offered when you start the game (`check = off` under `[update]` in `tm2pc.ini` turns that off).
+With [RecompLauncher](https://recomplauncher.com), the launcher asks for your discs, runs the setup and installs the
+updates itself.
 
 ## Building from source
 
