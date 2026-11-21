@@ -32,6 +32,23 @@ foreach(patch ${PSYZ_PATCHES})
     endif()
     message(STATUS "Applied ${patch}")
 endforeach()
+# SDL (PSY-Z's own submodule, third_party/psyz/external/SDL, zlib): our fixes in third_party/patches/sdl-*.patch, applied
+# the same way (local fixes only: SDL takes no AI-written contributions, its CLAUDE.md).
+file(GLOB SDL_PATCHES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/third_party/patches/sdl-*.patch")
+list(SORT SDL_PATCHES)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SDL_PATCHES})
+set(SDL_SRC_DIR "${PSYZ_DIR}/external/SDL")
+execute_process(COMMAND "${GIT_EXECUTABLE}" checkout HEAD -- . WORKING_DIRECTORY "${SDL_SRC_DIR}" RESULT_VARIABLE failed)
+if(failed)
+    message(FATAL_ERROR "cannot reset third_party/psyz/external/SDL")
+endif()
+foreach(patch ${SDL_PATCHES})
+    execute_process(COMMAND "${GIT_EXECUTABLE}" apply "${patch}" WORKING_DIRECTORY "${SDL_SRC_DIR}" RESULT_VARIABLE failed)
+    if(failed)
+        message(FATAL_ERROR "cannot apply ${patch} to third_party/psyz/external/SDL")
+    endif()
+    message(STATUS "Applied ${patch}")
+endforeach()
 add_subdirectory(third_party/psyz/psyz EXCLUDE_FROM_ALL)
 
 set(TM2_EXE "${CMAKE_SOURCE_DIR}/references/TM2-Decomp/bin/SCUS_94306R.EXE"

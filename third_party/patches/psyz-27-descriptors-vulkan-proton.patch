@@ -1,0 +1,143 @@
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -11,18 +11,25 @@
+ #include "sdl3_common.h"
+ 
+ #if defined(_WIN32)
++/* (OpenTM2) Windows carries both: Direct3D 12 (DXIL) by default, Vulkan (SPIR-V) under Wine/Proton, where Direct3D 12
++ * is a translation of Vulkan, or when SDL_GPU_DRIVER asks for it (InitPlatform) */
++static bool use_spirv;
+ #include "shaders/psx_vert_dxil.h"
+ #include "shaders/psx_frag_dxil.h"
+ #include "shaders/clear_vert_dxil.h"
+ #include "shaders/clear_frag_dxil.h"
+-#define psx_vert psx_vert_dxil
+-#define psx_vert_len psx_vert_dxil_len
+-#define psx_frag psx_frag_dxil
+-#define psx_frag_len psx_frag_dxil_len
+-#define clear_vert clear_vert_dxil
+-#define clear_vert_len clear_vert_dxil_len
+-#define clear_frag clear_frag_dxil
+-#define clear_frag_len clear_frag_dxil_len
++#include "shaders/psx_vert_spv.h"
++#include "shaders/psx_frag_spv.h"
++#include "shaders/clear_vert_spv.h"
++#include "shaders/clear_frag_spv.h"
++#define psx_vert (use_spirv ? psx_vert_spv : psx_vert_dxil)
++#define psx_vert_len (use_spirv ? psx_vert_spv_len : psx_vert_dxil_len)
++#define psx_frag (use_spirv ? psx_frag_spv : psx_frag_dxil)
++#define psx_frag_len (use_spirv ? psx_frag_spv_len : psx_frag_dxil_len)
++#define clear_vert (use_spirv ? clear_vert_spv : clear_vert_dxil)
++#define clear_vert_len (use_spirv ? clear_vert_spv_len : clear_vert_dxil_len)
++#define clear_frag (use_spirv ? clear_frag_spv : clear_frag_dxil)
++#define clear_frag_len (use_spirv ? clear_frag_spv_len : clear_frag_dxil_len)
+ #elif defined(__APPLE__)
+ #include "shaders/psx_vert_msl.h"
+ #include "shaders/psx_frag_msl.h"
+@@ -212,7 +219,7 @@
+         .code = code,
+         .code_size = code_len,
+ #if defined(_WIN32)
+-        .format = SDL_GPU_SHADERFORMAT_DXIL,
++        .format = use_spirv ? SDL_GPU_SHADERFORMAT_SPIRV : SDL_GPU_SHADERFORMAT_DXIL,
+         .entrypoint = "main",
+ #elif defined(__APPLE__)
+         .format = SDL_GPU_SHADERFORMAT_MSL,
+@@ -554,15 +561,39 @@
+         return false;
+     }
+ 
+-    device = SDL_CreateGPUDevice(
+ #if defined(_WIN32)
+-        SDL_GPU_SHADERFORMAT_DXIL,
+-#elif defined(__APPLE__)
++    /* (OpenTM2) Under Wine/Proton (ntdll has wine_get_version), Vulkan: Direct3D 12 there is vkd3d over Vulkan, whose
++     * descriptor heaps ran out mid-battle (OpenTM2 issue 15). SDL_GPU_DRIVER (the environment) still decides. */
++    bool asked_vulkan = false;
++    if (!SDL_GetHint(SDL_HINT_GPU_DRIVER)) {
++        SDL_SharedObject* ntdll = SDL_LoadObject("ntdll.dll");
++        if (ntdll && SDL_LoadFunction(ntdll, "wine_get_version")) {
++            SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
++            asked_vulkan = true;
++            INFOF("Wine/Proton: Vulkan");
++        }
++        if (ntdll) {
++            SDL_UnloadObject(ntdll);
++        }
++    }
++    device = SDL_CreateGPUDevice(
++        SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_SPIRV, false, NULL);
++    if (!device && asked_vulkan) { /* (no Vulkan after all: Direct3D 12) */
++        SDL_ResetHint(SDL_HINT_GPU_DRIVER);
++        device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_DXIL, false, NULL);
++    }
++    if (device) {
++        use_spirv = !SDL_strcmp(SDL_GetGPUDeviceDriver(device), "vulkan");
++    }
++#else
++    device = SDL_CreateGPUDevice(
++#if defined(__APPLE__)
+         SDL_GPU_SHADERFORMAT_MSL,
+ #else
+         SDL_GPU_SHADERFORMAT_SPIRV,
+ #endif
+         false, NULL);
++#endif
+     if (!device) {
+         ERRORF("SDL_CreateGPUDevice: %s", SDL_GetError());
+         return false;
+@@ -2643,41 +2674,48 @@
+     // every primitive (including lines, expanded to quads) is a triangle list
+     const int prim_size = 3;
+     int start = 0;
++    /* (OpenTM2) The pipeline bound last in this pass: binding the same one again is skipped. On Direct3D 12 each bind
++     * makes SDL write every texture and sampler descriptor again, and those heaps are small (issues 15 and 16). A run
++     * also no longer ends where only the depth changes but the pipeline (depth 0, 3 and up alike) does not. */
++    SDL_GPUGraphicsPipeline* bound = NULL;
++#define BIND(p) do { SDL_GPUGraphicsPipeline* p_ = (p); if (p_ != bound) { SDL_BindGPUGraphicsPipeline(pass, p_); bound = p_; } } while (0)
++#define PIPE_DEPTH(d) ((d) <= 2 ? (d) : 0)
+     while (start < n_indices) {
+         Vertex* v = &vertex_buf[index_buf[start]];
+         bool need_subtract = is_subtract_abr(v);
+-        int depth = v->depth;
++        int depth = PIPE_DEPTH(v->depth);
+         int end = start + prim_size;
+         while (end < n_indices) {
+             v = &vertex_buf[index_buf[end]];
+             bool next_subtract = is_subtract_abr(v);
+-            if (next_subtract != need_subtract || v->depth != depth) {
++            if (next_subtract != need_subtract || PIPE_DEPTH(v->depth) != depth) {
+                 break;
+             }
+             end += prim_size;
+         }
+-        depth = depth <= 2 ? depth : 0;
+ #define PIPE(blend) (with_depth ? pipe_tri_depth[blend][depth] : pipe_tri[blend])
+         while (need_subtract && start < end) {
+             int group_end = SubtractGroupEnd(start, end);
+             Uint32 count = (Uint32)(group_end - start);
+-            SDL_BindGPUGraphicsPipeline(pass, PIPE(BLEND_SUB));
++            BIND(PIPE(BLEND_SUB));
+             SDL_DrawGPUIndexedPrimitives(pass, count, 1, (Uint32)start, 0, 0);
+             if (!is_untextured(&vertex_buf[index_buf[start]])) {
+-                SDL_BindGPUGraphicsPipeline(pass, PIPE(BLEND_SUB_OPAQUE));
++                BIND(PIPE(BLEND_SUB_OPAQUE));
+                 SDL_DrawGPUIndexedPrimitives(
+                     pass, count, 1, (Uint32)start, 0, 0);
+             }
+             start = group_end;
+         }
+         if (start < end) {
+-            SDL_BindGPUGraphicsPipeline(pass, PIPE(BLEND_ADD));
++            BIND(PIPE(BLEND_ADD));
+ #undef PIPE
+             SDL_DrawGPUIndexedPrimitives(
+                 pass, (Uint32)(end - start), 1, (Uint32)start, 0, 0);
+             start = end;
+         }
+     }
++#undef BIND
++#undef PIPE_DEPTH
+     SDL_EndGPURenderPass(pass);
+     if (internal_res <= 1) {
+         MarkVramDirty(scissor_rect);
