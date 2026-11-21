@@ -280,7 +280,7 @@ static uint32_t spu_thin_volume(int voice, int side, uint32_t v) /* a voice's vo
 /* The port's 24 voices more (24..47; PSY-Z's PSYZ_SPU_EXT_VOICES, psyz-17-spu-voices.patch): their registers at
  * 0x1F802C00..0x1F802DFF, laid out as the SPU's first 0x200 bytes (voice 24's at +0, key on +0x188/+0x18A, key off
  * +0x18C/+0x18E, reverb on +0x198/+0x19A, ENDX +0x19C/+0x19E; bit n: voice 24+n). The PS1's expansion region 2,
- * unused by the game: a build of the decomp's sound library with more voices writes them there (DECOMP_REQUESTS.md). */
+ * unused by the game: a build of the decomp's sound library with more voices writes them there (a request to the decomp). */
 #define SPU_EXT 0x1F802C00u
 static uint32_t spu_ext_read(uint32_t off)
 {

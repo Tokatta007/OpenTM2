@@ -98,7 +98,7 @@ def main():
          "uint32_t ga(uint32_t retail);",
          "#define RB_AT(moved, retail) (rc_addrmap_count ? ga(retail) : (moved))",
          "/* the view-mode table's rows the port may use: 16 moved; the decomp's port variant keeps retail's 9 (for",
-         " * now: decomp request, docs/DECOMP_REQUESTS.md): no quarter views (four.c) or split-screen mirrors there */",
+         " * now: a request to the decomp): no quarter views (four.c) or split-screen mirrors there */",
          "#define RB_VIEW_ROWS (rc_addrmap_count ? rc_view_mode_rows : 16)", ""]
     for r in arrays:
         h.append(f"#define RB_{r['name']} RB_AT(0x{r['new']:08X}u, 0x{r['old']:08X}u)")

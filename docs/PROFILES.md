@@ -105,7 +105,7 @@ the codes still work and the tournament opponent picker's save, force and restor
 - **Secret levels:** the original has no unlock state for them; they are reached only by a
   code at level select, only in 2-player Deathmatch. Unlocked levels go into the level
   select of any custom match, 1 Player with bots included (whether computer cars can drive
-  them is asked in `docs/DECOMP_REQUESTS.md`).
+  them is asked of the decomp).
 - **The video player menu** (intro, credits and every ending; character portraits in
   rows, locked ones grayed out), under Options > Movies.
 - **Portrait unlocks:** decided per portrait in [PORTRAIT_UNLOCKS.md](PORTRAIT_UNLOCKS.md) (counters show progress; online counts; an online Versus Tournament win on the "TM2 Original" ruleset earns the winner's ending, with a message pointing to Movies). The direction (2026-10-05): easy and plentiful.

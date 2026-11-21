@@ -201,7 +201,7 @@ int SDLCALL install_thread(void *unused)
         for (char *q = rel; *q; q++) if (*q == '\\') *q = '/';
         char *top = strchr(rel, '/'); /* (a zip of one folder, "TM2PC-v1.2.0/...": its contents) */
         const char *r = rel;
-        if (top && n > 1) {
+        if (top) { /* (also one file in one folder: it went into a subfolder, the old exe stayed and updated again) */
             int all = 1;
             for (int k = 0; k < n && all; k++) {
                 char nm[512];
@@ -249,12 +249,12 @@ int SDLCALL install_thread(void *unused)
     return 0;
 }
 
-static void remove_old(void)
+static int remove_old(void) /* the files left over after it (still in use) */
 {
     char list[1200];
     snprintf(list, sizeof list, "%supdate\\old.txt", base_dir);
     FILE *l = fopen(list, "r");
-    if (!l) return;
+    if (!l) return 0;
     char line[1200];
     int left = 0;
     while (fgets(line, sizeof line, l)) {
@@ -266,13 +266,29 @@ static void remove_old(void)
     }
     fclose(l);
     if (!left) remove(list);
+    return left;
+}
+
+/* Right after an update's restart the old executable is still closing, so its .old can't go yet: tried again every 2 s
+ * for half a minute in the background, rather than only at the next start (the user's, 2026-11-21) */
+static int SDLCALL remove_old_later(void *u)
+{
+    (void)u;
+    for (int i = 0; i < 15; i++) {
+        SDL_Delay(2000);
+        if (!remove_old()) return 0;
+    }
+    return 0;
 }
 
 void update_start(const char *base)
 {
     snprintf(base_dir, sizeof base_dir, "%s", base);
     if (!GetModuleFileNameA(NULL, exe_path, sizeof exe_path)) snprintf(exe_path, sizeof exe_path, "%stm2pc.exe", base_dir);
-    remove_old();
+    if (remove_old()) {
+        SDL_Thread *t = SDL_CreateThread(remove_old_later, "update cleanup", NULL);
+        if (t) SDL_DetachThread(t);
+    }
     /* (started by RecompLauncher: it installs the updates itself, so the game never asks; its rule, recomplauncher.json) */
     const char *url = getenv("TM2PC_UPDATE_URL") ? getenv("TM2PC_UPDATE_URL")
                     : settings_update_check && !getenv("RECOMPLAUNCHER") ? settings_update_url : NULL;

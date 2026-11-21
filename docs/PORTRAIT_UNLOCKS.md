@@ -14,7 +14,7 @@ Rules:
   online *Versus Tournament* (the "TM2 Original" ruleset only) earns the winner's ending: it
   plays if the player chooses, otherwise a message says it is unlocked and is in Movies.
 - Events needed (kills by weapon, ram kills, deaths, falls, freezes, pedestrians, pickups,
-  turbo, top speed, the Eiffel Tower): decomp request 7 (`DECOMP_REQUESTS.md`).
+  turbo, top speed, the Eiffel Tower): a request to the decomp.
 
 **Made (decomp request 7, `GAME_EVENTS.md`):** the feats are counted per profile (player 1's
 signed-in profile, player 2's own; guests count nothing) in the profile file's `[feats]` section,

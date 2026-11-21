@@ -1,4 +1,4 @@
-/* The cars of a match: how many there can be, and their records, in one place (docs/DECOMP_REQUESTS.md 32-33:
+/* The cars of a match: how many there can be, and their records, in one place (requests 32-33 to the decomp:
  * up to 16 cars, any mix, 16 of one car included).
  *
  * CARS_MAX sizes every array: no match ever holds more. The records the build has are fewer today: the game's
