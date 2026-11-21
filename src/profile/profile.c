@@ -41,7 +41,7 @@ static const char *const characters[PROFILE_CHARACTERS] = {
 #define SAVE_DARK_TOOTH 14 /* a tournament save's driver can be Dark Tooth (car 14) too */
 
 static char folder[512] = "profiles";
-static char name[64] = "Player";
+static char name[64] = ""; /* (none until the player makes one: a first start opens the sign-in with New profile, no profile made for them) */
 static int picture;
 static unsigned char endings[PROFILE_CHARACTERS];
 /* mod characters' endings earned ([mod_endings]: each mod's uid; MODDING.md 6, only inside their mod: never the game's) */
