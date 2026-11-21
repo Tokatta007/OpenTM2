@@ -124,7 +124,7 @@ diff --git a/src/semantic/fx_explosions.c b/src/semantic/fx_explosions.c
 diff --git a/src/semantic/port_variant_arrays.c b/src/semantic/port_variant_arrays.c
 --- a/src/semantic/port_variant_arrays.c
 +++ b/src/semantic/port_variant_arrays.c
-@@ -115,6 +115,33 @@ int viewModeTable[TM2_MAX_VIEW_MODES][96 / 4] PORT_DATA = {
+@@ -117,6 +117,33 @@ int viewModeTable[TM2_MAX_VIEW_MODES][96 / 4] PORT_DATA = {
          0x092DF2E5, 0x00000000, 0x092D0D1B, 0x00000000, 0x0FFF0000, 0x00000000,
          0x05960000, 0x0000F102, 0x05960000, 0x00000EFE, 0xF0010000, 0x00000000,
      },
@@ -158,7 +158,7 @@ diff --git a/src/semantic/port_variant_arrays.c b/src/semantic/port_variant_arra
  };
  
  /* ---- zero (.port_bss) ---- */
-@@ -719,6 +746,10 @@ void PORT_TEXT portFarLodEnd(void)
+@@ -721,6 +748,10 @@ void PORT_TEXT portFarLodEnd(void)
      }
  }
  #endif /* TM2_PORT_FAR_LOD */
