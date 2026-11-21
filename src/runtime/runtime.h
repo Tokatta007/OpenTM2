@@ -103,7 +103,8 @@ void gpu_dma(uint32_t madr, uint32_t bcr, uint32_t chcr);
 /* cd.c */
 typedef struct Track {
     char path[512];
-    uint32_t file_start; /* first sector of the track's .bin (including its pregap) */
+    uint32_t file_lba;   /* the disc sector at the start of the track's .bin (a whole-disc .bin: shared by its tracks) */
+    uint32_t file_start; /* the track's first sector (including its pregap) */
     uint32_t start;      /* INDEX 01: where the track itself begins */
     uint32_t sectors;    /* sectors in the .bin */
     int audio;
