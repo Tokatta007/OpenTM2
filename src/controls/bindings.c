@@ -216,6 +216,12 @@ int bind_button(int player, int action)
 void bind_set(int player, int action, int button)
 {
     if (player < 0 || player > 3 || action < 0 || action >= BIND_ACTIONS) return;
+    /* one button, one action: the action that had this button takes this one's old button (a key presses its
+     * action's button, so two actions on one button fired together: Phoenix's machine gun and turbo, 2026-11-22) */
+    int old = bind_button(player, action);
+    for (int b = 0; b < BIND_ACTIONS; b++)
+        if (b != action && button && bind_button(player, b) == button)
+            chosen[player][b] = (unsigned char)(old == bind_layout_button(layout_of(player), b) ? 0 : old);
     /* the layout's own button is stored as "default" */
     chosen[player][action] = (unsigned char)(button == bind_layout_button(layout_of(player), action) ? 0 : button);
 }
