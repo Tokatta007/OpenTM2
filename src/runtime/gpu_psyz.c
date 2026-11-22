@@ -18,6 +18,7 @@
 #include "settings.h"
 #include <psyz/gpu.h>
 #include <psyz/video.h>
+#include <psyz/overlay_sdl3_gpu.h>
 
 typedef struct { short x, y, w, h; } Ps1Rect; /* libgpu RECT (PS1_RECT in PSY-Z) */
 void Draw_LoadImage(Ps1Rect *rect, unsigned long *p);
@@ -83,8 +84,23 @@ int video_auto_scale(void) /* Resolution Auto's multiple of the PS1's 240 lines 
     return n < 1 ? 1 : n > PSYZ_INTERNAL_RES_MAX ? PSYZ_INTERNAL_RES_MAX : n;
 }
 
+/* the renderer started: its driver and the graphics card in the log (a player's "sound but no picture" left nothing) */
+static void SDLCALL device_logged(SDL_Window *window, SDL_GPUDevice *device)
+{
+    SDL_PropertiesID p = SDL_GetGPUDeviceProperties(device);
+    const char *card = SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_NAME_STRING, "");
+    const char *driver = SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_DRIVER_NAME_STRING, "");
+    const char *version = SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING, "");
+    fprintf(stderr, "renderer: %s on %s%s%s%s%s%s\n", SDL_GetGPUDeviceDriver(device), card[0] ? card : "an unnamed card",
+            driver[0] || version[0] ? " (driver " : "", driver, driver[0] && version[0] ? " " : "", version,
+            driver[0] || version[0] ? ")" : "");
+    if (!SDL_WindowSupportsGPUPresentMode(device, window, SDL_GPU_PRESENTMODE_VSYNC))
+        fprintf(stderr, "renderer: the window can't show its frames (%s)\n", SDL_GetError());
+}
+
 static int init(void)
 {
+    Psyz_OverlayInit_SDL3GPU(device_logged);
     Psyz_SetTitle("Twisted Metal 2");
     apply_window_mode();
     Psyz_VideoSetVsyncMode(PSYZ_VSYNC_LIMITLESS);

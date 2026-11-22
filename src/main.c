@@ -591,11 +591,26 @@ static int SDLCALL watchdog(void *unused)
     return 0;
 }
 
+/* SDL's and PSY-Z's warnings and errors (as "no swapchain") into the log too: SDL writes them only to a console or a
+ * debugger, so a player's tm2pc.log had none. At most 50 (a warning each frame stays small). */
+static SDL_LogOutputFunction sdl_log_was;
+static void *sdl_log_was_data;
+static void SDLCALL sdl_log_too(void *data, int category, SDL_LogPriority priority, const char *message)
+{
+    static int logged;
+    if (priority >= SDL_LOG_PRIORITY_WARN && logged < 50) {
+        fprintf(stderr, "sdl: %s%s\n", message, ++logged == 50 ? " (no more SDL messages logged)" : "");
+    }
+    if (sdl_log_was) sdl_log_was(sdl_log_was_data, category, priority, message);
+}
+
 int main(int argc, char **argv)
 {
     int prepare = 0; /* --prepare: the first-time setup without a window (RecompLauncher's setup step), then exit */
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--prepare")) prepare = 1;
     setup_output(prepare);
+    SDL_GetLogOutputFunction(&sdl_log_was, &sdl_log_was_data);
+    SDL_SetLogOutputFunction(sdl_log_too, NULL);
 #ifdef _WIN32
     SetUnhandledExceptionFilter(crash_report);
 #endif
