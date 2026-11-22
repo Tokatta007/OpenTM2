@@ -48,9 +48,12 @@ static const struct {
     {0x1D, "turbo", {11, 3, 11, 11}},
     {0x1F, "fire_weapon", {4, 12, 14, 13}},   /* the special weapon (L2 in Standard) */
     {0x1E, "machine_gun", {10, 13, 13, 14}},  /* R2 in Standard: checked in a race */
-    {0x20, "previous_weapon", {3, 14, 3, 3}},
-    {0x21, "next_weapon", {9, 11, 9, 9}},
+    /* the game's 0x21 ("cycle next", +1) goes up the TM2 list, 0x20 down it: named for what the player sees, the
+     * next weapon the one below (TooMuchCheez's L1 / R1, 2026-11-22); the buttons as the layouts have them */
+    {0x21, "previous_weapon", {9, 11, 9, 9}},
+    {0x20, "next_weapon", {3, 14, 3, 3}},
 };
+enum { A_PREV = 10, A_NEXT = 11 }; /* (the two rows above) */
 
 const char *const bind_action_names[BIND_ACTIONS] = {
     "Accelerate", "Brake", "Steer left", "Steer right", "Forward", "Reverse",
@@ -215,11 +218,34 @@ int bind_layout_button(int layout, int action)
     return actions[action].layout[layout];
 }
 
-int bind_button(int player, int action)
+/* TM:Black and TM:2012 show the weapons left to right (the TM2 list's top to bottom): there the layout's next and
+ * previous weapon buttons trade places, R1 the next (the one on the right), unless the player chose either button;
+ * a chosen button is the player's in every style. In a battle vp_weapon_buttons (vplus/fixes.c) trades the pad's two
+ * bits; the keys and the Controls page follow it here. */
+int bind_weapons_swapped(int player)
+{
+    return player >= 0 && player <= 3 && hud_of(player)->style % 3 && !chosen[player][A_PREV] && !chosen[player][A_NEXT];
+}
+static int default_of(int player, int action, int swapped)
+{
+    if (swapped && (action == A_PREV || action == A_NEXT)) action = action == A_PREV ? A_NEXT : A_PREV;
+    return bind_layout_button(layout_of(player), action);
+}
+static int button_of(int player, int action, int swapped)
 {
     if (player < 0 || player > 3 || action < 0 || action >= BIND_ACTIONS) return 0;
-    return chosen[player][action] ? chosen[player][action]
-                                  : bind_layout_button(layout_of(player), action);
+    return chosen[player][action] ? chosen[player][action] : default_of(player, action, swapped);
+}
+/* the button pressed for an action: in a battle as the pad's L1 / R1 are traded (a key presses its action's button,
+ * then traded with the pad's) */
+int bind_button(int player, int action)
+{
+    int feats_in_battle(void);
+    return button_of(player, action, bind_weapons_swapped(player) && feats_in_battle());
+}
+int bind_button_shown(int player, int action) /* the Controls page's: as in a battle */
+{
+    return button_of(player, action, bind_weapons_swapped(player));
 }
 
 void bind_set(int player, int action, int button)
@@ -227,12 +253,18 @@ void bind_set(int player, int action, int button)
     if (player < 0 || player > 3 || action < 0 || action >= BIND_ACTIONS) return;
     /* one button, one action: the action that had this button takes this one's old button (a key presses its
      * action's button, so two actions on one button fired together: Phoenix's machine gun and turbo, 2026-11-22) */
-    int old = bind_button(player, action);
+    int swapped = bind_weapons_swapped(player); /* (as the page shows them) */
+    int old = button_of(player, action, swapped);
     for (int b = 0; b < BIND_ACTIONS; b++)
-        if (b != action && button && bind_button(player, b) == button)
-            chosen[player][b] = (unsigned char)(old == bind_layout_button(layout_of(player), b) ? 0 : old);
+        if (b != action && button && button_of(player, b, swapped) == button)
+            chosen[player][b] = (unsigned char)(old == default_of(player, b, swapped) ? 0 : old);
     /* the layout's own button is stored as "default" */
-    chosen[player][action] = (unsigned char)(button == bind_layout_button(layout_of(player), action) ? 0 : button);
+    chosen[player][action] = (unsigned char)(button == default_of(player, action, swapped) ? 0 : button);
+    /* a weapon button changed, the other as shown: kept as chosen (else it would follow the style no longer) */
+    if (swapped && (action == A_PREV || action == A_NEXT) && chosen[player][action]) {
+        int other = action == A_PREV ? A_NEXT : A_PREV;
+        if (!chosen[player][other]) chosen[player][other] = (unsigned char)default_of(player, other, 1);
+    }
 }
 
 void bind_reset(int player)

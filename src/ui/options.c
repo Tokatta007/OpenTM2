@@ -1025,7 +1025,7 @@ static void set_keypad(int a, int v)
     apply_game_settings();
 }
 /* a binding row's arg: player * 16 + action; values: the buttons 1..14 */
-static int get_binding(int a) { return bind_button(a / 16, a % 16) - 1; }
+static int get_binding(int a) { return bind_button_shown(a / 16, a % 16) - 1; }
 static void set_binding(int a, int v) { bind_set(a / 16, a % 16, v + 1); changed |= SAVE_CONTROLS; }
 static int get_volume(int a) { return (a ? settings_game.effects : settings_game.music) / 10; }
 static void set_volume(int a, int v)
@@ -4905,8 +4905,10 @@ static void build(PageId page)
         h->col1 = "CONTROLLER";
         h->col2 = "KEYBOARD";
         for (int a = 0; a < BIND_ACTIONS; a++) {
-            Row *r = add_choice(bind_action_names[a], NULL, get_binding, set_binding, p * 16 + a,
-                                bind_button_names + 1, BIND_BUTTONS);
+            Row *r = add_choice(bind_action_names[a], /* (Left / Right only turn the controller's: Da Toasty Mane, 2026-11-22) */
+                                p < 2 ? "Press X or Enter, then the new button or key. Left and Right change the controller button."
+                                      : "Press X or Enter, then the new button. Left and Right change it too.",
+                                get_binding, set_binding, p * 16 + a, bind_button_names + 1, BIND_BUTTONS);
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
