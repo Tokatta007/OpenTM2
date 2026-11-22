@@ -11368,7 +11368,12 @@ static uint32_t local_play_from(int two_menu)
         guest_call(GA(0x801378A4u), S, 0, (uint32_t)sv->cars[0], 0);
         if (coop) guest_call(GA(0x801378A4u), S, 1, (uint32_t)sv->cars[1], 0);
         uint32_t value = guest_call(GA(0x8012AFE8u), S, guest_call(GA(0x80137808u), S, 0, 0, 0), 0, 0);
-        guest_call(GA(0x80137918u), S, value - guest_call(GA(0x80137924u), S, 0, 0, 0), 0, 0);
+        if (sv->level == 8 && password_start && pw.flag) /* the Dark Tooth stage: him alone, as 8012E908's password path
+                                                           * (the level's 8 asked for: "Relocatable texture not loaded",
+                                                           * the game closed; TooMuchCheez's report 2026-11-21) */
+            guest_call(GA(0x80137918u), S, 1, 0, 0);
+        else
+            guest_call(GA(0x80137918u), S, value - guest_call(GA(0x80137924u), S, 0, 0, 0), 0, 0);
         guest_call(GA(0x80137820u), S, 0, coop ? 6 : 3, 0);
         if (coop) guest_call(GA(0x80137820u), S, 1, 6, 0);
         guest_call(GA(0x801377E4u), S, (uint32_t)(sv->level >= 5 && sv->difficulty == 0 ? 1 : sv->difficulty), 0, 0);
