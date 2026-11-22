@@ -4481,6 +4481,8 @@ void vp_AiFireDecide(CPU *c) /* aiWeaponFireDecide(ai record) */
         if (kind) mem_w8(&M.cpu, FIRE, 1);
     }
     if (kind) mem_w8(&M.cpu, SELECTED, (uint8_t)kind);
+    else mem_w8(&M.cpu, FIRE, 0); /* the machine gun's level: its guns only (the game refills a computer car's pickups,
+                                   * and their kills never counted there: it never won, Enough Boxes' 2026-11-22) */
 }
 
 /* Gun Game: a computer car fires its special only on a special's level (Twister's, Thumper's and Mr. Slam's AI fire
