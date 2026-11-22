@@ -404,7 +404,7 @@ void hw_write(uint32_t addr, uint32_t v, int size)
 int hw_audio_init(int output)
 {
     Psyz_SpuInit();
-    return output ? Psyz_AudioInit() : 1;
+    return output ? Psyz_AudioInit() == 0 : 1; /* (PSY-Z: 0 started; read as a failure, every log said "no audio output") */
 }
 
 /* --wav (headless): pull the SPU's output each VBlank into a WAV file, so a
