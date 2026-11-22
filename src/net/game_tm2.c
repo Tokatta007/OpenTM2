@@ -609,7 +609,13 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
             if (ok) n = size;
         }
     }
+    uint32_t rear = mem_r32(&M.cpu, GA(0x801809DCu)), rear_ok = mem_r32(&M.cpu, GA(0x801809E0u)); /* (this machine's mirror) */
     ng.loaded = n > ks && killcam_state_load(ng.raw, ks) && devices_load(ng.raw + ks, n - ks);
+    if (ng.loaded && feats_in_battle()) { /* the mirror stays this machine's (rtRearViewActive, rtRearViewAllowed: the host's
+                                           * came with its state); its record: mirrors_rear_pair */
+        mem_w32(&M.cpu, GA(0x801809DCu), rear);
+        mem_w32(&M.cpu, GA(0x801809E0u), rear_ok);
+    }
     if (ng.loaded) rbs_dmd_again(); /* (the host's models: the list made again) */
     if (ng.loaded) rb_resum_restart(ses_rollback(ng.ses)); /* (its step's start ran before it was here: hashed again) */
     void humans_tables_again(void); /* vplus/humans.c */
