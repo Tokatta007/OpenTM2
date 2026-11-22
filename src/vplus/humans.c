@@ -23,7 +23,6 @@ uint32_t killcam_input(int kind, int player, uint32_t live); /* vplus/killcam.c 
 uint16_t input_player_bits(int p);                          /* runtime/input.c */
 int input_steer_amount(int p);
 uint16_t input_easy_buttons(int p);
-uint16_t vp_weapon_buttons(int p, uint16_t bits);           /* vplus/fixes.c */
 int bind_layout(int player);                                /* controls/bindings.c */
 int bind_jump_combo(int player), bind_steer_keep(int player); /* controls/bindings.c */
 void bind_apply_as(int player);
@@ -126,7 +125,7 @@ void humans_local_table(int L, uint8_t out[128])
 }
 
 /* a local player's buttons as the game's pad would have them (active low): pads 1-2 as the VBlank made them (the tests'
- * scripts in), 3-4 from their controllers; L1 / R1 by their HUD style */
+ * scripts in), 3-4 from their controllers */
 static uint16_t local_pad(int L)
 {
     if (L < 2) return M.pad_buttons[L];
@@ -137,7 +136,7 @@ static uint16_t local_pad(int L)
     b &= (uint16_t)~test_bits; /* tests: players 3-4 hold these (active high bits) */
     uint16_t pad_script_bits(int p); /* runtime/hle.c: tests, TM2PC_PAD3_SCRIPT / PAD4 */
     b &= (uint16_t)~pad_script_bits(L);
-    return vp_weapon_buttons(L, b);
+    return b;
 }
 
 void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's frame): every human's word and tilt */

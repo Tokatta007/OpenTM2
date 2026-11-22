@@ -207,7 +207,6 @@ static bool gamepad_touchpad(SDL_Gamepad *g)
     return SDL_GamepadHasButton(g, SDL_GAMEPAD_BUTTON_TOUCHPAD) ? SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_TOUCHPAD)
                                                                 : SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_MISC1);
 }
-uint16_t input_button_bit(int b) { return b > 0 && b <= BIND_TOUCHPAD ? button_bits[b] : 0; } /* a game button's PS1 bit */
 /* an extra control's button (1..17) held on a pad (bits: its gamepad_bits) */
 static bool extra_button_held(SDL_Gamepad *g, uint16_t bits, int b)
 {

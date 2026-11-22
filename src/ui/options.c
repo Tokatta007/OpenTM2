@@ -1025,7 +1025,7 @@ static void set_keypad(int a, int v)
     apply_game_settings();
 }
 /* a binding row's arg: player * 16 + action; values: the buttons 1..14 */
-static int get_binding(int a) { return bind_button_shown(a / 16, a % 16) - 1; }
+static int get_binding(int a) { return bind_button(a / 16, a % 16) - 1; }
 static void set_binding(int a, int v) { bind_set(a / 16, a % 16, v + 1); changed |= SAVE_CONTROLS; }
 static int get_volume(int a) { return (a ? settings_game.effects : settings_game.music) / 10; }
 static void set_volume(int a, int v)
@@ -3244,6 +3244,12 @@ static void net_browser_rows(void)
         add_choice(net_list_n ? "No servers match the filters" : "No servers found",
                    net_list_n ? "Change the filters to see more." : "Refresh, or host a server of your own.",
                    get_zero, set_none, 0, net_blank, 1)->info = 1;
+    if (update_state() >= UPDATE_AVAILABLE) { /* (only servers of this version are listed: those of the new one are not, Phoenix's) */
+        static char label[48];
+        snprintf(label, sizeof label, "Version %s is out", update_version());
+        add_choice(label, "Servers on the new version are not listed here. Update from the title menu to join them.",
+                   get_zero, set_none, 0, net_blank, 1)->info = 1;
+    }
 }
 static const int net_game_order[NET_GAMES] = {NET_GAME_TOURNAMENT, NET_GAME_SURVIVAL, NET_GAME_CHALLENGE, NET_GAME_VERSUS};
 static int get_net_game(int a)
@@ -7839,11 +7845,18 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                         text_draw(c, msg, right - text_width(msg, size), ty, size, ORANGE);
                     } else {
                         int button = r->extra || r->energy ? r->get(r->arg) : r->get(r->arg) + 1;
-                        draw_button(&v, button, X(&v, PAD_COLUMN), cy, size, vc, glyph_kind);
                         char key[64];
                         int k = r->energy ? bind_energy_key(r->arg / 8, r->arg % 8)
                               : r->extra ? bind_extra_key(r->extra - 1) : bind_key(r->arg / 16, r->arg % 16);
                         shorten(key, sizeof key, bind_key_name(k), 0);
+                        if (i == sel) { /* both columns marked too: X, then a button or a key sets either (the user's) */
+                            const char *bn = button >= 1 && button <= BIND_TOUCHPAD
+                                                 ? (glyph_kind == 2 ? bind_button_names_xbox : bind_button_names)[button] : "-";
+                            int bw = button >= 11 && button <= 14 ? size : text_width(bn, size), pad = S(&v, BAR_PAD);
+                            draw_bar(&v, X(&v, PAD_COLUMN) - bw / 2 - pad, X(&v, PAD_COLUMN) + bw / 2 + pad, cy, size);
+                            draw_bar(&v, right - text_width(key, size) - pad, right + pad, cy, size);
+                        }
+                        draw_button(&v, button, X(&v, PAD_COLUMN), cy, size, vc, glyph_kind);
                         text_draw(c, key, right - text_width(key, size), ty, size, vc);
                     }
                 } else if (r->music) {

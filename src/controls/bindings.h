@@ -18,8 +18,6 @@ int bind_layout_button(int layout, int action);
 /* The button an action has for a player: the player's own choice, or the
  * layout's. */
 int bind_button(int player, int action);
-int bind_button_shown(int player, int action); /* the Controls page's (the HUD style's weapon buttons, in or out of a battle) */
-int bind_weapons_swapped(int player);          /* TM:Black / TM:2012 with the layout's weapon buttons: next on R1 */
 /* Sets a player's button for an action (0: back to the layout's). */
 void bind_set(int player, int action, int button);
 /* Drops a player's own buttons (when the layout changes); the keyboard keys

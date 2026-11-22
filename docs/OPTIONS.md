@@ -91,11 +91,10 @@ made active (`sub_80150FC0(port)`). The actions are the twelve the car reads
 (`car_input.c`): accelerate 0x18, brake 0x19, steer left 0x17, steer right 0x16, forward
 0x1A, reverse 0x1B, tight turn 0x1C, turbo 0x1D, machine gun 0x1E (R2 in Standard), fire weapon 0x1F (the special
 weapon, L2),
-previous weapon 0x21 (R1 in Standard: up the TM2 list), next weapon 0x20 (L1: down it). The game's own names
-for 0x21 / 0x20 are "cycle next" / "cycle previous", but 0x21 moves up the list on screen; the Controls page names
-them for what the player sees. TM:Black and TM:2012 show the list left to right, and with the layout's buttons R1
-is the next weapon there (the pad's two weapon buttons traded in a battle, `vp_weapon_buttons`; the Controls page
-shows them so); a button the player chose is used as chosen in every style. Buttons are the PlayStation's: gamepads map
+previous weapon 0x21 (up the TM2 list; left on TM:Black and TM:2012), next weapon 0x20 (down it; right). The game's
+own names for 0x21 / 0x20 are "cycle next" / "cycle previous" and its layouts put 0x21 on R1; the port's defaults trade
+the two buttons (Standard: L1 previous, R1 next; Run 'N Gun: Circle previous, Triangle next), bound after the game's
+layout every time. Buttons are the PlayStation's: gamepads map
 onto them by position (`input.c`). Keyboard keys belong to actions instead: while a key is
 held, its action's button is pressed, so a key keeps its action when the action gets
 another button; one key serves one action. Face buttons are shown as the PlayStation's

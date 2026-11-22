@@ -6312,23 +6312,6 @@ void vp_keep_register(void)
 #undef KEEP
 }
 
-/* TM:Black and TM:2012 show the weapons left to right in the TM2 list's order (top to bottom); the game's R1
- * takes the one before (up the list): with those styles L1 and R1 trade places, so R1 goes right (either
- * polarity: the two bits swapped). Only with the layout's weapon buttons: a player's own (Controls) are theirs in
- * every style (bindings.c bind_weapons_swapped) */
-int feats_in_battle(void);
-int bind_weapons_swapped(int player);
-uint16_t vp_weapon_buttons(int p, uint16_t bits)
-{
-    if (p < 0 || p > 3 || !feats_in_battle() || !bind_weapons_swapped(p)) return bits;
-    /* the layout's two weapon buttons (L1 / R1; Run 'N Gun's Triangle / Circle) */
-    uint16_t input_button_bit(int b);
-    uint16_t a = input_button_bit(bind_layout_button(bind_layout(p), 10)), b = input_button_bit(bind_layout_button(bind_layout(p), 11));
-    if (!a || !b || a == b) return bits;
-    int ha = (bits & a) != 0, hb = (bits & b) != 0;
-    return (uint16_t)((bits & ~(a | b)) | (ha ? b : 0) | (hb ? a : 0));
-}
-
 /* Amazonia's lava (decomp RENDER_ANSWERS R6.2): its tiles of 3,200 down to 200 meet at T-junctions at every band
  * boundary, and nothing is under them; retail's whole-pixel corners keep the cracks under half a pixel, the port's far
  * meshes (each rounded on its own) open thin slivers, and through them the view's clear showed: the arena's brown

@@ -246,8 +246,7 @@ static int pad_as = -1; /* reading the actions of player 3 or 4 */
 uint32_t killcam_input(int kind, int player, uint32_t live);
 static uint32_t player_latch(int p) /* the game's latch layout (padDecode): the raw pad bytes swapped */
 {
-    uint16_t vp_weapon_buttons(int p, uint16_t bits);
-    uint16_t b = (uint16_t)killcam_input(0, p, vp_weapon_buttons(p, input_player_bits(p)));
+    uint16_t b = (uint16_t)killcam_input(0, p, input_player_bits(p));
     static int test_read;
     static uint16_t test_bits;
     if (!test_read) { test_read = 1; if (getenv("TM2PC_TEST_P34")) test_bits = (uint16_t)strtoul(getenv("TM2PC_TEST_P34"), 0, 16); }
