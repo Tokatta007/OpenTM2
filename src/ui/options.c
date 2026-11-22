@@ -3889,6 +3889,7 @@ static int net_action(int act, int arg)
             if (s->locked) { /* a private server: its password first (the name grid), then the join (net_named 9) */
                 snprintf(net_join_where, sizeof net_join_where, "%s", where);
                 snprintf(net_server.name, sizeof net_server.name, "%s", s->name);
+                fprintf(stderr, "network: \"%s\" is private: its password asked for\n", s->name);
                 net_back_to = PAGE_NET_BROWSER;
                 name_start(0);
                 naming.game_type = 9;
