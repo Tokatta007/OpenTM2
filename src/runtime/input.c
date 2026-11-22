@@ -29,9 +29,9 @@ enum {
 };
 
 /* the game's button numbers (bindings.h) as PS1 pad bits */
-static const uint16_t button_bits[BIND_BUTTONS_ALL + 1] = {
+static const uint16_t button_bits[BIND_TOUCHPAD + 1] = {
     0, PSX_SELECT, PSX_START, PSX_L1, PSX_L2, PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT,
-    PSX_R1, PSX_R2, PSX_TRIANGLE, PSX_CROSS, PSX_SQUARE, PSX_CIRCLE, PSX_L3, PSX_R3,
+    PSX_R1, PSX_R2, PSX_TRIANGLE, PSX_CROSS, PSX_SQUARE, PSX_CIRCLE, PSX_L3, PSX_R3, 0, /* (the touchpad: no PS1 bit) */
 };
 
 static const struct { SDL_Scancode key; uint16_t bits; } menu_keys[] = {
@@ -200,6 +200,19 @@ static uint16_t gamepad_bits_ex(SDL_Gamepad *g, int stick_dpad)
     return bits;
 }
 static uint16_t gamepad_bits(SDL_Gamepad *g) { return gamepad_bits_ex(g, 1); } /* (the left stick also as the D-pad) */
+/* the touchpad held (BIND_TOUCHPAD): a PS4/PS5 pad's; on a pad without one, its Share (Capture) button */
+static bool gamepad_touchpad(SDL_Gamepad *g)
+{
+    if (!g) return 0;
+    return SDL_GamepadHasButton(g, SDL_GAMEPAD_BUTTON_TOUCHPAD) ? SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_TOUCHPAD)
+                                                                : SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_MISC1);
+}
+/* an extra control's button (1..17) held on a pad (bits: its gamepad_bits) */
+static bool extra_button_held(SDL_Gamepad *g, uint16_t bits, int b)
+{
+    if (b == BIND_TOUCHPAD) return gamepad_touchpad(g);
+    return b > 0 && b <= BIND_BUTTONS_ALL && (bits & button_bits[b]);
+}
 
 /* A player's driving keys, as the PS1 buttons of their actions. */
 static uint16_t action_key_bits(const bool *keys, int player)
@@ -258,7 +271,7 @@ void input_poll(void)
     uint16_t pad1 = gamepad_bits(pads[0]);
     for (int i = 0; i < BIND_SONGS; i++) {
         int k = bind_extra_key(i), b = bind_extra_button(i);
-        bool held = (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) || (b && (pad1 & button_bits[b]));
+        bool held = (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) || extra_button_held(pads[0], pad1, b);
         if (held && !song_held[i]) cd_audio_skip(i ? -1 : 1);
         song_held[i] = held;
     }
@@ -365,7 +378,7 @@ uint16_t input_menu_buttons(int *menu_key)
 static bool input_extra_held(int i, const bool *keys, uint16_t pad1)
 {
     int k = bind_extra_key(i), b = bind_extra_button(i);
-    return (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) || (b && (pad1 & button_bits[b]));
+    return (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) || extra_button_held(pads[0], pad1, b);
 }
 /* push to talk (online voice chat): held now (each frame in a battle; the menus read it themselves) */
 int input_ptt_held(void)
@@ -376,7 +389,8 @@ int input_ptt_held(void)
     SDL_UpdateGamepads();
     return input_extra_held(BIND_PTT, input_keys(0), gamepad_bits(pads[0]));
 }
-/* Held on any controller (its touchpad or guide button) or Tab: the scoreboard in a battle. */
+/* The scoreboard in a battle: its key (Tab by default) or its button (the touchpad by default; player 1's Controls) held
+ * on any controller (each player's view shows it). */
 int input_scoreboard_held(void)
 {
     static long long test = -2; /* tests: TM2PC_TEST_SCOREBOARD=V, held from VBlank V on */
@@ -384,10 +398,18 @@ int input_scoreboard_held(void)
     if (test >= 0 && M.vblanks >= (uint64_t)test) return 1;
     SDL_UpdateGamepads();
     const bool *keys = input_keys(0);
-    if (keys && keys[SDL_SCANCODE_TAB]) return 1;
+    int k = bind_extra_key(BIND_SCOREBOARD), b = bind_extra_button(BIND_SCOREBOARD);
+    if (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) return 1;
+    for (int i = 0; b && i < all_count; i++)
+        if (extra_button_held(all[i], b == BIND_TOUCHPAD ? 0 : gamepad_bits_ex(all[i], 0), b)) return 1;
+    return 0;
+}
+
+/* Any gamepad's touchpad held (the Controls page's capture: not a PS1 button) */
+int input_pad_touchpad(void)
+{
     for (int i = 0; i < all_count; i++)
-        if (SDL_GetGamepadButton(all[i], SDL_GAMEPAD_BUTTON_TOUCHPAD) || SDL_GetGamepadButton(all[i], SDL_GAMEPAD_BUTTON_GUIDE))
-            return 1;
+        if (gamepad_touchpad(all[i])) return 1;
     return 0;
 }
 

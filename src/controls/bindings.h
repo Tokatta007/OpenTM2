@@ -5,11 +5,12 @@
 #define BIND_ACTIONS 12
 #define BIND_BUTTONS 14   /* the game's button numbers 1..14 */
 #define BIND_BUTTONS_ALL 16 /* and L3 (15), R3 (16): only for the song keys, the game has no use for them */
+#define BIND_TOUCHPAD 17    /* the touchpad (PS4/PS5; Share on other pads): only for the extra controls (not a PS1 button) */
 
 /* The rebindable actions, in the order the Controls page lists them. */
 extern const char *const bind_action_names[BIND_ACTIONS];
-extern const char *const bind_button_names[BIND_BUTTONS_ALL + 1];      /* [1..16]: PlayStation */
-extern const char *const bind_button_names_xbox[BIND_BUTTONS_ALL + 1]; /* the same buttons on an Xbox pad */
+extern const char *const bind_button_names[BIND_TOUCHPAD + 1];      /* [1..17]: PlayStation */
+extern const char *const bind_button_names_xbox[BIND_TOUCHPAD + 1]; /* the same buttons on an Xbox pad */
 
 /* The button (1..14) an action has in one of the game's four layouts. */
 int bind_layout_button(int layout, int action);
@@ -37,7 +38,8 @@ const char *bind_key_name(int scancode); /* for the Controls page */
  * key, for player 1. */
 #define BIND_SONGS 2   /* the extra controls: next and previous song (custom music), */
 #define BIND_PTT 2     /* push to talk (online voice chat, held) */
-#define BIND_EXTRAS 3
+#define BIND_SCOREBOARD 3 /* the scoreboard in a battle (held): the touchpad and Tab by default, on any controller */
+#define BIND_EXTRAS 4
 extern const char *const bind_extra_names[BIND_EXTRAS];
 int bind_extra_button(int i);
 void bind_set_extra_button(int i, int button);

@@ -57,23 +57,32 @@ const char *const bind_action_names[BIND_ACTIONS] = {
     "Tight turn", "Turbo", "Fire weapon", "Machine gun", "Previous weapon", "Next weapon",
 };
 
-const char *const bind_button_names[BIND_BUTTONS_ALL + 1] = {
+const char *const bind_button_names[BIND_TOUCHPAD + 1] = {
     "-", "SELECT", "START", "L1", "L2", "UP", "DOWN", "LEFT", "RIGHT",
-    "R1", "R2", "TRIANGLE", "CROSS", "SQUARE", "CIRCLE", "L3", "R3",
+    "R1", "R2", "TRIANGLE", "CROSS", "SQUARE", "CIRCLE", "L3", "R3", "TOUCHPAD",
 };
-const char *const bind_button_names_xbox[BIND_BUTTONS_ALL + 1] = {
+const char *const bind_button_names_xbox[BIND_TOUCHPAD + 1] = {
     "-", "VIEW", "MENU", "LB", "LT", "UP", "DOWN", "LEFT", "RIGHT",
-    "RB", "RT", "Y", "A", "X", "B", "LS", "RS",
+    "RB", "RT", "Y", "A", "X", "B", "LS", "RS", "SHARE",
 };
-static const char *const button_keys[BIND_BUTTONS_ALL + 1] = {
+static const char *const button_keys[BIND_TOUCHPAD + 1] = {
     "default", "select", "start", "l1", "l2", "up", "down", "left", "right",
-    "r1", "r2", "triangle", "cross", "square", "circle", "l3", "r3",
+    "r1", "r2", "triangle", "cross", "square", "circle", "l3", "r3", "touchpad",
 };
 
-const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk"};
-static const char *const extra_keys[BIND_EXTRAS] = {"next_song", "previous_song", "push_to_talk"}; /* (their ini names) */
-static int extra_button[BIND_EXTRAS];            /* none by default: no song change (or talking) by accident */
-static int extra_key[BIND_EXTRAS] = {SDL_SCANCODE_PAGEDOWN, SDL_SCANCODE_PAGEUP, SDL_SCANCODE_V};
+const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk", "Scoreboard"};
+static const char *const extra_keys[BIND_EXTRAS] = {"next_song", "previous_song", "push_to_talk", "scoreboard"}; /* (their ini names) */
+static int extra_button[BIND_EXTRAS] = {0, 0, 0, BIND_TOUCHPAD}; /* the songs and talking: none by default (not by
+                                                                  * accident); the scoreboard: the touchpad (the user's) */
+static int extra_key[BIND_EXTRAS] = {SDL_SCANCODE_PAGEDOWN, SDL_SCANCODE_PAGEUP, SDL_SCANCODE_V, SDL_SCANCODE_TAB};
+static int is_extra_key(const char *key) /* an extra control's ini name (or its _key): player 1's, unprefixed */
+{
+    for (int i = 0; i < BIND_EXTRAS; i++) {
+        size_t n = strlen(extra_keys[i]);
+        if (!strncmp(key, extra_keys[i], n) && (!key[n] || !strcmp(key + n, "_key"))) return 1;
+    }
+    return 0;
+}
 const char *const bind_energy_names[BIND_ENERGY] = {"Freeze", "Rear fire", "Mines", "Shield", "Invisibility"};
 static const char *const energy_keys[BIND_ENERGY] = {"energy_freeze", "energy_rear_fire", "energy_mines", "energy_shield",
                                                      "energy_invisibility"}; /* (their ini names, after pN_) */
@@ -100,7 +109,7 @@ static const char *const layout_keys[4] = {"standard", "run_n_gun", "control_fre
 int bind_extra_button(int i) { return i >= 0 && i < BIND_EXTRAS ? extra_button[i] : 0; }
 void bind_set_extra_button(int i, int button)
 {
-    if (i >= 0 && i < BIND_EXTRAS && button >= 0 && button <= BIND_BUTTONS_ALL) extra_button[i] = button;
+    if (i >= 0 && i < BIND_EXTRAS && button >= 0 && button <= BIND_TOUCHPAD) extra_button[i] = button;
 }
 int bind_extra_key(int i) { return i >= 0 && i < BIND_EXTRAS ? extra_key[i] : 0; }
 /* an energy attack's button: its own, else (Easy Energy Attacks on) the first four's D-pad direction, Up freeze, Down
@@ -263,7 +272,7 @@ int bind_ini_key(const char *key, const char *val)
         size_t n = strlen(name);
         if (strncmp(key, name, n)) continue;
         if (!key[n]) {
-            for (int b = 0; b <= BIND_BUTTONS_ALL; b++)
+            for (int b = 0; b <= BIND_TOUCHPAD; b++)
                 if (!strcmp(val, b ? button_keys[b] : "none")) extra_button[i] = b;
             return 1;
         }
@@ -352,6 +361,7 @@ void bind_player1_defaults(void)
         keys[0][a] = default_keys[a];
     }
     extra_button[0] = extra_button[1] = extra_button[BIND_PTT] = 0;
+    extra_button[BIND_SCOREBOARD] = BIND_TOUCHPAD;
     memset(energy_button[0], 0, sizeof energy_button[0]);
     memset(energy_key[0], 0, sizeof energy_key[0]);
     jump_combo[0] = easy_energy[0] = 0;
@@ -360,6 +370,7 @@ void bind_player1_defaults(void)
     extra_key[0] = SDL_SCANCODE_PAGEDOWN;
     extra_key[1] = SDL_SCANCODE_PAGEUP;
     extra_key[BIND_PTT] = SDL_SCANCODE_V;
+    extra_key[BIND_SCOREBOARD] = SDL_SCANCODE_TAB;
     settings_game.keypad[0] = 0;
 }
 
@@ -402,7 +413,7 @@ int bind_profile_key_p2(const char *key, const char *val)
         return 1;
     }
     size_t n = strlen(key);
-    if (!strncmp(key, "next_song", 9) || !strncmp(key, "previous_song", 13) || (n > 4 && !strcmp(key + n - 4, "_key")))
+    if (is_extra_key(key) || (n > 4 && !strcmp(key + n - 4, "_key")))
         return 1; /* the songs and the keyboard are player 1's */
     char p2[64];
     snprintf(p2, sizeof p2, "p2_%s", key);
@@ -430,7 +441,7 @@ int bind_profile_key_p(int p, const char *key, const char *val)
         return 1;
     }
     size_t n = strlen(key);
-    if (!strncmp(key, "next_song", 9) || !strncmp(key, "previous_song", 13) || (n > 4 && !strcmp(key + n - 4, "_key")))
+    if (is_extra_key(key) || (n > 4 && !strcmp(key + n - 4, "_key")))
         return 1;
     char pk[64];
     snprintf(pk, sizeof pk, "p%d_%s", p + 1, key);
@@ -444,7 +455,7 @@ int bind_profile_key(const char *key, const char *val)
             if (!strcmp(val, layout_keys[l])) settings_game.keypad[0] = l;
         return 1;
     }
-    if (!strncmp(key, "next_song", 9) || !strncmp(key, "previous_song", 13))
+    if (is_extra_key(key)) /* (push_to_talk went to p1_push_to_talk and was lost) */
         return bind_ini_key(key, val);
     char p1[64];
     snprintf(p1, sizeof p1, "p1_%s", key);
@@ -456,8 +467,8 @@ void bind_profile_write(FILE *f)
     fprintf(f, "[controls]\n; player 1's controls when signed in with this profile\n"
                "; layout: standard, run_n_gun, control_freak or deadly_force\n");
     fprintf(f, "layout = %s\n", layout_keys[settings_game.keypad[0]]);
-    fprintf(f, "; next / previous song (custom music on random or in order), push to talk (online, held): a button (none,\n"
-               "; l3, r3 ...) and a key\n");
+    fprintf(f, "; next / previous song (custom music on random or in order), push to talk (online, held), the scoreboard\n"
+               "; (in a battle, held; on any controller): a button (none, l3, r3, touchpad ...) and a key\n");
     for (int i = 0; i < BIND_EXTRAS; i++) {
         const char *name = extra_keys[i];
         fprintf(f, "%s = %s\n", name, extra_button[i] ? button_keys[extra_button[i]] : "none");
