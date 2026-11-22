@@ -714,6 +714,7 @@ int main(int argc, char **argv)
         profile_load_movie_portraits(path); /* before the profile: its portrait may be one */
         profile_load();
         atexit(feats_flush); /* the feats of a match still running when the window closes */
+        { void netplay_leave(void); atexit(netplay_leave); } /* (quit mid-match: the other machines told at once) */
     }
     if (preset_arg >= 0)
         vp_preset(preset_arg);
