@@ -16108,16 +16108,16 @@ int ui_quit_frame(void) /* 1: quit now */
     memset(qb.px, 0, (size_t)qb.w * qb.h * 3);
     View v = view_fit(&qb);
     static const uint8_t panel[3] = {10, 10, 14}, line[3] = {188, 188, 196};
-    float bx = 210, bw = 220, rh = 24, bh = 56 + rh * 2, by = 240 - bh / 2;
+    float bx = 210, bw = 220, rh = 24, bh = 64 + rh * 2, by = 240 - bh / 2;
     draw_fill(&qb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
     draw_fill(&qb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
     lettering();
-    int ts = S(&v, 16), ls = S(&v, 14);
+    int ts = S(&v, 20), ls = S(&v, 14);
     const char *title = "QUIT OPENTM2?";
-    text_draw(&qb, title, X(&v, 320) - text_width(title, ts) / 2, text_top_for_center(Y(&v, by + 20), ts), ts, TITLE);
+    text_draw(&qb, title, X(&v, 320) - text_width(title, ts) / 2, text_top_for_center(Y(&v, by + 30), ts), ts, TITLE);
     static const char *const yn[2] = {"YES", "NO"};
     for (int i = 0; i < 2; i++) {
-        int cy = Y(&v, by + 48 + rh * (i + 0.5f));
+        int cy = Y(&v, by + 54 + rh * (i + 0.5f));
         int half = text_width("YES", ls) / 2 + S(&v, 14); /* (the bar about the word: YES's width, the same for both) */
         if (qp_sel == i) draw_bar(&v, X(&v, 320) - half, X(&v, 320) + half, cy, ls);
         text_draw(&qb, yn[i], X(&v, 320) - text_width(yn[i], ls) / 2, text_top_for_center(cy, ls), ls, qp_sel == i ? WHITE : PALE);
