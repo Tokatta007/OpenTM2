@@ -16118,7 +16118,8 @@ int ui_quit_frame(void) /* 1: quit now */
     static const char *const yn[2] = {"YES", "NO"};
     for (int i = 0; i < 2; i++) {
         int cy = Y(&v, by + 48 + rh * (i + 0.5f));
-        if (qp_sel == i) draw_bar(&v, X(&v, bx + 10), X(&v, bx + bw - 10), cy, ls);
+        int half = text_width("YES", ls) / 2 + S(&v, 14); /* (the bar about the word: YES's width, the same for both) */
+        if (qp_sel == i) draw_bar(&v, X(&v, 320) - half, X(&v, 320) + half, cy, ls);
         text_draw(&qb, yn[i], X(&v, 320) - text_width(yn[i], ls) / 2, text_top_for_center(cy, ls), ls, qp_sel == i ? WHITE : PALE);
     }
     plain_text();
