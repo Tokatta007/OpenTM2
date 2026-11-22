@@ -318,6 +318,7 @@ CustomTour *battle_tour(void)
 
 static const GameType *type_override; /* a server's game type (the host's, which this profile may not have) */
 void battle_type_override(const GameType *t) { type_override = t; }
+const GameType *battle_type_overridden(void) { return type_override; }
 const GameType *battle_match_type(void)
 {
     const GameType *t = type_override ? type_override : battle_type_named(battle_match()->game_type);
