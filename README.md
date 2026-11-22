@@ -1,5 +1,3 @@
-<p align="center"><img src="docs/images/opentm2-logo.png" alt="OpenTM2" width="560"></p>
-
 <p align="center">
   <a href="https://youtu.be/QdJrzCkjSc8"><img src="https://img.youtube.com/vi/QdJrzCkjSc8/maxresdefault.jpg" alt="OpenTM2 release trailer" width="640"></a><br>
   <a href="https://youtu.be/QdJrzCkjSc8">▶ Watch the release trailer</a> · <a href="https://opentm2.pages.dev">Website: opentm2.pages.dev</a>
