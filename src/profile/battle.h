@@ -133,6 +133,7 @@ MatchSetup *battle_match(void);                    /* the match being set (a cus
 void battle_match_defaults(MatchSetup *m);
 void battle_match_override(MatchSetup *m);         /* battle_match() is this one (NULL: the profile's again) */
 void battle_type_override(const GameType *t);      /* battle_match_type() is this one (NULL: by the match's name again) */
+const GameType *battle_type_overridden(void);      /* the one set (NULL: none) */
 
 /* Custom Tournament (Local Play > Tournament): its stages in order, kept in the profile ([custom_tournament]) */
 enum { TOUR_STAGES_MIN = 6, TOUR_STAGES_MAX = 8, TOUR_BOSSES_MAX = 2 };

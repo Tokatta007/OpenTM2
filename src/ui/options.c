@@ -14116,7 +14116,11 @@ static uint32_t coop_duel(void)
             n > 2 ? ", " : "", n > 2 ? profile_character_name(car[2]) : "", n > 3 ? ", " : "", n > 3 ? profile_character_name(car[3]) : "");
     MatchSetup match_saved = *battle_match();
     int live_saved = battle_live, survival_saved = survival_on;
+    const GameType *type_saved = battle_type_overridden();
     if (n > 2) { /* everyone: the port's rules (a Challenge Match of Twisted Metal: the last car alive, one life) */
+        /* (online the server's game type is in place, the match's name not read: its Deathmatch made the duel one
+         * to kills with respawns, a player's report 2026-11-21) */
+        battle_type_override(battle_builtin(0)); /* Twisted Metal */
         MatchSetup *m = battle_match();
         snprintf(m->game_type, sizeof m->game_type, "Twisted Metal");
         m->arena = 8;
@@ -14158,6 +14162,7 @@ static uint32_t coop_duel(void)
         winner = duo_won && duo_h >= 0 && duo_h < n ? duo_h : -1;
         if (getenv("TM2PC_TEST_DUEL_RESULT")) winner = duel_result == 3 ? 0 : -1;
         *battle_match() = match_saved;
+        battle_type_override(type_saved);
         battle_live = live_saved;
         survival_on = survival_saved;
     }

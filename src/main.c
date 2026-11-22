@@ -568,7 +568,7 @@ static void setup_output(int prepare)
 #endif
 }
 
-/* The freeze watchdog: no frame shown for 10 seconds (the game's or a menu's) and the log says so, with the guest's
+/* The freeze watchdog: no frame shown for 10 seconds (the game's or a menu's) and the log says so, from the first frame on, with the guest's
  * registers as they were last written (recompiled code: r31 the last call's return, a0-a3 its arguments), once a freeze
  * (the user's Gun Game froze at a respawn, 2026-10-29, the music playing on). */
 volatile unsigned rt_heartbeat;
@@ -580,6 +580,7 @@ static int SDLCALL watchdog(void *unused)
     for (;;) {
         SDL_Delay(1000);
         unsigned now = rt_heartbeat;
+        if (!now) continue; /* (no frame yet: the setup window, the first-time pictures; their minutes no freeze) */
         if (now != seen) { seen = now; if (still >= 10) fprintf(stderr, "watchdog: frames again after %d s\n", still); still = 0; continue; }
         extern volatile uint32_t gpu_walking; /* runtime/gpu.c */
         if (++still == 10)
