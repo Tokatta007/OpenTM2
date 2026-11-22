@@ -1905,6 +1905,18 @@ void vp_lives_round(void) /* the round's start */
         uint32_t mask = vacant_at ? mem_r32(&M.cpu, vacant_at) : 0;
         for (int h = 0; h < CARS_HUMANS_MAX; h++)
             if (handed[h] && !((mask >> h) & 1)) { ai_team_plus1[(handed[h] - 1) % CARS_MAX] = 0; handed[h] = back_wait[h] = 0; }
+        /* online every human takes damage: a hand-over made the leaving player's record vacant with damageable (stats
+         * +0xA8, human +0x1F4) 0, and only uaInit (the boot) sets it again, carStatsLoad never for a player's record:
+         * whoever had that place next drove unhurt by anything, match after match until a restart (Sage's, Enough
+         * Boxes' and Phoenix's reports 2026-11-22). Online the cheats are off, so 0 is never wanted there. */
+        int humans_local_count(void); /* vplus/humans.c: -1 offline */
+        int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+        if (humans_local_count() >= 0)
+            for (int h = 0; h < humans && h < CARS_HUMANS_MAX; h++)
+                if (!((mask >> h) & 1) && !mem_r32(&M.cpu, HUMAN_REC(h) + 0x1F4)) {
+                    mem_w32(&M.cpu, HUMAN_REC(h) + 0x1F4, 1);
+                    fprintf(stderr, "lives: player %d takes damage again (a hand-over's vacant record)\n", h + 1);
+                }
     }
     vp_port_event = 0; /* (none left over from the last round: its next death would end this one) */
     for (int i = 0; i < CARS_HUMANS_MAX; i++) life[i].at = life[i].shield_off = watch_at[i] = 0;

@@ -8165,8 +8165,10 @@ static int signed_in_row(void)
 /* Entering a name (naming.active): the controllers' buttons (not the menu
  * keys: X, C and Z are letters here) move on the grid; keys type. Returns 1
  * when the name was taken, -1 when given up. */
+uint64_t ui_naming_seen_ns; /* (runtime/gpu_psyz.c: Escape gives up the name here, no "Quit?" then) */
 static int naming_input(uint16_t script_buttons)
 {
+    ui_naming_seen_ns = SDL_GetTicksNS();
     uint16_t b = script ? script_buttons : naming_pad >= 0 ? input_player_pad_buttons(naming_pad) : input_pad_buttons();
     uint16_t pressed = (uint16_t)(b & ~naming.prev);
     static const uint16_t dirs[4] = {B_UP, B_DOWN, B_LEFT, B_RIGHT};
@@ -9002,7 +9004,7 @@ static int run(PageId start)
                 dirty = 1;
             } else if (r->press && r->locked) {
                 /* not this player's */
-            } else if (r->press && (pressed & B_CROSS)) {
+            } else if (r->press && (pressed & (B_CROSS | B_START))) { /* (Enter on a keyboard too: it cycled the button) */
                 capturing = sel; /* buttons and keys held now (this X) do not count: only new presses */
                 capture_pads = script ? b : input_pad_buttons();
                 if (!script) input_new_key();

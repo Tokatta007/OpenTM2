@@ -1,0 +1,35 @@
+--- a/psyz/include/psyz/system.h
++++ b/psyz/include/psyz/system.h
+@@ -101,6 +101,12 @@
+ int Psyz_QuitRequested(void);
+ 
+ /**
++ * @brief Whether the Escape key quits (1, the default). 0: Escape does nothing
++ * here, so the game can handle it itself (for example, ask first).
++ */
++void Psyz_EscapeQuits(int on);
++
++/**
+  * @brief Join two path components with the platform's path separator
+  *
+  * Automatically handles path separators to avoid double separators.
+--- a/psyz/src/platform/sdl3_common.h
++++ b/psyz/src/platform/sdl3_common.h
+@@ -399,6 +399,8 @@
+ }
+ 
+ int Psyz_QuitRequested(void) { return SDL_GetAtomicInt(&quit_requested) != 0; }
++static int escape_quits = 1;
++void Psyz_EscapeQuits(int on) { escape_quits = on; }
+ 
+ // Initialize the timing/vsync state. Call once at the end of InitPlatform.
+ static void Sdl3Common_TimingInit(void) {
+@@ -994,7 +996,7 @@
+             break;
+ #ifndef PLATFORM_IOS
+         case SDL_EVENT_KEY_DOWN:
+-            if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
++            if (event.key.scancode == SDL_SCANCODE_ESCAPE && escape_quits) {
+                 SDL_SetAtomicInt(&quit_requested, 1);
+             }
+             if (event.key.scancode == SDL_SCANCODE_F6) {

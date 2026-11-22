@@ -19,6 +19,8 @@
 #include <psyz/gpu.h>
 #include <psyz/video.h>
 #include <psyz/overlay_sdl3_gpu.h>
+#include <psyz/overlay_sdl3.h>
+#include <psyz/system.h>
 
 typedef struct { short x, y, w, h; } Ps1Rect; /* libgpu RECT (PS1_RECT in PSY-Z) */
 void Draw_LoadImage(Ps1Rect *rect, unsigned long *p);
@@ -98,8 +100,41 @@ static void SDLCALL device_logged(SDL_Window *window, SDL_GPUDevice *device)
         fprintf(stderr, "renderer: the window can't show its frames (%s)\n", SDL_GetError());
 }
 
+/* Escape asks before it quits (N4h's suggestion, Phoenix's report 2026-11-22: a stray press closed the game at once).
+ * PSY-Z only reports the key (Psyz_EscapeQuits(0), psyz-28); the question waits for the frame's end, outside its event
+ * loop. In the name entry Escape gives up the name instead. */
+extern uint64_t ui_naming_seen_ns; /* ui/options.c */
+static int escape_pending;
+static void SDLCALL escape_seen(const SDL_Event *e)
+{
+    if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_ESCAPE && !e->key.repeat &&
+        SDL_GetTicksNS() - ui_naming_seen_ns > 250000000ull)
+        escape_pending = 1;
+}
+static void escape_ask(void)
+{
+    if (!escape_pending) return;
+    escape_pending = 0;
+    static const SDL_MessageBoxButtonData buttons[] = {
+        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No"},
+        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes"},
+    };
+    const SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION, SDL_GetKeyboardFocus(), "OpenTM2", "Quit OpenTM2?",
+                                    2, buttons, NULL};
+    int choice = 0;
+    fprintf(stderr, "escape: asking to quit\n");
+    if (SDL_ShowMessageBox(&box, &choice) && choice == 1) {
+        fprintf(stderr, "escape: quit\n");
+        SDL_Event q = {0};
+        q.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&q); /* (PSY-Z's own quit at the next event poll: as the window's close button) */
+    }
+}
+
 static int init(void)
 {
+    Psyz_EscapeQuits(0);
+    Psyz_OverlayEvent_SDL3(escape_seen);
     Psyz_OverlayInit_SDL3GPU(device_logged);
     Psyz_SetTitle("Twisted Metal 2");
     apply_window_mode();
@@ -417,6 +452,7 @@ static void vblank(void)
         Psyz_VideoVSync(0);
         present_log();
     }
+    escape_ask();
     void rt_live_shot(void); /* tests: TM2PC_LIVE_SHOT (main.c) */
     rt_live_shot();
 }
