@@ -847,7 +847,7 @@ static int display_paced(void)
 }
 #define SCENE_OBJS 32
 typedef struct { uint32_t obj[SCENE_OBJS]; int32_t pos[SCENE_OBJS][6]; int n; uint64_t at_ns; } SceneShot;
-static SceneShot scene_prev, scene_cur;
+static SceneShot scene_prev2, scene_prev, scene_cur; /* (prev2: the step before, how fast each object went) */
 static uint32_t scene_s, scene_frame;
 static uint64_t scene_vblank;
 static int scene_frames;
@@ -856,6 +856,7 @@ void interp_SceneFrame(CPU *c) /* screenCarEnding(scene, frame) */
 {
     uint32_t s = c->r[4], fr = c->r[5];
     if (display_paced() && !M.headless) {
+        scene_prev2 = scene_prev;
         scene_prev = scene_cur;
         scene_cur.n = 0;
         for (int l = 0; l < 2; l++) {
@@ -900,9 +901,15 @@ static void scene_redraw(double t)
         if (j < 0) continue;
         const int32_t *a = scene_prev.pos[j], *b = scene_cur.pos[i];
         uint32_t o = scene_cur.obj[i];
+        /* a jump: far, or far more than the step before (car select's car goes out to +320 at 32 a step, then the next
+         * one comes from -320: blended, it showed big in the middle for a frame, Mortimer's "the model lingers") */
+        int j2 = -1;
+        for (int k = 0; k < scene_prev2.n; k++) if (scene_prev2.obj[k] == o) { j2 = k; break; }
         int jump = 0;
-        for (int k = 0; k < 3; k++) if (llabs((long long)b[k] - a[k]) > 2000) jump = 1;
-        if (jump) continue;
+        for (int k = 0; k < 3; k++) {
+            long long d = llabs((long long)b[k] - a[k]), was = j2 >= 0 ? llabs((long long)a[k] - scene_prev2.pos[j2][k]) : -1;
+            if (d > 2000 || (was >= 0 && d > 256 && d > 4 * was + 64)) jump = 1;
+        }        if (jump) continue;
         for (int k = 0; k < 3; k++) mem_w32(c, o + 24 + 4u * (uint32_t)k, (uint32_t)(int32_t)lround(a[k] + ((double)b[k] - a[k]) * t));
         for (int k = 3; k < 6; k++) {
             int d = ((b[k] - a[k] + 2048) & 4095) - 2048; /* (turns: the shortest way round) */
