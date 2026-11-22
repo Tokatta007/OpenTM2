@@ -66,6 +66,8 @@ static void ui_vsync(void) /* presents (and handles window events); tests: the l
 {
     if (menu_fiber_inside()) { menu_fiber_yield(); return; }
     Psyz_VideoVSync(0); rt_heartbeat++; rt_live_shot(); netplay_poll();
+    void gpu_escape_frame(void); /* runtime/gpu_psyz.c: Escape's "Quit?" on these screens too */
+    gpu_escape_frame();
 } /* (presents (and handles window events); tests: the
                                                                                     * live shot; a server's packets */
 
@@ -16588,6 +16590,8 @@ void ui_net_wait_notice(const char *title, const char *line)
     }
     Psyz_VideoVSync(0);
     rt_heartbeat++;
+    void gpu_escape_frame(void);
+    gpu_escape_frame();
 }
 /* The results: returns 0 a rematch, 1 back to the Challenge Match page. */
 /* A Versus Tournament's boss round coming (the user's, 2026-11-05): the board gone, BOSS ROUND; at the left the

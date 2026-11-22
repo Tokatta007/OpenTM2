@@ -113,7 +113,7 @@ static void SDLCALL escape_seen(const SDL_Event *e)
         SDL_GetTicksNS() - ui_naming_seen_ns > 250000000ull)
         escape_pending = 1;
 }
-static void escape_ask(void)
+void gpu_escape_frame(void) /* (each VBlank, and each frame of the port's own menus: ui/options.c ui_vsync) */
 {
     static long long quit_at = -2, frames; /* tests: TM2PC_TEST_QUIT_AT=N, quit as Escape's Yes at the Nth VBlank */
     if (quit_at == -2) quit_at = getenv("TM2PC_TEST_QUIT_AT") ? atoll(getenv("TM2PC_TEST_QUIT_AT")) : -1;
@@ -459,7 +459,7 @@ static void vblank(void)
         Psyz_VideoVSync(0);
         present_log();
     }
-    escape_ask();
+    gpu_escape_frame();
     void rt_live_shot(void); /* tests: TM2PC_LIVE_SHOT (main.c) */
     rt_live_shot();
 }
