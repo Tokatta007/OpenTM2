@@ -1,0 +1,170 @@
+diff --git a/src/gpu/d3d12/SDL_gpu_d3d12.c b/src/gpu/d3d12/SDL_gpu_d3d12.c
+index f285ae6f3..08c4de05e 100644
+--- a/src/gpu/d3d12/SDL_gpu_d3d12.c
++++ b/src/gpu/d3d12/SDL_gpu_d3d12.c
+@@ -4609,6 +4609,18 @@ static D3D12UniformBuffer *D3D12_INTERNAL_AcquireUniformBufferFromPool(
+         uniformBuffer = renderer->uniformBufferPool[renderer->uniformBufferPoolCount - 1];
+         renderer->uniformBufferPoolCount -= 1;
+     } else {
++        { /* (OpenTM2 tests: TM2PC_TEST_UNIFORM_FAIL=N, new uniform buffers after the first N refused, as issue #43's driver) */
++            static int fail_after = -2, made = 0;
++            if (fail_after == -2) {
++                const char *e = SDL_getenv("TM2PC_TEST_UNIFORM_FAIL");
++                fail_after = e ? SDL_atoi(e) : -1;
++            }
++            if (fail_after >= 0 && made++ >= fail_after) {
++                SDL_UnlockMutex(renderer->acquireUniformBufferLock);
++                SDL_SetError("test: TM2PC_TEST_UNIFORM_FAIL");
++                return NULL;
++            }
++        }
+         uniformBuffer = (D3D12UniformBuffer *)SDL_calloc(1, sizeof(D3D12UniformBuffer));
+         if (!uniformBuffer) {
+             SDL_UnlockMutex(renderer->acquireUniformBufferLock);
+@@ -4659,6 +4671,16 @@ static void D3D12_INTERNAL_ReturnUniformBufferToPool(
+     renderer->uniformBufferPoolCount += 1;
+ }
+ 
++/* (OpenTM2) why the driver refused a uniform buffer (SDL keeps it in SDL_GetError only), once in the log */
++static void D3D12_INTERNAL_LogUniformRefused(void)
++{
++    static bool logged = false;
++    if (!logged) {
++        logged = true;
++        SDL_LogError(SDL_LOG_CATEGORY_GPU, "No new GPU uniform buffer (%s): draws are skipped or reuse the buffer", SDL_GetError());
++    }
++}
++
+ static void D3D12_INTERNAL_PushUniformData(
+     D3D12CommandBuffer *commandBuffer,
+     SDL_GPUShaderStage shaderStage,
+@@ -4692,6 +4714,11 @@ static void D3D12_INTERNAL_PushUniformData(
+         return;
+     }
+ 
++    if (uniformBuffer == NULL) { /* (OpenTM2: the driver refused a new uniform buffer; the draws needing it are skipped) */
++        D3D12_INTERNAL_LogUniformRefused();
++        return;
++    }
++
+     blockSize =
+         D3D12_INTERNAL_Align(
+             length,
+@@ -4699,13 +4726,22 @@ static void D3D12_INTERNAL_PushUniformData(
+ 
+     // If there is no more room, acquire a new uniform buffer
+     if (uniformBuffer->writeOffset + blockSize >= UNIFORM_BUFFER_SIZE) {
++        /* (OpenTM2) The new one first: refused (Intel graphics, low memory: issue #43), keep writing in this one from
++         * its start. Earlier draws of this command buffer may read the newer values, which beats a crash. */
++        D3D12UniformBuffer *fresh = D3D12_INTERNAL_AcquireUniformBufferFromPool(commandBuffer);
++        if (fresh == NULL) {
++            D3D12_INTERNAL_LogUniformRefused();
++            uniformBuffer->drawOffset = 0;
++            uniformBuffer->writeOffset = 0;
++            goto write;
++        }
+         ID3D12Resource_Unmap(
+             uniformBuffer->buffer->handle,
+             0,
+             NULL);
+         uniformBuffer->buffer->mapPointer = NULL;
+ 
+-        uniformBuffer = D3D12_INTERNAL_AcquireUniformBufferFromPool(commandBuffer);
++        uniformBuffer = fresh;
+ 
+         uniformBuffer->drawOffset = 0;
+         uniformBuffer->writeOffset = 0;
+@@ -4721,6 +4757,7 @@ static void D3D12_INTERNAL_PushUniformData(
+         }
+     }
+ 
++write:
+     uniformBuffer->drawOffset = uniformBuffer->writeOffset;
+ 
+     SDL_memcpy(
+@@ -5088,17 +5125,31 @@ static void D3D12_INTERNAL_WriteGPUDescriptors(
+     }
+ }
+ 
+-static void D3D12_INTERNAL_BindGraphicsResources(
++/* (OpenTM2: false when the draw must be skipped: no descriptor heap or uniform buffer from the driver) */
++static bool D3D12_INTERNAL_BindGraphicsResources(
+     D3D12CommandBuffer *commandBuffer)
+ {
+     D3D12GraphicsPipeline *graphicsPipeline = commandBuffer->currentGraphicsPipeline;
+ 
++    for (Uint32 i = 0; i < graphicsPipeline->header.num_vertex_uniform_buffers; i += 1) {
++        if (commandBuffer->vertexUniformBuffers[i] == NULL) {
++            D3D12_INTERNAL_LogUniformRefused();
++            return false;
++        }
++    }
++    for (Uint32 i = 0; i < graphicsPipeline->header.num_fragment_uniform_buffers; i += 1) {
++        if (commandBuffer->fragmentUniformBuffers[i] == NULL) {
++            D3D12_INTERNAL_LogUniformRefused();
++            return false;
++        }
++    }
++
+     /* Acquire GPU descriptor heaps if we haven't yet */
+     if (commandBuffer->gpuDescriptorHeaps[0] == NULL) {
+         D3D12_INTERNAL_SetGPUDescriptorHeaps(commandBuffer);
+     }
+     if (commandBuffer->gpuDescriptorHeaps[0] == NULL || commandBuffer->gpuDescriptorHeaps[1] == NULL) {
+-        return; /* (OpenTM2: no heap at all from the driver) */
++        return false; /* (OpenTM2: no heap at all from the driver) */
+     }
+ 
+     /* (OpenTM2) Room for every table this bind may write, before writing any: new heaps in the middle of it would
+@@ -5323,6 +5374,7 @@ static void D3D12_INTERNAL_BindGraphicsResources(
+             commandBuffer->needFragmentUniformBufferBind[i] = false;
+         }
+     }
++    return true;
+ }
+ 
+ static void D3D12_DrawIndexedPrimitives(
+@@ -5334,7 +5386,9 @@ static void D3D12_DrawIndexedPrimitives(
+     Uint32 firstInstance)
+ {
+     D3D12CommandBuffer *d3d12CommandBuffer = (D3D12CommandBuffer *)commandBuffer;
+-    D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer);
++    if (!D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer)) {
++        return; /* (OpenTM2) */
++    }
+ 
+     ID3D12GraphicsCommandList_DrawIndexedInstanced(
+         d3d12CommandBuffer->graphicsCommandList,
+@@ -5353,7 +5407,9 @@ static void D3D12_DrawPrimitives(
+     Uint32 firstInstance)
+ {
+     D3D12CommandBuffer *d3d12CommandBuffer = (D3D12CommandBuffer *)commandBuffer;
+-    D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer);
++    if (!D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer)) {
++        return; /* (OpenTM2) */
++    }
+ 
+     ID3D12GraphicsCommandList_DrawInstanced(
+         d3d12CommandBuffer->graphicsCommandList,
+@@ -5372,7 +5428,9 @@ static void D3D12_DrawPrimitivesIndirect(
+     D3D12CommandBuffer *d3d12CommandBuffer = (D3D12CommandBuffer *)commandBuffer;
+     D3D12Buffer *d3d12Buffer = ((D3D12BufferContainer *)buffer)->activeBuffer;
+ 
+-    D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer);
++    if (!D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer)) {
++        return; /* (OpenTM2) */
++    }
+ 
+     ID3D12GraphicsCommandList_ExecuteIndirect(
+         d3d12CommandBuffer->graphicsCommandList,
+@@ -5395,7 +5453,9 @@ static void D3D12_DrawIndexedPrimitivesIndirect(
+     D3D12CommandBuffer *d3d12CommandBuffer = (D3D12CommandBuffer *)commandBuffer;
+     D3D12Buffer *d3d12Buffer = ((D3D12BufferContainer *)buffer)->activeBuffer;
+ 
+-    D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer);
++    if (!D3D12_INTERNAL_BindGraphicsResources(d3d12CommandBuffer)) {
++        return; /* (OpenTM2) */
++    }
+ 
+     ID3D12GraphicsCommandList_ExecuteIndirect(
+         d3d12CommandBuffer->graphicsCommandList,
