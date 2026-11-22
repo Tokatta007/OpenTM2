@@ -40,9 +40,20 @@ static int version_newer(const char *a, const char *b)
     return 0;
 }
 
+/* the modding guides in mods/ (README.txt, each kind's _TEMPLATE folder): the port's own, so an update refreshes them
+ * (folders starting with "_" are never loaded; a player's mods are left alone) */
+static int mod_guide_path(const char *rel)
+{
+    if (!SDL_strcasecmp(rel, "mods/README.txt")) return 1;
+    if (SDL_strncasecmp(rel, "mods/", 5)) return 0;
+    const char *slash = strchr(rel + 5, '/');
+    return slash && !SDL_strncasecmp(slash, "/_TEMPLATE/", 11) && !strchr(slash + 11, '/');
+}
+
 /* the player's own files and folders: never written by an update */
 static int protected_path(const char *rel)
 {
+    if (mod_guide_path(rel)) return strstr(rel, "..") != NULL || strchr(rel, ':') != NULL;
     static const char *const keep[] = {"tm2pc.ini", "tm2pc.log", "tm2pc-prev.log", "profiles/", "music/", "mods/", "screenshots/", "update/"};
     for (size_t i = 0; i < sizeof keep / sizeof keep[0]; i++) {
         size_t n = strlen(keep[i]);

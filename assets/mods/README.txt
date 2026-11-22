@@ -1,20 +1,23 @@
-Twisted Metal 2 PC: mods
-========================
+OpenTM2: mods
+=============
 
 A mod is a folder of data files (pictures, models, sounds, text) in the mods folder next to tm2pc.exe. Mods never
 hold programs or scripts.
 
     mods/
-      characters/<your-character>/   a new driver and car                  (works on a base car's stats: characters/_TEMPLATE)
-      skins/<your-skin>/             a new look for an existing car         (works: see skins/_TEMPLATE/GUIDE.txt)
-      arenas/<your-arena>/           a new map                              (checked; not loaded yet)
-      tournaments/<your-pack>/       a ready-made tournament                (checked; not loaded yet)
+      characters/<your-character>/   a new driver and car             (guide: characters/_TEMPLATE/GUIDE.txt)
+      skins/<your-skin>/             a new look for an existing car    (guide: skins/_TEMPLATE/GUIDE.txt)
+      arenas/<your-arena>/           a new map                         (guide: arenas/_TEMPLATE/GUIDE.txt)
+      tournaments/<your-pack>/       a ready-made tournament           (checked; not loaded yet)
 
 Options > Mods lists every mod by kind with an On/Off switch (kept in tm2pc.ini, the same for every player on
 this PC); a mod with a problem shows why it cannot be turned on.
 
 Each kind has a _TEMPLATE folder with a GUIDE.txt and an example mod.ini. Copy the template, rename the copy, and
-edit it. Folders whose name starts with "_" are never loaded.
+edit it. Folders whose name starts with "_" are never loaded. A game update refreshes this file and the _TEMPLATE
+folders (keep your work in your own folders); your own mods are never touched.
+
+The same guides are on GitHub, in the game's source: https://github.com/Tokatta007/OpenTM2/tree/main/assets/mods
 
 
 mod.ini
@@ -55,7 +58,7 @@ game starts, since it needs the other mods.
 
 Online
 ------
-A server uses the host's skins and characters that are on. Joining one, the game lists the mods you do not have and asks whether to
+A server uses the host's skins, characters and arenas that are on. Joining one, the game lists the mods you do not have and asks whether to
 download them (up to the limit in Online Services, 50 MB unless you change it). Each file is checked before it is kept:
 only the file names a mod of its kind may have, contents that match the name (a model, a texture pack, a picture...),
 exactly the server's files, nothing outside its own folder in mods. Downloaded mods stay in your mods folder.
