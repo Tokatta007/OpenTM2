@@ -9246,10 +9246,12 @@ static void carsel_start_frame(void)
     }
 }
 
+static int qp_open; /* (Escape's "Quit?", below: the overlay is its meanwhile) */
 void ui_vblank(void)
 {
     static int key_held;
     start_once();
+    if (qp_open) return;
     if (mf_slot >= 0) { mf_frame(); scoreboard_frame(); return; } /* (the pages beside the match: theirs the buttons; nothing over them) */
     if (display_hold && M.vblanks >= display_hold_until) display_release();
     scoreboard_frame();
@@ -16054,10 +16056,85 @@ static void battle_overlay_off(void)
     hudlay_overlay_ui(0);
     battle_overlay_dropped = 1;
 }
+/* ---- Escape: "QUIT OPENTM2?" over whatever is shown (N4h's suggestion, Phoenix's report 2026-11-22: a stray Escape
+ * closed the game at once). runtime/gpu_psyz.c opens it and asks each VBlank; the game goes on under it (online
+ * too: nobody is held). Its own keys: Up / Down / Left / Right, Enter or Y (YES), Escape or N (NO); meanwhile the
+ * keyboard is not the game's or the menus' (input_keys_off). NO is chosen first. */
+extern int input_keys_off; /* runtime/input.c */
+static int qp_open, qp_sel, qp_drawn;
+static bool qp_prev[SDL_SCANCODE_COUNT];
+void ui_quit_ask(void)
+{
+    if (qp_open) return;
+    const bool *k = SDL_GetKeyboardState(NULL);
+    if (k) memcpy(qp_prev, k, sizeof qp_prev); /* (the Escape that opened it, still held, is not an answer) */
+    qp_open = 1, qp_sel = 1, qp_drawn = 0;
+    input_keys_off = 1;
+    menu_sound(1);
+    fprintf(stderr, "escape: asking to quit\n");
+}
+static void qp_close(void)
+{
+    qp_open = 0;
+    input_keys_off = 0;
+    battle_overlay_off(); /* (the battle's overlay drawn again by scoreboard_frame) */
+}
+int ui_quit_frame(void) /* 1: quit now */
+{
+    if (!qp_open) return 0;
+    const bool *k = SDL_GetKeyboardState(NULL);
+    if (!k) return 0;
+#define QP_HIT(sc) (k[sc] && !qp_prev[sc])
+    int yes = QP_HIT(SDL_SCANCODE_Y), no = QP_HIT(SDL_SCANCODE_N) || QP_HIT(SDL_SCANCODE_ESCAPE);
+    int pick = QP_HIT(SDL_SCANCODE_RETURN) || QP_HIT(SDL_SCANCODE_KP_ENTER) || QP_HIT(SDL_SCANCODE_SPACE);
+    int move = QP_HIT(SDL_SCANCODE_UP) || QP_HIT(SDL_SCANCODE_DOWN) || QP_HIT(SDL_SCANCODE_LEFT) || QP_HIT(SDL_SCANCODE_RIGHT);
+#undef QP_HIT
+    memcpy(qp_prev, k, sizeof qp_prev);
+    if (move) { qp_sel = !qp_sel; qp_drawn = 0; menu_sound(0); }
+    if (yes || (pick && qp_sel == 0)) {
+        fprintf(stderr, "escape: quit\n");
+        return 1;
+    }
+    if (no || pick) {
+        menu_sound(0);
+        qp_close();
+        fprintf(stderr, "escape: not quitting\n");
+        return 0;
+    }
+    if (qp_drawn) return 0;
+    static Image qb;
+    PsyzSize size = Psyz_VideoGetDisplaySize();
+    if (size.w <= 0 || size.h <= 0 || !image_resize(&qb, size.w, size.h)) return 0;
+    memset(qb.px, 0, (size_t)qb.w * qb.h * 3);
+    View v = view_fit(&qb);
+    static const uint8_t panel[3] = {10, 10, 14}, line[3] = {188, 188, 196};
+    float bx = 210, bw = 220, rh = 24, bh = 56 + rh * 2, by = 240 - bh / 2;
+    draw_fill(&qb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
+    draw_fill(&qb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
+    lettering();
+    int ts = S(&v, 16), ls = S(&v, 14);
+    const char *title = "QUIT OPENTM2?";
+    text_draw(&qb, title, X(&v, 320) - text_width(title, ts) / 2, text_top_for_center(Y(&v, by + 20), ts), ts, TITLE);
+    static const char *const yn[2] = {"YES", "NO"};
+    for (int i = 0; i < 2; i++) {
+        int cy = Y(&v, by + 48 + rh * (i + 0.5f));
+        if (qp_sel == i) draw_bar(&v, X(&v, bx + 10), X(&v, bx + bw - 10), cy, ls);
+        text_draw(&qb, yn[i], X(&v, 320) - text_width(yn[i], ls) / 2, text_top_for_center(cy, ls), ls, qp_sel == i ? WHITE : PALE);
+    }
+    plain_text();
+    int rect[4] = {X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh)};
+    hudlay_overlay_ui(1);
+    Psyz_VideoSetOverlay(qb.px, qb.w, qb.h, rect, 1);
+    if (getenv("TM2PC_QUIT_SHOT")) image_save_bmp(&qb, getenv("TM2PC_QUIT_SHOT")); /* tests: the box, as a BMP */
+    qp_drawn = 1;
+    return 0;
+}
+
 static void scoreboard_frame(void)
 {
     static int shown;
     static Image sb;
+    if (qp_open) { shown = 0; return; } /* (Escape's question has the overlay) */
     if (battle_overlay_dropped) { battle_overlay_dropped = 0; shown = 0; }
     if (pm_frame(&sb, &shown)) return; /* (online: the Players menu, a kick vote's note) */
     if (shown == 2) { Psyz_VideoSetOverlay(NULL, 0, 0, NULL, 0); shown = 0; hudlay_overlay_ui(0); }

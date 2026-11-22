@@ -234,6 +234,15 @@ static uint16_t one_direction(int p, uint16_t b)
     return b;
 }
 
+/* The keyboard as the game and the menus see it: no key while Escape's "Quit?" is up (ui/options.c, its own keys) */
+int input_keys_off;
+static const bool *input_keys(int *n)
+{
+    static bool none[SDL_SCANCODE_COUNT];
+    const bool *k = SDL_GetKeyboardState(n);
+    return k && input_keys_off ? none : k;
+}
+
 /* Once per VBlank: fill M.pad_buttons (active-low) from the devices. */
 static uint16_t player_pad_bits(int p);
 void input_poll(void)
@@ -242,7 +251,7 @@ void input_poll(void)
     if (++frames % 60 == 0)
         open_gamepads(); /* pick up controllers plugged in while running */
     SDL_UpdateGamepads();
-    const bool *keys = SDL_GetKeyboardState(0);
+    const bool *keys = input_keys(0);
     /* next / previous song (custom music set to random or order): their keys,
      * and their buttons on player 1's controller (Page Down / Up, R3 / L3) */
     static bool song_held[BIND_SONGS];
@@ -306,7 +315,7 @@ uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks 
     static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100};
     static const SDL_GamepadButton dpad[4] = {SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
                                               SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT};
-    const bool *keys = SDL_GetKeyboardState(0);
+    const bool *keys = input_keys(0);
     for (int i = 0; i < BIND_ENERGY; i++) {
         int b = bind_energy_button(p, i), k = bind_energy_key(p, i);
         int held = b >= 5 && b <= 8 ? pads[p] && SDL_GetGamepadButton(pads[p], dpad[b - 5]) /* (the D-pad itself, not the stick) */
@@ -330,7 +339,7 @@ uint16_t input_menu_buttons(int *menu_key)
     static int calls;
     if (++calls % 60 == 0) open_gamepads(); /* plugged in while a menu is up (as input_poll in the game) */
     SDL_UpdateGamepads();
-    const bool *keys = SDL_GetKeyboardState(0);
+    const bool *keys = input_keys(0);
     uint16_t bits = 0;
     static uint16_t held[MAX_PADS];
     *menu_key = keys && keys[SDL_SCANCODE_F1];
@@ -365,7 +374,7 @@ int input_ptt_held(void)
     if (test == -2) test = getenv("TM2PC_TEST_PTT") ? atoll(getenv("TM2PC_TEST_PTT")) : -1;
     if (test >= 0 && M.vblanks >= (uint64_t)test) return 1;
     SDL_UpdateGamepads();
-    return input_extra_held(BIND_PTT, SDL_GetKeyboardState(0), gamepad_bits(pads[0]));
+    return input_extra_held(BIND_PTT, input_keys(0), gamepad_bits(pads[0]));
 }
 /* Held on any controller (its touchpad or guide button) or Tab: the scoreboard in a battle. */
 int input_scoreboard_held(void)
@@ -374,7 +383,7 @@ int input_scoreboard_held(void)
     if (test == -2) test = getenv("TM2PC_TEST_SCOREBOARD") ? atoll(getenv("TM2PC_TEST_SCOREBOARD")) : -1;
     if (test >= 0 && M.vblanks >= (uint64_t)test) return 1;
     SDL_UpdateGamepads();
-    const bool *keys = SDL_GetKeyboardState(0);
+    const bool *keys = input_keys(0);
     if (keys && keys[SDL_SCANCODE_TAB]) return 1;
     for (int i = 0; i < all_count; i++)
         if (SDL_GetGamepadButton(all[i], SDL_GAMEPAD_BUTTON_TOUCHPAD) || SDL_GetGamepadButton(all[i], SDL_GAMEPAD_BUTTON_GUIDE))
@@ -399,7 +408,7 @@ int input_new_key(void)
 {
     static bool before[SDL_SCANCODE_COUNT];
     int n = 0, found = 0;
-    const bool *keys = SDL_GetKeyboardState(&n);
+    const bool *keys = input_keys(&n);
     for (int k = 1; keys && k < n && k < SDL_SCANCODE_COUNT; k++) {
         if (keys[k] && !before[k] && !found && k != SDL_SCANCODE_ESCAPE &&
             !(k >= SDL_SCANCODE_F1 && k <= SDL_SCANCODE_F12))
@@ -454,7 +463,7 @@ uint16_t input_player_dpad_buttons(int player)
     SDL_UpdateGamepads();
     uint16_t bits = 0;
     for (int k = 0; k < all_count; k++) bits |= gamepad_bits_ex(all[k], 0); /* (every controller, as the buttons) */
-    const bool *keys = SDL_GetKeyboardState(0);
+    const bool *keys = input_keys(0);
     for (unsigned i = 0; player == 0 && keys && i < sizeof menu_keys / sizeof menu_keys[0]; i++)
         if (keys[menu_keys[i].key]) bits |= menu_keys[i].bits;
     return bits;
@@ -471,7 +480,7 @@ uint16_t input_player_menu_buttons(int player)
 {
     SDL_UpdateGamepads();
     uint16_t bits = player >= 0 && player < PLAYERS ? gamepad_bits(pads[player]) : 0;
-    const bool *keys = SDL_GetKeyboardState(0);
+    const bool *keys = input_keys(0);
     for (unsigned i = 0; player == 0 && keys && i < sizeof menu_keys / sizeof menu_keys[0]; i++)
         if (keys[menu_keys[i].key]) bits |= menu_keys[i].bits;
     return bits;
