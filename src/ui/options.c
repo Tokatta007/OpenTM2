@@ -74,6 +74,7 @@ static void ui_vsync(void) /* presents (and handles window events); tests: the l
 uint16_t input_menu_buttons(int *menu_key); /* input.c */
 void profile_unlocks_mine(void);            /* profile/profile_hooks.c */
 int input_scoreboard_held(void);            /* input.c */
+int input_pad_touchpad(void);               /* input.c: any controller's touchpad held */
 int vp_spectating(void); int vp_teams_winner(void); int vp_team_of_human(int i); /* vplus/fixes.c */
 float wide_k(void); /* vplus/wide.c: the battle's widescreen factor */
 void port_sounds_stop(void); /* vplus/killcam.c: the battle's sounds stopped, the game's state as it was */
@@ -4921,14 +4922,16 @@ static void build(PageId page)
             r->keys = 1;
             r->energy = 1;
         }
-        add(ROW_HEADER, "Music and voice", NULL);
-        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT}; /* previous song above next song (the user's) */
+        add(ROW_HEADER, "Music, voice and scores", NULL);
+        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT, BIND_SCOREBOARD}; /* previous song above next song (the user's) */
         for (int k = 0; k < BIND_EXTRAS; k++) {
             int i = extra_order[k];
-            Row *r = add_choice(bind_extra_names[i], p ? "Player 1's controller and keyboard only."
+            Row *r = add_choice(bind_extra_names[i], p && i == BIND_SCOREBOARD ? "Set on player 1's page. Works on every controller."
+                                : p ? "Player 1's controller and keyboard only."
+                                : i == BIND_SCOREBOARD ? "Hold it in a battle to see the scores. Works on every controller."
                                 : i == BIND_PTT ? "Online: hold it to talk (voice chat). No controller button by default."
                                                 : "Custom music on Random or In order. No controller button by default.",
-                                get_extra_button, set_extra_button, i, bind_button_names, BIND_BUTTONS_ALL + 1);
+                                get_extra_button, set_extra_button, i, bind_button_names, BIND_TOUCHPAD + 1);
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
@@ -5296,7 +5299,7 @@ static void draw_button(const View *v, int button, int cx, int cy, int size, Tex
     if (button >= 11 && button <= 14) {
         if (kind == 2) draw_xbox_face(v, button, cx, cy, cap_h * 15 / 10, size);
         else draw_ps_symbol(v, button, cx, cy, cap_h * 13 / 10);
-    } else if (button >= 1 && button <= BIND_BUTTONS_ALL) {
+    } else if (button >= 1 && button <= BIND_TOUCHPAD) {
         const char *name = (kind == 2 ? bind_button_names_xbox : bind_button_names)[button];
         text_draw(v->c, name, cx - text_width(name, size) / 2, text_top_for_center(cy, size), size, color);
     } else {
@@ -8432,8 +8435,16 @@ static int run(PageId start)
             int key = script ? 0 : input_new_key();
             capture_pads = pads_now;
             Row *cr = &rows[capturing];
+            static int touch_before = 1; /* (held when the capture started: not a press) */
+            int touch = !script && input_pad_touchpad();
+            if (touch && !touch_before && cr->extra) { /* the touchpad: only the extra controls (no PS1 button) */
+                cr->set(cr->arg, BIND_TOUCHPAD);
+                key = 0;
+                capturing = -1;
+            }
+            touch_before = touch;
             for (unsigned k = 0; k < sizeof buttons / sizeof buttons[0]; k++)
-                if ((new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS)) {
+                if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS)) {
                     cr->set(cr->arg, cr->extra || cr->energy ? buttons[k].button : buttons[k].button - 1);
                     key = 0;
                     capturing = -1;
