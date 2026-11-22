@@ -57,6 +57,7 @@ void ses_ask_join(Session *s, uint32_t slots);
  * host's state (the user's 2026-11-11: one joining mid-match watches until the next one starts) */
 #define SES_WATCH 0x80000000u
 void ses_free(Session *s);
+void ses_bye(Session *s); /* this machine leaving: the others told at once */
 
 void ses_receive(Session *s, int from, const void *data, int len, uint32_t now_ms);
 int ses_step(Session *s, const RbInput local[RB_MAX_SLOTS], uint32_t now_ms); /* each step tick: steps run (0-3) */

@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { MAGIC = 0x4E54, P_INPUT = 1, P_REL = 2, P_HASH = 3, P_VOICE = 4 }; /* packets */
+enum { MAGIC = 0x4E54, P_INPUT = 1, P_REL = 2, P_HASH = 3, P_VOICE = 4, P_BYE = 5 }; /* packets */
 enum { R_SLOT = 1, R_NODE = 2, R_STATE = 3, R_JOIN = 4, R_CHAT = 5, R_VOTE_START = 6, R_VOTE = 7, R_VOTE_TALLY = 8,
        R_KICK_VOTE = 9, R_KICK_STATE = 10, R_KICKED = 11, R_APP = 12, R_BASE = 13 }; /* reliable messages */
 enum { BASE_MAX = 65536 }; /* a machine's base (ses_send_base): the game's block hashes of its own state */
@@ -481,6 +481,18 @@ void ses_ask_join(Session *s, uint32_t slots)
     rel_send(s, s->host, m, (int)(q - m));
 }
 
+/* This machine leaves: the others told at once (three copies, no answer wanted). Without it a machine leaving (Escape,
+ * the window closed, Quit) held every other machine for the timeout's 5 s: each leave and rejoin froze the match
+ * (Phoenix's report 2026-11-22). */
+void ses_bye(Session *s)
+{
+    if (!s) return;
+    uint8_t pkt[8], *q = head(s, pkt, P_BYE, s->node);
+    for (int k = 0; k < 3; k++)
+        for (int n = 0; n < SES_MAX_NODES; n++)
+            if (n != s->node && s->peer[n].present) s->net.send(s->net.ctx, n, pkt, (int)(q - pkt));
+}
+
 void ses_free(Session *s)
 {
     if (!s) return;
@@ -552,6 +564,10 @@ void ses_receive(Session *s, int from, const void *data, int len, uint32_t now_m
     int is_host = s->host == s->node;
     if (!p->present && !(type == P_REL && is_host)) return; /* (a machine gone, or not in yet) */
     p->heard_ms = now_ms;
+    if (type == P_BYE) { /* it leaves now: gone at once, not after SES_TIMEOUT_MS of quiet with every machine held */
+        if (is_host || from == s->host) node_left(s, from, now_ms);
+        return;
+    }
     if (type == P_INPUT && end - q >= 4 + 10 + 4 + 4 * RB_MAX_SLOTS + 2) {
         int32_t its_now = (int32_t)g32(&q);
         uint32_t its_ts = g32(&q), echo = g32(&q), held = g16(&q), away = g32(&q);

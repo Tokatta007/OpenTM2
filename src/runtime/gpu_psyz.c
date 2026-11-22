@@ -104,6 +104,8 @@ static void SDLCALL device_logged(SDL_Window *window, SDL_GPUDevice *device)
  * PSY-Z only reports the key (Psyz_EscapeQuits(0), psyz-28); the question waits for the frame's end, outside its event
  * loop. In the name entry Escape gives up the name instead. */
 extern uint64_t ui_naming_seen_ns; /* ui/options.c */
+void ui_quit_ask(void);            /* ui/options.c: the question over the game */
+int ui_quit_frame(void);           /* (each VBlank: 1 when YES) */
 static int escape_pending;
 static void SDLCALL escape_seen(const SDL_Event *e)
 {
@@ -113,21 +115,26 @@ static void SDLCALL escape_seen(const SDL_Event *e)
 }
 static void escape_ask(void)
 {
-    if (!escape_pending) return;
-    escape_pending = 0;
-    static const SDL_MessageBoxButtonData buttons[] = {
-        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No"},
-        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes"},
-    };
-    const SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION, SDL_GetKeyboardFocus(), "OpenTM2", "Quit OpenTM2?",
-                                    2, buttons, NULL};
-    int choice = 0;
-    fprintf(stderr, "escape: asking to quit\n");
-    if (SDL_ShowMessageBox(&box, &choice) && choice == 1) {
-        fprintf(stderr, "escape: quit\n");
+    static long long quit_at = -2, frames; /* tests: TM2PC_TEST_QUIT_AT=N, quit as Escape's Yes at the Nth VBlank */
+    if (quit_at == -2) quit_at = getenv("TM2PC_TEST_QUIT_AT") ? atoll(getenv("TM2PC_TEST_QUIT_AT")) : -1;
+    frames++;
+    if (quit_at >= 0 && frames == quit_at) {
+        fprintf(stderr, "escape: quit (test)\n");
         SDL_Event q = {0};
         q.type = SDL_EVENT_QUIT;
-        SDL_PushEvent(&q); /* (PSY-Z's own quit at the next event poll: as the window's close button) */
+        SDL_PushEvent(&q);
+    }
+    static long long ask_at = -2; /* tests: TM2PC_TEST_ESCAPE_AT=N, Escape pressed at the Nth VBlank */
+    if (ask_at == -2) ask_at = getenv("TM2PC_TEST_ESCAPE_AT") ? atoll(getenv("TM2PC_TEST_ESCAPE_AT")) : -1;
+    if (ask_at >= 0 && frames == ask_at) escape_pending = 1;
+    if (escape_pending) {
+        escape_pending = 0;
+        ui_quit_ask();
+    }
+    if (ui_quit_frame()) { /* YES: PSY-Z's own quit at the next event poll, as the window's close button */
+        SDL_Event q = {0};
+        q.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&q);
     }
 }
 

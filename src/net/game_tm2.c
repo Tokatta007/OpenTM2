@@ -1198,6 +1198,7 @@ void netplay_leave(void)
 {
     voice_io_close();
     if (!lob) return;
+    if (ng.on && ng.ses) ses_bye(ng.ses); /* (a match on: its machines go on now, not after 5 s) */
     lobby_mods_detach(); /* (Options > Mods' switches again) */
     lobby_free(lob);
     lob = NULL;

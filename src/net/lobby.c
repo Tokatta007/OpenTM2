@@ -407,6 +407,7 @@ void lobby_free(Lobby *l)
     if (!l) return;
     static const uint8_t bye[2] = {MASTER_CHANNEL, MASTER_BYE};
     if (l->udp) master_send(l, bye, 2); /* (off the master's list at once) */
+    ses_bye(l->ses); /* (the server's machines: this one gone now) */
     ses_free(l->ses);
     udp_close(l->udp);
     udp_close(l->lan);
