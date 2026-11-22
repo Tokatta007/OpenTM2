@@ -22,7 +22,8 @@ renamed), the new one where it was; anything failing puts the old ones back ("Up
 (`update/old.txt` lists them).
 
 A player's own files are never written, whatever the zip holds: `tm2pc.ini`, `tm2pc.log`, `profiles/`, `music/`,
-`mods/`, `screenshots/`; nor anything outside the game's folder.
+their mods in `mods/`, `screenshots/`; nor anything outside the game's folder. (The modding guides in `mods/`,
+`README.txt` and each kind's `_TEMPLATE` folder, are the port's own and are refreshed.)
 
 Test: `python tools/test/update_test.py` (a release served from 127.0.0.1 to a scratch copy in build/update-test: found,
 downloaded, swapped while running, the player's files untouched, the old executable removed at the next start).
@@ -34,7 +35,8 @@ answer before the game goes on), `TM2PC_UPDATE_AUTO` (download and swap at once)
 
 1. Raise `TM2PC_VERSION` in CMakeLists.txt (for example v0.9.0 to v0.9.1) and build `build/port`.
 2. `python tools/release/pack_release.py` writes `build/release/OpenTM2-<version>-Windows-x64.zip`: `tm2pc.exe`,
-   `fonts/`, `art/` and `recomplauncher.json` in a folder named for the version.
+   `fonts/`, `art/`, `recomplauncher.json` and the modding guides (`mods/README.txt` and each kind's `_TEMPLATE`, from
+   `assets/mods`) in a folder named for the version.
 3. On GitHub, a new release with the tag exactly the version (`v0.9.1`) and the zip attached.
 
 ## Where the releases live

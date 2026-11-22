@@ -21,7 +21,8 @@ OpenTM2 includes no game files. You need your own copy of Twisted Metal 2 for th
   ([docs/VANILLA_PLUS.md](docs/VANILLA_PLUS.md)). The original preset plays as the PlayStation game does.
 - **[Balance Changes](BALANCE_CHANGES.md):** every change to weapons and characters, update by update. Always on
   online, so everyone plays by the same rules.
-- Mods: new arenas, characters and skins ([docs/MODDING.md](docs/MODDING.md)).
+- Mods: new arenas, characters and skins. The guides are in the game's `mods` folder and in [assets/mods](assets/mods)
+  (start with [README.txt](assets/mods/README.txt)); [docs/MODDING.md](docs/MODDING.md) has the design notes.
 
 ## Playing
 

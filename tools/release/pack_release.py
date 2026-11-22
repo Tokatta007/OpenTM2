@@ -4,8 +4,9 @@
     python tools/release/pack_release.py        -> build/release/OpenTM2-<version>-Windows-x64.zip
 
 Only what the port made: tm2pc.exe, fonts/ (the menu fonts, SIL OFL; flexure.atlas by permission of T26, its notice beside it) and art/ (the mode symbols, CC BY 3.0),
-and recomplauncher.json beside the executable (RecompLauncher's install and setup steps). Never the game's art or anything made from it
-(ui/, extracted/), nor a player's files (tm2pc.ini, profiles/, music/, mods/, screenshots/)."""
+recomplauncher.json beside the executable (RecompLauncher's install and setup steps), and the modding guides (mods/README.txt and
+each kind's _TEMPLATE folder, from assets/mods). Never the game's art or anything made from it (ui/, extracted/), nor a player's
+files (tm2pc.ini, profiles/, music/, their own mods, screenshots/)."""
 import re
 import sys
 import zipfile
@@ -35,6 +36,11 @@ def main():
                 n += 1
         z.write(REPO / 'recomplauncher.json', top + 'recomplauncher.json')  # (from the repository: RecompLauncher reads it)
         n += 1
+        mods = REPO / 'assets' / 'mods'  # (the guides from the repository, never a test mod in build/port/mods)
+        guides = [mods / 'README.txt'] + sorted(q for q in mods.glob('*/_TEMPLATE/*') if q.is_file())
+        for f in guides:
+            z.write(f, top + 'mods/' + f.relative_to(mods).as_posix())
+            n += 1
     print('%s: %d files, %d KB' % (out, n, out.stat().st_size // 1024))
 
 

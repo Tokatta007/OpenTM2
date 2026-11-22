@@ -8,6 +8,7 @@ import http.server
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,9 @@ REPO = Path(__file__).resolve().parents[2]
 EXE = REPO / 'build' / 'port-hooks' / 'tm2pc.exe'
 GAME = REPO / 'build' / 'update-test'
 SERVE = REPO / 'build' / 'update-test-srv'
+# (the releases offered: the game's own version, and one patch newer)
+SAME = re.search(r'set\(TM2PC_VERSION "([^"]+)"\)', (REPO / 'CMakeLists.txt').read_text()).group(1)
+NEWER = re.sub(r'\d+$', lambda m: str(int(m.group()) + 1), SAME)
 
 
 def main():
@@ -31,21 +35,29 @@ def main():
     (GAME / 'tm2pc.ini').write_text('KEEP-ME\n')
     (GAME / 'profiles').mkdir()
     (GAME / 'profiles' / 'p.txt').write_text('KEEP\n')
+    (GAME / 'mods' / 'skins' / 'mine').mkdir(parents=True)  # (a player's own mod: never written; the guides: refreshed)
+    (GAME / 'mods' / 'skins' / 'mine' / 'mod.ini').write_text('KEEP\n')
+    (GAME / 'mods' / 'README.txt').write_text('OLD GUIDE\n')
     exe_bytes = EXE.read_bytes()
     z = io.BytesIO()
+    TOP = 'TM2PC-%s/' % NEWER
     with zipfile.ZipFile(z, 'w', zipfile.ZIP_DEFLATED) as w:  # (one folder, as a release's zip would be)
-        w.writestr('TM2PC-v0.9.1/tm2pc.exe', exe_bytes)
-        w.writestr('TM2PC-v0.9.1/ui/marker.txt', 'v0.9.1\n')
-        w.writestr('TM2PC-v0.9.1/fonts/new.txt', 'a new file\n')
-        w.writestr('TM2PC-v0.9.1/tm2pc.ini', 'OVERWRITTEN\n')         # (the player's: never written)
-        w.writestr('TM2PC-v0.9.1/profiles/p.txt', 'OVERWRITTEN\n')
+        w.writestr(TOP + 'tm2pc.exe', exe_bytes)
+        w.writestr(TOP + 'ui/marker.txt', NEWER + '\n')
+        w.writestr(TOP + 'fonts/new.txt', 'a new file\n')
+        w.writestr(TOP + 'tm2pc.ini', 'OVERWRITTEN\n')         # (the player's: never written)
+        w.writestr(TOP + 'profiles/p.txt', 'OVERWRITTEN\n')
+        w.writestr(TOP + 'mods/README.txt', 'NEW GUIDE\n')
+        w.writestr(TOP + 'mods/skins/_TEMPLATE/GUIDE.txt', 'NEW GUIDE\n')
+        w.writestr(TOP + 'mods/skins/mine/mod.ini', 'OVERWRITTEN\n')
+        w.writestr(TOP + 'mods/skins/_TEMPLATE/x/deeper.txt', 'OVERWRITTEN\n')  # (only the template's own files)
     (SERVE / 'r.zip').write_bytes(z.getvalue())
 
     srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), lambda *a: http.server.SimpleHTTPRequestHandler(*a, directory=str(SERVE)))
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = 'http://127.0.0.1:%d/' % port
-    for name, tag in (('newer.json', 'v0.9.1'), ('same.json', 'v0.9.0')):
+    for name, tag in (('newer.json', NEWER), ('same.json', SAME)):
         (SERVE / name).write_text(json.dumps({'tag_name': tag, 'assets': [
             {'name': 'notes.txt', 'browser_download_url': base + 'notes.txt'},
             {'name': 'TM2PC-%s-win64.zip' % tag, 'browser_download_url': base + 'r.zip'}]}))
@@ -70,11 +82,15 @@ def main():
     print('\n'.join('  ' + l for l in log))
     check('the newer release found', any('an update' in l for l in log))
     check('its files in place', any('in place' in l for l in log))
-    check('the new file (ui/marker.txt)', (GAME / 'ui' / 'marker.txt').exists() and (GAME / 'ui' / 'marker.txt').read_text() == 'v0.9.1\n')
+    check('the new file (ui/marker.txt)', (GAME / 'ui' / 'marker.txt').exists() and (GAME / 'ui' / 'marker.txt').read_text() == NEWER + '\n')
     check('the new executable', (GAME / 'tm2pc.exe').read_bytes() == exe_bytes)
     check('the old executable set aside (tm2pc.exe.old)', (GAME / 'tm2pc.exe.old').exists())
     check('the player\'s tm2pc.ini untouched', (GAME / 'tm2pc.ini').read_text() == 'KEEP-ME\n')
     check('the player\'s profiles untouched', (GAME / 'profiles' / 'p.txt').read_text() == 'KEEP\n')
+    check('the modding guides refreshed', (GAME / 'mods' / 'README.txt').read_text() == 'NEW GUIDE\n'
+          and (GAME / 'mods' / 'skins' / '_TEMPLATE' / 'GUIDE.txt').read_text() == 'NEW GUIDE\n')
+    check('the player\'s own mod untouched', (GAME / 'mods' / 'skins' / 'mine' / 'mod.ini').read_text() == 'KEEP\n'
+          and not (GAME / 'mods' / 'skins' / '_TEMPLATE' / 'x').exists())
     check('no file left half-done (*.new)', not list(GAME.rglob('*.new')))
     log = run('same.json', False)
     print('\n'.join('  ' + l for l in log))
