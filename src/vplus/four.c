@@ -632,12 +632,19 @@ void vp_CarViewHotkeys(CPU *c) /* carViewHotkeys(car): its split toggle with 3 p
     int humans_slot(int h); /* vplus/humans.c: the human's player on this machine (-1: another machine's) */
     int who = humans_slot((int)((car - RB_humanCars) / HUMAN_REC_SIZE)); /* (the keys: this machine's player's screen) */
     static uint8_t rear_held[4];
+    /* (online: a step run again (rollback) replays the press: only the live step's counts. Each replay toggled again,
+     * and its rtToggleRearView picked the mirror's frame record against a restored flag: the mirror's order table
+     * drawn into the frame on screen, garbage and a freeze (Terror, Sage, 2026-11-22). The mirror is this machine's
+     * own: net/rb_state.c keeps it across a batch, mirrors_rear_pair its record) */
+    extern int rbs_resimulating;
+    int again = rbs_resimulating;
     if (before != 0 && who >= 0 && who < 4) { /* split screen (the game has no mirror there): the rear-view key (+0xD9), each player's own */
         uint8_t held = mem_r8(c, car + 0xD9);
-        if (held && !rear_held[who] && !mem_r8(c, car + 0xA7) && !mem_r8(c, car + 0x9C)) mirrors_toggle(who);
-        rear_held[who] = held;
+        if (!again && held && !rear_held[who] && !mem_r8(c, car + 0xA7) && !mem_r8(c, car + 0x9C)) mirrors_toggle(who);
+        if (!again) rear_held[who] = held;
     } else if (before == 0 && who == 0) { /* one view: the key goes Full, Small, Off (the game's own only on and off) */
         uint8_t held = mem_r8(c, car + 0xD9);
+        if (again) held = rear_held[0]; /* (a re-run: nothing new) */
         if (held && !rear_held[0] && !mem_r8(c, car + 0xA7) && !mem_r8(c, car + 0x9C)) {
             int mirror_mode(int p);
             mirrors_toggle(0);
@@ -645,9 +652,15 @@ void vp_CarViewHotkeys(CPU *c) /* carViewHotkeys(car): its split toggle with 3 p
             if (on != want) guest_call(GA(0x800D1BB8u), 0, 0, 0, 0); /* rtToggleRearView */
         }
         rear_held[0] = held;
-        if (held) mem_w8(c, car + 0xD9, 0); /* (the game's toggle: not again) */
     }
+    /* the game's own toggle (one view): not again (the port's above), never in a re-run. The key byte only hidden from
+     * it and put back after: the byte is state, the same on every machine (each derives it from the inputs; carViewHotkeys
+     * runs for this machine's humans only). Cleared for good, the presser's machine parted from the others at the next
+     * hash (Terror, Sage: "Connection trouble" after the mirror) */
+    int rear_key = before == 0 && who == 0 ? mem_r8(c, car + 0xD9) : 0;
+    if (rear_key) mem_w8(c, car + 0xD9, 0);
     F_8011C530_orig(c);
+    if (rear_key) mem_w8(c, car + 0xD9, (uint8_t)rear_key);
     if (getenv("TM2PC_HOTKEY_DEBUG") && (mem_r32(c, GA(0x80180A6Cu)) != radar || mem_r32(c, GA(0x80180A70u)) != list))
         fprintf(stderr, "hotkeys %llu: radar %08x -> %08x, list %08x -> %08x\n", (unsigned long long)M.vblanks, radar, mem_r32(c, GA(0x80180A6Cu)), list, mem_r32(c, GA(0x80180A70u)));
     if (!hud_of(who >= 0 && who < 4 ? who : 0)->buttons) { /* HUD buttons in battle off: the HUD menu's settings stay */

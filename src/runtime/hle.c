@@ -296,6 +296,9 @@ void hle_SetFrameStart(CPU *c)
     rbs_live_step();
     interp_frame_start();
     netplay_frame();
+    int netplay_on(void), netplay_rollback(void); /* net/game_tm2.c */
+    void mirrors_rear_pair(void);                  /* vplus/mirrors.c: the mirror's record for the frame drawn next */
+    if (netplay_rollback() && netplay_on()) mirrors_rear_pair();
     killcam_frame(feats_in_battle());
     void humans_frame(void); /* vplus/humans.c: every human's input this step */
     humans_frame();

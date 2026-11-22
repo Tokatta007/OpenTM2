@@ -97,6 +97,10 @@ static void keep_init(void)
     void feats_rb_register(void), humans_rb_register(void); /* profile/feat_hooks.c, profile/feats.c, vplus/humans.c */
     feats_rb_register();
     humans_rb_register();
+    /* the one-view mirror, this machine's own (a local hotkey; the table's rows snapshot them): as it was before a
+     * batch, not the loaded state's (vplus/four.c, mirrors_rear_pair) */
+    rbs_live(mem_direct(&M.cpu, GA(0x801809DCu), 4), 4); /* rtRearViewActive */
+    rbs_live(mem_direct(&M.cpu, GA(0x801809E0u), 4), 4); /* rtRearViewAllowed */
 }
 static int keep_block(int i, void **p, size_t *n) /* the kill cam's blocks, then rollback's own */
 {

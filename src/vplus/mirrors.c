@@ -71,6 +71,19 @@ void mirrors_toggle(int p) /* the rear-view button in split screen */
     fprintf(stderr, "mirrors: player %d's %s\n", p + 1, mode[p] == 1 ? "full" : mode[p] == 2 ? "small" : "off");
 }
 
+/* Online, once a live step is done (hle_SetFrameStart: the frame is drawn next): the one-view mirror's frame record as
+ * rtToggleRearView picks it for the frame being made (view 0's first record: the mirror's second, as the drawing
+ * then flips it to the first). The drawing flips it only while the mirror is on, so a flag that came back on another
+ * way (a rollback's state, the host's) left it on the other parity: the mirror's packets in the frame on screen, its
+ * order table linked into itself. Right already: no change. */
+#define VIEW0_FRAMES GA(0x8018118Cu) /* renderView0Frames; renderMirrorFrames at +0x200 (two records of 0x80) */
+#define SLOT_MIRROR GA(0x80180EECu)  /* renderBufferRearView */
+void mirrors_rear_pair(void)
+{
+    uint32_t want = VIEW0_FRAMES + 0x200u + (mem_r32(&M.cpu, SLOT_VIEW0) == VIEW0_FRAMES ? 0x80u : 0);
+    if (mem_r32(&M.cpu, SLOT_MIRROR) != want) mem_w32(&M.cpu, SLOT_MIRROR, want);
+}
+
 void F_801562B8_orig(CPU *c);
 void vp_ViewGetMode(CPU *c) /* viewGetMode(i) */
 {
