@@ -19,7 +19,8 @@ enum {
     LOBBY_SETTINGS_MAX = 8192,
     LOBBY_CHAT_LINES = 32,
 };
-enum { LOBBY_CONNECTING, LOBBY_IN, LOBBY_REFUSED_BUILD, LOBBY_REFUSED_FULL, LOBBY_REFUSED_BANNED, LOBBY_LOST, LOBBY_KICKED };
+enum { LOBBY_CONNECTING, LOBBY_IN, LOBBY_REFUSED_BUILD, LOBBY_REFUSED_FULL, LOBBY_REFUSED_BANNED, LOBBY_LOST, LOBBY_KICKED,
+       LOBBY_REFUSED_PASSWORD };
 
 typedef struct {
     char name[LOBBY_NAME];
@@ -132,9 +133,15 @@ typedef struct {
     uint8_t mods;                       /* the server's mods (its skins and characters), how many */
     char mod_names[48];                 /* their names, ", " between, cut with "..." when longer */
     uint8_t same_build;                 /* (found) its build is this one (else it cannot be joined: an update) */
+    uint8_t locked;                     /* a private server: joining needs its password (set by the lobby, lobby_set_password) */
     int ping;                           /* (found) ms */
 } LobbyListing;
 void lobby_set_listing(Lobby *l, const LobbyListing *info); /* (host) what the LAN browser shows; players kept by the lobby */
+/* a private server's password (LOBBY_PASSWORD - 1 letters at most; "" none): the host's, needed to join it (else
+ * LOBBY_REFUSED_PASSWORD); a joining machine's, sent with its hello (set right after lobby_join). Kept on every machine
+ * that got in, so a new host (the old one left) asks the same. */
+enum { LOBBY_PASSWORD = 24 };
+void lobby_set_password(Lobby *l, const char *password);
 typedef struct LanSearch LanSearch;
 LanSearch *lobby_lan_search(int loopback);                       /* the question sent */
 int lobby_lan_results(LanSearch *s, LobbyListing *out, int max); /* each frame: the servers that answered so far */

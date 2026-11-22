@@ -47,7 +47,11 @@ fills the browser with sample servers for tests; `TM2PC_NET_LOCAL=1` keeps a tes
      (the Challenge Match pages or the playlist, the tournament's difficulty, Survival's arena; Done or O comes back;
      a playlist match's pages back to the playlist).
    - Server: name (the name grid), players (2-16; the co-op games: 2-4), Public / Private (private: shown in the
-     browser, joining needs the password; online only), voice chat.
+     browser with a lock, joining needs the password; LAN too), Password (private only: the name grid; NONE until set,
+     and anyone may join until then), voice chat. Choosing a private server in the browser opens the name grid for its
+     password first; a wrong one (or none, joining by address) is refused with "Wrong password". The lobby sends the
+     typed password with its hello and the host compares it; every machine that got in keeps it, so a new host (the
+     old one left) asks the same. The listing's last byte says private (the masters pass listings on as they are).
    - Computer cars (grayed out for the co-op games): fixed CPU cars (CPU: always in, each one a player's spot less, so
      4 of them make 12 players at most), fill CPU cars (a number, NONE-15, default 15: that many of the empty spots
      CPU / OPEN, the rest OPEN; a player joining takes one's place); teams

@@ -435,7 +435,7 @@ enum { ACT_NONE, ACT_NEW, ACT_DONE, ACT_PICTURE, ACT_RENAME, ACT_DELETE,
        ACT_NET_LEAVE, ACT_NET_PL_ADD, ACT_NET_PL_REMOVE, ACT_NET_PLAYER, ACT_NET_CAR, ACT_NET_KICK, ACT_NET_VOTEKICK,
        ACT_NET_ADDRESS, ACT_NET_READY, ACT_NET_PL_EDIT, ACT_NET_VOTE, ACT_LOBBY_CPU_REMOVE, ACT_LOBBY_RANDOM, ACT_NET_BACK, ACT_UPDATE, ACT_SETUP,
        ACT_FRIEND_ADD, ACT_FRIEND_ACCEPT, ACT_FRIEND_DECLINE, ACT_FRIEND_JOIN, ACT_FRIEND_REMOVE, ACT_FRIEND_ASK,
-       ACT_ONLINE_COPY_ID, ACT_ONLINE_MASTERS, ACT_ONLINE_MASTERS_DEFAULT, ACT_NET_MODS_GET }; /* (the local lobby's Remove: dispatched with Network Play's, its way back) */
+       ACT_ONLINE_COPY_ID, ACT_ONLINE_MASTERS, ACT_ONLINE_MASTERS_DEFAULT, ACT_NET_MODS_GET, ACT_NET_PASSWORD }; /* (the local lobby's Remove: dispatched with Network Play's, its way back) */
 static void lobby_cpu_remove(void);
 static void opponent_values_init(void);
 static const char *car_label(int number);
@@ -646,7 +646,7 @@ static int edit_index = -1;           /* its place among the profile's, or -1 (n
 static void net_named(int kind, const char *text); /* (below: Network Play) */
 static int game_type_name_done(void)
 {
-    if (naming.game_type >= 4 && naming.game_type <= 8) { /* Network Play: a chat line, the server's name, its address, a
+    if (naming.game_type >= 4 && naming.game_type <= 9) { /* Network Play: a chat line, the server's name, its address, a
                                                            * friend code; Online Services: the master servers */
         net_named(naming.game_type, naming.text);
         naming.active = 0;
@@ -2322,7 +2322,15 @@ static struct {
     int team_mode;                  /* 0 the players choose their teams, 1 auto-balanced */
     int mode;                       /* a joined server's game mode (MODE_x) */
     const char *type;               /* and game type */
-} net_server = {"", 0, NET_GAME_CHALLENGE, 8, 15, 1, 0, 1, 1, 0, 0, 0, 0, 0, NULL};
+    char password[LOBBY_PASSWORD];  /* (host) a private server's: needed to join it (Swampus's "where do I enter the password") */
+} net_server = {"", 0, NET_GAME_CHALLENGE, 8, 15, 1, 0, 1, 1, 0, 0, 0, 0, 0, NULL, ""};
+static char net_join_where[64], net_join_password[LOBBY_PASSWORD]; /* a private server's join: where, the password typed */
+static void net_password_apply(void) /* (host) the lobby asks for the password while the server is private */
+{
+    Lobby *l = netplay_lobby();
+    if (l && net_server.host && lobby_is_host(l))
+        lobby_set_password(l, net_server.visibility ? net_server.password : "");
+}
 static int net_hosting_versus(void) { return net_hosting && net_server.game == NET_GAME_VERSUS; }
 /* (host) Co-op Tournament: a new one (-1) or the host profile's online save in this slot (its players only, their cars,
  * from its level); the choices offered: NEW, then each online save */
@@ -2506,7 +2514,7 @@ static void set_net_server(int a, int v)
     case NS_SLOTS: net_slots_total(v + 2); rebuild_page = 1; break;
     case NS_HUMANS: net_slots_set(SLOT_HUMAN, v + 1); rebuild_page = 1; break;
     case NS_REPLACE: net_server.replace = v; break;
-    case NS_VISIBILITY: net_server.visibility = v; break;
+    case NS_VISIBILITY: net_server.visibility = v; net_password_apply(); rebuild_page = 1; break;
     case NS_VOICE: net_server.voice = v; rebuild_page = 1; break;
     case NS_FIXED_CPUS: net_slots_set(SLOT_CPU, v); rebuild_page = 1; break; /* (the slots' total kept) */
     case NS_TEAM_MODE: net_server.team_mode = v; break;
@@ -2620,8 +2628,23 @@ static void net_entered(void) /* on a server: its chat and our choices start ove
     net_in_server = 1;
 }
 static void net_named(int kind, const char *text) /* the name grid's: 4 a chat line, 5 the server's name, 6 its address,
-                                                    * 7 a friend code */
+                                                    * 7 a friend code, 8 the master servers, 9 a private server's password */
 {
+    if (kind == 9) {
+        if (net_join_where[0]) { /* joining a private server: with this password */
+            char where[64];
+            snprintf(where, sizeof where, "%s", net_join_where);
+            net_join_where[0] = 0;
+            if (!text[0]) return; /* (none typed: not joined) */
+            snprintf(net_join_password, sizeof net_join_password, "%s", text);
+            net_named(6, where); /* (then the server's page, net_goto) */
+            return;
+        }
+        snprintf(net_server.password, sizeof net_server.password, "%s", text); /* (host) */
+        net_password_apply();
+        fprintf(stderr, "network: the server's password %s\n", text[0] ? "set" : "cleared");
+        return;
+    }
     if (kind == 8) { /* the master servers (Online Services): kept in tm2pc.ini, used from now on */
         void netplay_masters_changed(void);
         snprintf(settings_masters, sizeof settings_masters, "%s", text);
@@ -2655,8 +2678,13 @@ static void net_named(int kind, const char *text) /* the name grid's: 4 a chat l
         if (!netplay_join(text, play_players, (const char (*)[LOBBY_NAME])names)) {
             net_chat_add("SERVER", "That address was not found.");
             net_in_server = 0;
+            net_join_password[0] = 0;
             return;
         }
+        if (!net_join_password[0] && getenv("TM2PC_NET_JOIN_PASSWORD")) /* tests: the password a join types */
+            snprintf(net_join_password, sizeof net_join_password, "%s", getenv("TM2PC_NET_JOIN_PASSWORD"));
+        lobby_set_password(netplay_lobby(), net_join_password); /* (a private server's, typed; else none) */
+        net_join_password[0] = 0;
         net_pictures();
         net_chat_add("SERVER", "Connecting...");
         net_goto = PAGE_NET_SERVER;
@@ -2827,7 +2855,8 @@ static int net_sync(void)
     if (st != net_status_seen) {
         static const char *const why[] = {NULL, NULL, "Another version of the game: both need the same build.",
                                           "The server is full.", "You were removed from this server.",
-                                          "The server cannot be reached.", "You were removed from the server."};
+                                          "The server cannot be reached.", "You were removed from the server.",
+                                          "Wrong password. This server is private: choose it in the server list to type its password."};
         if (st >= LOBBY_REFUSED_BUILD && why[st]) {
             net_chat_add("SERVER", why[st]);
             fprintf(stderr, "network: %s\n", why[st]);
@@ -3184,10 +3213,11 @@ static int net_browser_tick(void)
         snprintf(mod_names[net_list_n - 1], 48, "%s", found[i].mod_names);
         s->mod_names = mod_names[net_list_n - 1];
         s->other_build = !found[i].same_build;
-        fprintf(stderr, "network: %s server \"%s\" at %s:%d (%d of %d players, %d ms, %d mods%s%s%s)\n", net_lan ? "LAN" : "online",
+        s->locked = found[i].locked;
+        fprintf(stderr, "network: %s server \"%s\" at %s:%d (%d of %d players, %d ms, %d mods%s%s%s%s)\n", net_lan ? "LAN" : "online",
                 s->name, s->addr, s->port,
                 s->players, s->max, s->ping, s->mods, s->mods ? ": " : "", s->mods ? s->mod_names : "",
-                s->other_build ? ", another build" : "");
+                s->other_build ? ", another build" : "", s->locked ? ", private" : "");
         out = NET_REBUILD;
     }
     return out;
@@ -3327,9 +3357,16 @@ static void net_host_rows(void)
     add_page("Name", PAGE_ACTION, "The server's name in the browser.");
     rows[row_count - 1].act = ACT_NET_NAME;
     rows[row_count - 1].text = net_text[1];
-    if (!net_lan)
+    { /* (LAN servers too) */
         add_choice("Public / Private", "Private: shown in the browser, but joining needs the server's password.", get_net_server,
                    set_net_server, NS_VISIBILITY, net_visibility_values, 2);
+        if (net_server.visibility) {
+            add_page("Password", PAGE_ACTION, net_server.password[0] ? "Players type it when they join. Tell it to your friends."
+                                                                   : "Set a password: until then anyone can join.");
+            rows[row_count - 1].act = ACT_NET_PASSWORD;
+            rows[row_count - 1].text = net_server.password[0] ? net_server.password : "NONE";
+        }
+    }
     add_choice("Voice chat", "Talking on the server and in the game.", get_net_server, set_net_server, NS_VOICE, onoff_values, 2);
     static const char *const kill_cam_values[4] = {"OFF", "1 SHOT", "2 SHOTS", "3 SHOTS"};
     add_choice("Kill cam", "The last kill of a match replayed before the results, for everyone on the server.", get_net_server,
@@ -3849,6 +3886,17 @@ static int net_action(int act, int arg)
             if (s->other_build) { net_chat_add("SERVER", "That server runs another version of the game."); return NET_REBUILD; }
             char where[64];
             snprintf(where, sizeof where, "%s:%d", s->addr, s->port);
+            if (s->locked) { /* a private server: its password first (the name grid), then the join (net_named 9) */
+                snprintf(net_join_where, sizeof net_join_where, "%s", where);
+                snprintf(net_server.name, sizeof net_server.name, "%s", s->name);
+                net_back_to = PAGE_NET_BROWSER;
+                name_start(0);
+                naming.game_type = 9;
+                naming.max = LOBBY_PASSWORD - 1;
+                naming.text[0] = 0;
+                naming.caps = 0;
+                return -1;
+            }
             net_named(6, where);
             snprintf(net_server.name, sizeof net_server.name, "%s", s->name);
             net_back_to = PAGE_NET_BROWSER;
@@ -3899,6 +3947,13 @@ static int net_action(int act, int arg)
         snprintf(naming.text, sizeof naming.text, "%s", net_server.name);
         naming.caps = 0;
         return -1;
+    case ACT_NET_PASSWORD:
+        name_start(0);
+        naming.game_type = 9;
+        naming.max = LOBBY_PASSWORD - 1;
+        snprintf(naming.text, sizeof naming.text, "%s", net_server.password);
+        naming.caps = 0;
+        return -1;
     case ACT_NET_SAY:
         name_start(0);
         naming.game_type = 4;
@@ -3923,6 +3978,11 @@ static int net_action(int act, int arg)
             netplay_internet(!net_lan);
             if (netplay_host(net_server.name, play_players, (const char (*)[LOBBY_NAME])names)) {
                 net_pictures();
+                if (getenv("TM2PC_NET_PASSWORD")) { /* tests: a private server, this password */
+                    net_server.visibility = 1;
+                    snprintf(net_server.password, sizeof net_server.password, "%s", getenv("TM2PC_NET_PASSWORD"));
+                }
+                net_password_apply();
                 if (getenv("TM2PC_NET_GAME")) { /* tests: the server's game (NET_GAME_*: 1 Co-op Tournament, 2 Survival) */
                     net_server.game = atoi(getenv("TM2PC_NET_GAME"));
                     if (net_server.game != NET_GAME_CHALLENGE && net_server.max_players > 4) net_server.max_players = 4;
@@ -7690,7 +7750,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
     }
 
     char title[64];
-    snprintf(title, sizeof title, "%s", naming.active ? (naming.game_type == 4 ? "SAY" : naming.game_type == 5 ? "SERVER NAME" : naming.game_type == 6 ? "SERVER ADDRESS" : naming.game_type == 7 ? "FRIEND'S PLAYER ID" : naming.game_type == 8 ? "MASTER SERVERS" : naming.game_type ? "GAME TYPE NAME" : naming.renaming ? "RENAME" : "NEW PROFILE")
+    snprintf(title, sizeof title, "%s", naming.active ? (naming.game_type == 4 ? "SAY" : naming.game_type == 5 ? "SERVER NAME" : naming.game_type == 6 ? "SERVER ADDRESS" : naming.game_type == 7 ? "FRIEND'S PLAYER ID" : naming.game_type == 8 ? "MASTER SERVERS" : naming.game_type == 9 ? "PASSWORD" : naming.game_type ? "GAME TYPE NAME" : naming.renaming ? "RENAME" : "NEW PROFILE")
                                         : page == PAGE_BATTLE_EDIT ? edit_gt.name
                                         : pgrid.active ? "PORTRAIT"
                                         : page == PAGE_PROFILE ? profile_name()
@@ -8863,7 +8923,8 @@ static int run(PageId start)
                         sel = from < row_count && selectable(from) ? from : first_selectable();
                         scroll = 0;
                     }
-                    if (r->act == ACT_NET_NAME || r->act == ACT_NET_SAY || r->act == ACT_NET_ADDRESS) { /* the name grid (or the keyboard) */
+                    if (r->act == ACT_NET_NAME || r->act == ACT_NET_SAY || r->act == ACT_NET_ADDRESS || r->act == ACT_NET_PASSWORD ||
+                        (r->act == ACT_NET_JOIN && naming.active)) { /* the name grid (or the keyboard) */
                         if (!script) input_new_key();
                         naming.prev = script ? b : input_pad_buttons();
                     }

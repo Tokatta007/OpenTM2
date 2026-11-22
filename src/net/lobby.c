@@ -58,14 +58,16 @@ struct Lobby {
     NetUdp *lan;                                /* (host) the LAN browser's questions */
     int max_players;                            /* (host) the players' room */
     LobbyListing listing;
+    char password[LOBBY_PASSWORD];              /* a private server's (lobby_set_password) */
     void (*ext)(void *ctx, int from, const uint8_t *data, int len); /* (net/lobby_mods.c) */
     void *ext_ctx;
 };
 static uint16_t lan_port(void) { return getenv("TM2PC_NET_LAN_PORT") ? (uint16_t)atoi(getenv("TM2PC_NET_LAN_PORT")) : UDP_LAN_PORT; }
 static const uint8_t ASK[4] = {'T', 'M', '2', 'Q'}, ANSWER[4] = {'T', 'M', '2', 'A'};
-enum { LISTING_BYTES = 4 + 4 + 32 + 24 + 32 + 2 + 6, LISTING_MODS = LISTING_BYTES + 1 + 48 }; /* (the mods after the rest:
+enum { LISTING_BYTES = 4 + 4 + 32 + 24 + 32 + 2 + 6, LISTING_MODS = LISTING_BYTES + 1 + 48, /* (the mods after the rest:
                                      * the masters keep 160 bytes of a listing as they are, tools/master/master.c) */
-typedef char listing_fits_masters[LISTING_MODS <= 160 ? 1 : -1];
+       LISTING_LOCKED = LISTING_MODS + 1 }; /* (then whether it needs a password: no master change) */
+typedef char listing_fits_masters[LISTING_LOCKED <= 160 ? 1 : -1];
 
 /* ---- the build ---- */
 uint32_t lobby_build_id(void)
@@ -429,13 +431,14 @@ const LobbyView *lobby_view(const Lobby *l) { return &l->view; }
 /* ---- the handshake ---- */
 static void hello_send(Lobby *l)
 {
-    uint8_t m[14];
+    uint8_t m[14 + LOBBY_PASSWORD];
     memcpy(m, MAGIC, 4);
     m[4] = HELLO;
     put32(m + 5, lobby_build_id());
     m[9] = (uint8_t)l->count;
     put32(m + 10, lobby_machine_id()); /* (this machine's own number: known again if it drops and comes back) */
-    send_ch(l, CH_HELLO, 0, m, 14);
+    memcpy(m + 14, l->password, LOBBY_PASSWORD); /* (a private server's: the one typed) */
+    send_ch(l, CH_HELLO, 0, m, (int)sizeof m);
 }
 static int banned(const Lobby *l, const char *addr)
 {
@@ -450,9 +453,10 @@ static void host_hello(Lobby *l, int from, const char *addr, uint16_t port, cons
     uint8_t reply[8];
     memcpy(reply, MAGIC, 4);
     int node = from;
-    if (id != lobby_build_id() || banned(l, addr)) {
+    int wrong_password = l->password[0] && (len < 14 + LOBBY_PASSWORD || strncmp((const char *)d + 14, l->password, LOBBY_PASSWORD));
+    if (id != lobby_build_id() || banned(l, addr) || wrong_password) {
         reply[4] = REFUSED;
-        reply[5] = id != lobby_build_id() ? 1 : 3;
+        reply[5] = id != lobby_build_id() ? 1 : banned(l, addr) ? 3 : 4;
     } else {
         int players = 0, asking = d[9] ? d[9] : 1;
         for (int k = 0; k < SES_MAX_NODES; k++) if (l->view.m[k].present && k != from) players += l->view.m[k].count;
@@ -489,7 +493,8 @@ static void client_hello(Lobby *l, const uint8_t *d, int len)
 {
     if (len < 6 || memcmp(d, MAGIC, 4) || l->node >= 0 || l->status != LOBBY_CONNECTING) return;
     if (d[4] == REFUSED) {
-        l->status = d[5] == 1 ? LOBBY_REFUSED_BUILD : d[5] == 3 ? LOBBY_REFUSED_BANNED : LOBBY_REFUSED_FULL;
+        l->status = d[5] == 1 ? LOBBY_REFUSED_BUILD : d[5] == 3 ? LOBBY_REFUSED_BANNED : d[5] == 4 ? LOBBY_REFUSED_PASSWORD
+                  : LOBBY_REFUSED_FULL;
         return;
     }
     int hn = len >= 7 ? d[6] : 0;
@@ -520,6 +525,7 @@ static int put_listing(uint8_t *w, const LobbyListing *s)
     *w++ = s->players; *w++ = s->max; *w++ = s->game; *w++ = s->arena; *w++ = s->mode; *w++ = s->playing;
     *w++ = s->mods;
     memcpy(w, s->mod_names, 48); w += 48;
+    *w++ = s->locked;
     return (int)(w - w0);
 }
 static int get_listing(const uint8_t *r, int len, LobbyListing *s)
@@ -532,8 +538,15 @@ static int get_listing(const uint8_t *r, int len, LobbyListing *s)
     memcpy(s->type, r, 32); s->type[31] = 0; r += 32;
     s->port = (uint16_t)(r[0] | r[1] << 8); r += 2;
     s->players = *r++; s->max = *r++; s->game = *r++; s->arena = *r++; s->mode = *r++; s->playing = *r++;
-    if (len >= LISTING_MODS) { s->mods = *r++; memcpy(s->mod_names, r, 48); s->mod_names[47] = 0; }
+    if (len >= LISTING_MODS) { s->mods = *r++; memcpy(s->mod_names, r, 48); s->mod_names[47] = 0; r += 48; }
+    if (len >= LISTING_LOCKED) s->locked = *r++;
     return 1;
+}
+void lobby_set_password(Lobby *l, const char *password)
+{
+    if (!l) return;
+    memset(l->password, 0, sizeof l->password);
+    snprintf(l->password, sizeof l->password, "%s", password ? password : "");
 }
 void lobby_set_listing(Lobby *l, const LobbyListing *info)
 {
@@ -547,6 +560,7 @@ static int listing_now(const Lobby *l, uint8_t *out) /* (host) the listing, its 
     int players = 0;
     for (int k = 0; k < SES_MAX_NODES; k++) if (l->view.m[k].present) players += l->view.m[k].count;
     s.players = (uint8_t)players;
+    s.locked = l->password[0] != 0;
     return put_listing(out, &s);
 }
 static void master_send(Lobby *l, const uint8_t *m, int len) /* to every master (each keeps the list on its own) */
@@ -612,7 +626,7 @@ static void master_packet(Lobby *l, const uint8_t *d, int len) /* the master's I
 }
 static void lan_answer(Lobby *l)
 {
-    uint8_t buf[64], out[LISTING_MODS];
+    uint8_t buf[64], out[LISTING_LOCKED];
     char addr[48];
     uint16_t port;
     int from, n;
