@@ -2858,8 +2858,10 @@ static int net_sync(void)
                                           "The server cannot be reached.", "You were removed from the server.",
                                           "Wrong password. This server is private: choose it in the server list to type its password."};
         if (st >= LOBBY_REFUSED_BUILD && why[st]) {
-            net_chat_add("SERVER", why[st]);
-            fprintf(stderr, "network: %s\n", why[st]);
+            const char *say = st == LOBBY_REFUSED_BUILD && update_state() == UPDATE_READY /* (updated, not restarted) */
+                                  ? "The new version is in place: restart the game to play online." : why[st];
+            net_chat_add("SERVER", say);
+            fprintf(stderr, "network: %s\n", say);
             netplay_leave();
             net_in_server = 0;
             net_server.host = 0;
@@ -3883,7 +3885,11 @@ static int net_action(int act, int arg)
     case ACT_NET_JOIN: {
         const NetServer *s = &net_list[arg % NET_SERVERS_MAX];
         if (s->addr[0]) { /* a real server (LAN) */
-            if (s->other_build) { net_chat_add("SERVER", "That server runs another version of the game."); return NET_REBUILD; }
+            if (s->other_build) {
+                net_chat_add("SERVER", update_state() == UPDATE_READY ? "The new version is in place: restart the game to play online."
+                                                                      : "That server runs another version of the game.");
+                return NET_REBUILD;
+            }
             char where[64];
             snprintf(where, sizeof where, "%s:%d", s->addr, s->port);
             if (s->locked) { /* a private server: its password first (the name grid), then the join (net_named 9) */
