@@ -3820,6 +3820,13 @@ void vp_PickupRespawnTick(CPU *c)
 #include "controls/bindings.h"
 void F_800DECA8_orig(CPU *c);
 static uint16_t prev_easy[16], prev_pad[16]; /* (the energy attacks: a press is a change; by human) */
+/* L1 + R1 jump and the weapon switch on the same shoulders: the game switches the moment one of them goes down
+ * (weaponHumanCycleInput: then nothing more until both are up), so a jump's first shoulder switched the weapon
+ * (Brimstone's report, 2026-11-23). A switch by one shoulder alone switches at once as always; when the jump comes
+ * within JUMP_UNDO_FRAMES of it, the weapon goes back, and no switch while both are held */
+enum { JUMP_UNDO_FRAMES = 3 }; /* (gameplay frames, 20 a second: 150 ms) */
+static int8_t jump_undo_sel[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; /* (the selector before; -1 none) */
+static int32_t jump_undo_at[16];
 uint16_t input_player_bits(int p); /* runtime/input.c: players 3-4's buttons (set = held) */
 void vp_MoveCodes(CPU *c)
 {
@@ -3862,7 +3869,28 @@ void vp_MoveCodes(CPU *c)
     prev_pad[p] = pad;
     int special = 0;
     if (pad & 0x0001) pressed = 0; /* Select held: the D-pad is Select's (HUD style, mirror, list), not energy */
-    if ((on ? easy & 1 : bind_jump_combo(p)) && (pad & 0x0400) && (pad & 0x0800) && (new_pad & 0x0C00)) special = 104; /* L1 + R1 */
+    int jump_on = on ? easy & 1 : bind_jump_combo(p), l1 = (pad & 0x0400) != 0, r1 = (pad & 0x0800) != 0;
+    if (jump_on && l1 && r1) { /* (both held: no weapon switch; just pressed, the one a shoulder made a moment ago undone) */
+        if ((new_pad & 0x0C00) && jump_undo_sel[p] >= 0 && rf - jump_undo_at[p] <= JUMP_UNDO_FRAMES) {
+            mem_w8(c, rec + 0x7D5, (uint8_t)jump_undo_sel[p]); /* (the weapon block +0x7C8's selector, +0xD) */
+            if (M.trace || getenv("TM2PC_MOVE_DEBUG")) fprintf(stderr, "controls: player %d jump: the weapon switch undone\n", p + 1);
+        }
+        jump_undo_sel[p] = -1;
+        mem_w8(c, rec + 0xE9, 0); /* (the switch's latch: again once both are up) */
+    } else if (jump_on && (l1 ^ r1) && (new_pad & 0x0C00) && mem_r8(c, rec + 0xE9) && (mem_r8(c, rec + 0xE7) || mem_r8(c, rec + 0xE8))) {
+        jump_undo_sel[p] = (int8_t)mem_r8(c, rec + 0x7D5); /* (a shoulder alone switches now: what it was) */
+        jump_undo_at[p] = rf;
+        if (M.trace || getenv("TM2PC_MOVE_DEBUG")) fprintf(stderr, "controls: player %d weapon switch by a shoulder (from %d)\n", p + 1, jump_undo_sel[p]);
+    }
+    static int move_debug = -1; /* (tests: TM2PC_MOVE_DEBUG, the selected weapon's changes too) */
+    if (move_debug < 0) move_debug = getenv("TM2PC_MOVE_DEBUG") != NULL;
+    if (move_debug) {
+        static int8_t seen_sel[16];
+        int8_t sel = (int8_t)mem_r8(c, rec + 0x7D5);
+        if (sel != seen_sel[p]) fprintf(stderr, "controls: player %d weapon %d (frame %d)\n", p + 1, sel, rf);
+        seen_sel[p] = sel;
+    }
+    if (jump_on && l1 && r1 && (new_pad & 0x0C00)) special = 104; /* L1 + R1 */
     else if (pressed & 0x0010) special = 100; /* Up: freeze */
     else if (pressed & 0x0080) special = 101; /* Left: mines */
     else if (pressed & 0x0020) special = 103; /* Right: shield */
@@ -6317,6 +6345,7 @@ void vp_keep_register(void)
     KEEP(pickup_step); KEEP(pickup_taken_step);
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */
     KEEP(human_gone); KEEP(gone_left); KEEP(handed); KEEP(ai_team_plus1); KEEP(back_wait); KEEP(dropped_bot); /* (online: who left, who may come back) */
+    KEEP(jump_undo_sel); KEEP(jump_undo_at); /* (L1 + R1 jump: a shoulder's weapon switch just before it, undone) */
 #undef KEEP
 }
 
