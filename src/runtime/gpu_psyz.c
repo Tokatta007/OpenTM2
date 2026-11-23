@@ -96,6 +96,8 @@ static void SDLCALL device_logged(SDL_Window *window, SDL_GPUDevice *device)
     fprintf(stderr, "renderer: %s on %s%s%s%s%s%s\n", SDL_GetGPUDeviceDriver(device), card[0] ? card : "an unnamed card",
             driver[0] || version[0] ? " (driver " : "", driver, driver[0] && version[0] ? " " : "", version,
             driver[0] || version[0] ? ")" : "");
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+    if (dm) fprintf(stderr, "renderer: the display %dx%d at %.2f Hz\n", dm->w, dm->h, dm->refresh_rate);
     if (!SDL_WindowSupportsGPUPresentMode(device, window, SDL_GPU_PRESENTMODE_VSYNC))
         fprintf(stderr, "renderer: the window can't show its frames (%s)\n", SDL_GetError());
 }

@@ -483,6 +483,19 @@ static int disc_problem(const char *disc, char *msg, size_t cap)
     }
     int i = discfs_find(fs, "/SCUS_943.06");
     uint32_t size = i >= 0 ? discfs_size(fs, i) : 0;
+    { /* the disc's fingerprint in the log: every file's name and size (two players' differing data would part their
+       * games online; a reissue or an edited image passes the executable's check above) */
+        uint32_t h = 2166136261u, n = (uint32_t)discfs_count(fs);
+        uint64_t total = 0;
+        for (int k = 0; k < (int)n; k++) {
+            const char *p = discfs_path(fs, k);
+            uint32_t sz = discfs_size(fs, k);
+            for (; p && *p; p++) h = (h ^ (uint8_t)*p) * 16777619u;
+            for (int b = 0; b < 4; b++) h = (h ^ ((sz >> (8 * b)) & 0xFF)) * 16777619u;
+            total += sz;
+        }
+        fprintf(stderr, "disc: %u files, %llu bytes, fingerprint %08X\n", n, (unsigned long long)total, h);
+    }
     discfs_close(fs);
     if (size != RETAIL_EXE_SIZE) {
         snprintf(msg, cap, "This isn't the retail Twisted Metal 2 (USA) disc (SCUS-94306):\n%s\n\nOpenTM2 only works with "

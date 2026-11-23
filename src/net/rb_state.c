@@ -721,14 +721,39 @@ static void dif_name(uint32_t a, char *out, size_t n)
     else snprintf(out, n, "%08X", a);
 }
 /* step: the host's state's (this machine's own of that step, from the states kept for rollback; it may be steps on) */
-void rbs_diff_begin(int32_t step)
+/* a kept state's word at a RAM address (from its snapshot's regions), 0 if not in them */
+static int kept_word(const State *s, uint32_t addr, uint32_t *out)
 {
-    dif_on = 0;
-    if (!syms()) return;
-    const State *s = &st[(uint32_t)step % SLOTS];
-    if (s->step != step) { fprintf(stderr, "network: step %d: this machine's own state of it is gone (not compared)\n", (int)step); return; }
-    static uint8_t *img; /* (this machine's RAM at that step's start, where the kept regions say) */
-    if (!img && !(img = calloc(1, GUEST_RAM_BYTES))) return;
+    const uint8_t *r = s->b;
+    uint32_t a0 = addr & 0x00FFFFFFu;
+    for (unsigned i = 0; i < rc_rb_snap_count; i++) {
+        uint32_t lo = rc_rb_snap[i].addr & 0x00FFFFFFu;
+        if (a0 >= lo && a0 + 4 <= lo + rc_rb_snap[i].size) { memcpy(out, r + (a0 - lo), 4); return 1; }
+        r += rc_rb_snap[i].size;
+    }
+    return 0;
+}
+static int dif_step;
+void rbs_diff_begin(int32_t step) { dif_on = syms() ? 1 : 0; dif_step = step; } /* (the host's state not in yet: rbs_diff_end) */
+/* this machine's own state at the host's state's step: the kept state whose step counter (timerFrameCount, counted in
+ * SetFrameStart) is the host's (the host's state is taken before the count, this machine's kept ones after it: by
+ * the step number they were one step apart, and every step-counted field "differed") */
+static int dif_mine_build(void)
+{
+    uint32_t want = mem_r32(&M.cpu, GA(0x8017EBFCu)), have;
+    const State *s = NULL;
+    for (int k = 0; k < SLOTS; k++) {
+        if (st[k].step < 0 || !kept_word(&st[k], GA(0x8017EBFCu), &have) || have != want) continue;
+        if (!s || abs(st[k].step - dif_step) < abs(s->step - dif_step)) s = &st[k];
+    }
+    if (!s) {
+        fprintf(stderr, "network: step %d: no kept state of this machine at the host's step count %u (kept:", dif_step, want);
+        for (int k = 0; k < SLOTS; k++) if (st[k].step >= 0 && kept_word(&st[k], GA(0x8017EBFCu), &have)) fprintf(stderr, " %d=%u", (int)st[k].step, have);
+        fprintf(stderr, "; not compared)\n");
+        return 0;
+    }
+    static uint8_t *img; /* (this machine's RAM at that state, where the kept regions say) */
+    if (!img && !(img = calloc(1, GUEST_RAM_BYTES))) return 0;
     const uint8_t *r = s->b;
     for (unsigned i = 0; i < rc_rb_snap_count; i++) {
         uint32_t a0 = rc_rb_snap[i].addr & 0x00FFFFFFu;
@@ -742,7 +767,7 @@ void rbs_diff_begin(int32_t step)
     for (int i = 0; i < hspan_n; i++) need += hspan[i].n;
     if (need > dif_cap) {
         uint8_t *p = realloc(dif_mine, need);
-        if (!p) return;
+        if (!p) return 0;
         dif_mine = p, dif_cap = need;
     }
     size_t o = 0;
@@ -753,13 +778,16 @@ void rbs_diff_begin(int32_t step)
     }
     memcpy(dif_mine + o, &rnd, 4), o += 4;
     dif_len = o;
-    dif_on = 1;
+    dif_step = s->step;
+    return 1;
 }
 void rbs_diff_end(int step)
 {
     static int told;
     if (!dif_on || told >= 6) return; /* (the first resyncs of the match: enough to see what goes another way) */
     dif_on = 0;
+    if (!dif_mine_build()) return;
+    step = dif_step;
     hspans_now();
     /* by the table's hash rows (one line each: how many words, the first), the cars' records by field */
     static int *row_n;
@@ -800,14 +828,49 @@ void rbs_diff_end(int step)
         }
         o += hspan[i].n;
     }
-    int lines = 0;
-    for (unsigned r = 0; r < rc_rb_hash_count && lines < 40; r++) {
-        if (!row_n[r]) continue;
-        dif_name(row_first[r], name, sizeof name);
-        fprintf(stderr, "network:   %08X (%u bytes): %d words, the first %s (%08X) this machine %08x, the host %08x\n",
-                rc_rb_hash[r].addr, rc_rb_hash[r].size, row_n[r], name, row_first[r], row_mine[r], row_host[r]);
-        lines++;
+    /* by the nearest named variable (the port's symbols; a car record by car; else the hash row), the smallest groups
+     * first: where it began is usually a word or two, what it spread to the big ones */
+    enum { GROUPS = 512 };
+    static struct { uint32_t key, first, mine, host; int n; } g[GROUPS];
+    int ng = 0;
+    o = 0;
+    for (int i = 0; i < hspan_n && o + hspan[i].n <= dif_len; i++) {
+        const uint8_t *b = mem_direct(&M.cpu, hspan[i].a, (int)hspan[i].n);
+        for (uint32_t k = 0; k < hspan[i].n; k += 4) {
+            uint32_t a = hspan[i].a + k, mine, host;
+            memcpy(&mine, dif_mine + o + k, 4), memcpy(&host, b + k, 4);
+            if (a >= hum_lo && a < hum_hi) {
+                uint32_t off = (a - hum_lo) % HUMAN_REC_SIZE;
+                mine = human_rec_state_word(off, mine), host = human_rec_state_word(off, host);
+            }
+            if (mine == host) continue;
+            uint32_t key;
+            if (a >= hum_lo && a < hum_hi) key = hum_lo + (a - hum_lo) / HUMAN_REC_SIZE * HUMAN_REC_SIZE;
+            else if (a >= ai0 && a < ai1) key = ai0 + (a - ai0) / AI_REC_SIZE * AI_REC_SIZE;
+            else {
+                key = 0;
+                for (unsigned s = 0; s < rc_port_symbol_count; s++)
+                    if (rc_port_symbols[s].name && rc_port_symbols[s].addr <= a && rc_port_symbols[s].addr > key) key = rc_port_symbols[s].addr;
+                if (!key || a - key >= 0x10000u) key = a & ~0xFFFu;
+            }
+            int j = 0;
+            while (j < ng && g[j].key != key) j++;
+            if (j == ng) {
+                if (ng == GROUPS) continue;
+                g[ng].key = key, g[ng].first = a, g[ng].mine = mine, g[ng].host = host, g[ng].n = 0, ng++;
+            }
+            g[j].n++;
+        }
+        o += hspan[i].n;
     }
+    for (int lines = 0, want = 1; lines < 40 && want < 1 << 30; want *= 4) /* (counts 1, 2-4, 5-16, ...: the small first) */
+        for (int j = 0; j < ng && lines < 40; j++) {
+            if (g[j].n < (want == 1 ? 1 : want / 4 + 1) || g[j].n > want) continue;
+            dif_name(g[j].first, name, sizeof name);
+            fprintf(stderr, "network:   %d words from %s (%08X): this machine %08x, the host %08x\n", g[j].n, name, g[j].first,
+                    g[j].mine, g[j].host);
+            lines++;
+        }
     uint32_t r_mine;
     if (o + 4 <= dif_len) {
         memcpy(&r_mine, dif_mine + o, 4);
