@@ -701,6 +701,13 @@ int main(int argc, char **argv)
         settings_load(ini, !settings_path);
         if (!settings_path) SDL_CreateDirectory(music_folder()); /* (play: the music folder there for the player's songs, a
                                                                     * player's "it doesn't create one", 2026-11-22) */
+        { /* the video settings a report needs, in the log (Ryupichu's Wobble had to be asked for, 2026-11-22) */
+            static const char *const wob[3] = {"ps1", "smooth", "none"}, *const fr[3] = {"original", "60", "uncapped"};
+            fprintf(stderr, "video: wobble %s, frame rate %s, resolution %d%s, textures %s, hidden surfaces %s, widescreen %s\n",
+                    wob[settings_video.wobble % 3], fr[settings_video.frame_rate % 3], settings_video.resolution,
+                    settings_video.resolution ? "" : " (auto)", settings_video.textures ? "playstation" : "sharpest",
+                    settings_video.depth ? "depth" : "ps1", settings_video.widescreen ? "on" : "off");
+        }
         if (!disc) disc = settings_disc();
         else settings_remember_disc(ini);
         if (prepare) /* (RecompLauncher's setup step: the menu pictures from the discs, no window; exit 0 when made) */
