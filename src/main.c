@@ -699,6 +699,8 @@ int main(int argc, char **argv)
     if (settings_path || !M.headless) {
         if (disc) settings_set_disc(disc);
         settings_load(ini, !settings_path);
+        if (!settings_path) SDL_CreateDirectory(music_folder()); /* (play: the music folder there for the player's songs, a
+                                                                    * player's "it doesn't create one", 2026-11-22) */
         if (!disc) disc = settings_disc();
         else settings_remember_disc(ini);
         if (prepare) /* (RecompLauncher's setup step: the menu pictures from the discs, no window; exit 0 when made) */

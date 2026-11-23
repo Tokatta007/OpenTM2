@@ -619,7 +619,12 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
     static uint8_t draw_mine[0x300 + 12 + 256];
     for (size_t r = 0, o = 0; r < sizeof draw_keep / sizeof draw_keep[0]; o += draw_keep[r].n, r++)
         for (uint32_t i = 0; i < draw_keep[r].n; i++) draw_mine[o + i] = mem_r8(&M.cpu, GA(draw_keep[r].at) + i);
+    /* a resync (this machine in a battle already): its own state of the step kept, to log what differed (rb_state.c) */
+    int resync = ng.loaded && ng.rollback && feats_in_battle() && ng.ses;
+    int32_t at_step = resync ? rb_now(ses_rollback(ng.ses)) : 0;
+    if (resync) rbs_diff_begin(at_step);
     ng.loaded = n > ks && killcam_state_load(ng.raw, ks) && devices_load(ng.raw + ks, n - ks);
+    if (resync && ng.loaded) rbs_diff_end(at_step);
     if (ng.loaded && feats_in_battle())
         for (size_t r = 0, o = 0; r < sizeof draw_keep / sizeof draw_keep[0]; o += draw_keep[r].n, r++)
             for (uint32_t i = 0; i < draw_keep[r].n; i++) mem_w8(&M.cpu, GA(draw_keep[r].at) + i, draw_mine[o + i]);

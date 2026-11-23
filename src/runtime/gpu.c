@@ -590,6 +590,14 @@ void gpu_write_gp0(uint32_t w)
         cmd_need = command_length(w);
         if ((w >> 24) == 0x00 || (w >> 24) == 0x01)
             return;
+        uint32_t op = w >> 24; /* a command no packet of the game's has (05-1E, E7-FF): a list gone wrong; the drawing's
+                                * state logged once (vplus/fixes.c) */
+        if (word_addr && ((op >= 0x05 && op <= 0x1E) || op >= 0xE7)) {
+            void vp_draw_report(uint32_t madr, const char *why);
+            char why[48];
+            snprintf(why, sizeof why, "an unknown drawing command %02X at %08X", op, word_addr);
+            vp_draw_report(gpu_ot_start, why);
+        }
     }
     cmd_addr[cmd_len] = word_addr;
     cmd[cmd_len++] = w;
@@ -664,6 +672,13 @@ static void gpu_dma_inner(uint32_t madr, uint32_t bcr, uint32_t chcr)
     uint32_t mode = (chcr >> 9) & 3;
     if (mode == 2) { /* linked list (ordering table) */
         gpu_ot_start = madr;
+        static long report_at = -2; /* tests: TM2PC_TEST_DRAW_REPORT=V, the drawing's report at VBlank V (its lines) */
+        if (report_at == -2) report_at = getenv("TM2PC_TEST_DRAW_REPORT") ? atol(getenv("TM2PC_TEST_DRAW_REPORT")) : -1;
+        if (report_at >= 0 && M.vblanks >= (uint64_t)report_at) {
+            void vp_draw_report(uint32_t madr, const char *why);
+            vp_draw_report(madr, "a test");
+            report_at = -1;
+        }
         int port_ot_is_world(uint32_t madr); /* vplus/port_config.c */
         gpu_ot_world = port_ot_is_world(madr);
         static int otlog = -1;
@@ -681,6 +696,8 @@ static void gpu_dma_inner(uint32_t madr, uint32_t bcr, uint32_t chcr)
             if (a == mark) {
                 static int told;
                 if (told++ < 8) fprintf(stderr, "gpu: the order table at %08X loops (node %08X): its walk ended\n", madr, 0x80000000u | a);
+                void vp_draw_report(uint32_t madr, const char *why); /* vplus/fixes.c: the drawing's state, once */
+                vp_draw_report(madr, "an order table loops");
                 break;
             }
             if (++steps == power) { mark = a; power <<= 1; steps = 0; }
