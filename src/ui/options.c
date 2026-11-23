@@ -882,7 +882,10 @@ static int get_analog_steer(int p) { return bind_analog_steer(p); }
 static int get_steer_keep(int p) { return bind_steer_keep(p); }
 static void set_steer_keep(int p, int v) { bind_set_steer_keep(p, v); changed |= SAVE_CONTROLS; }
 static void set_analog_steer(int p, int v) { bind_set_analog_steer(p, v); changed |= SAVE_CONTROLS; }
-static void set_jump_combo(int p, int v) { bind_set_jump_combo(p, v); changed |= SAVE_CONTROLS; }
+static void set_jump_combo(int p, int v) { bind_set_jump_combo(p, v); changed |= SAVE_CONTROLS; rebuild_page = 1; } /* (its safety row) */
+static const char *const jump_safety_values[] = {"OFF", "50 MS", "100 MS", "150 MS"};
+static int get_jump_safety(int p) { return bind_jump_safety(p); }
+static void set_jump_safety(int p, int v) { bind_set_jump_safety(p, v); changed |= SAVE_CONTROLS; }
 static int get_easy_energy(int p) { return bind_easy_energy(p); }
 static void set_easy_energy(int p, int v) { bind_set_easy_energy(p, v); changed |= SAVE_CONTROLS; }
 static const char *const draw_distance_values[] = {"ORIGINAL", "FAR", "FARTHEST"};
@@ -3143,7 +3146,13 @@ static int net_launch(void)
             for (int i = 0; s->first[n] != 0xFF && i < v->m[n].count && s->first[n] + i < SES_MAX_NODES; i++) {
                 int h = s->first[n] + i;
                 if (n == me) slots[h] = (int8_t)i;
-                else humans_set_table(h, v->m[n].p[i].table);
+                /* every player's table as the lobby has it, this machine's own too: the one every other machine plays
+                 * them with (built again here at the battle's start, the host's own came out as the bare layout on
+                 * Roof Tops and Cyburbia: a re-sync every 8 steps, Enough Boxes / Tegu 2026-11-23); none sent yet
+                 * (all zero): built here, vplus/humans.c */
+                int sent = 0;
+                for (int k = 0; k < 128 && !sent; k++) sent = v->m[n].p[i].table[k] != 0;
+                if (sent) humans_set_table(h, v->m[n].p[i].table);
             }
         humans_set_map(s->humans, slots);
     }
@@ -4973,6 +4982,13 @@ static void build(PageId page)
                    get_steer_keep, set_steer_keep, p, onoff_values, 2)->small = 1;
         add_choice("Jump on L1 + R1", "Press L1 and R1 together to jump, as well as with its button code.", get_jump_combo,
                    set_jump_combo, p, onoff_values, 2)->small = 1;
+        { /* (right under the jump, grayed while it is off: it is its safety) */
+            Row *js = add_choice("Jump-Weapon Switch Safety", "Holding or pressing L1 or R1 alone waits this long before switching weapons. "
+                                 "If the other is pressed in time, you jump instead.", get_jump_safety,
+                                 set_jump_safety, p, jump_safety_values, 4);
+            js->small = 1;
+            js->locked = !bind_jump_combo(p);
+        }
         add_choice("Easy Energy Attacks", "Up freeze, Down rear fire, Left mines, Right shield. Steer with the stick.",
                    get_easy_energy, set_easy_energy, p, onoff_values, 2)->small = 1;
         add_choice("Layout", "The game's button layout. Changing it resets this player's controller buttons.",
@@ -4984,7 +5000,8 @@ static void build(PageId page)
             Row *r = add_choice(bind_action_names[a], /* (Left / Right only turn the controller's: Da Toasty Mane, 2026-11-22) */
                                 p < 2 ? "Press X or Enter, then the new button or key. Left and Right change the controller button."
                                       : "Press X or Enter, then the new button. Left and Right change it too.",
-                                get_binding, set_binding, p * 16 + a, bind_button_names + 1, BIND_BUTTONS);
+                                get_binding, set_binding, p * 16 + a, bind_button_names + 1, BIND_BUTTONS_ALL); /* (L3, R3, the right
+                                                                                    * stick too: turned into the actions) */
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
@@ -4993,21 +5010,22 @@ static void build(PageId page)
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
         for (int i = 0; i < BIND_ENERGY; i++) {
-            Row *r = add_choice(bind_energy_names[i], "Only works with Easy Energy Attacks turned on (then the D-pad by default).",
+            Row *r = add_choice(bind_energy_names[i], "Only works with Easy Energy Attacks turned on.",
                                 get_energy_button, set_energy_button, p * 8 + i, bind_button_names, BIND_BUTTONS_ALL + 1);
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
             r->energy = 1;
         }
-        add(ROW_HEADER, "Music, voice and scores", NULL);
-        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT, BIND_SCOREBOARD}; /* previous song above next song (the user's) */
+        add(ROW_HEADER, "Music, voice and more", NULL);
+        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT, BIND_SCOREBOARD, BIND_QUIT}; /* previous song above next song (the user's) */
         for (int k = 0; k < BIND_EXTRAS; k++) {
             int i = extra_order[k];
             Row *r = add_choice(bind_extra_names[i], p && i == BIND_SCOREBOARD ? "Set on player 1's page. Works on every controller."
                                 : p ? "Player 1's controller and keyboard only."
                                 : i == BIND_SCOREBOARD ? "Hold it in a battle to see the scores. Works on every controller."
                                 : i == BIND_PTT ? "Online: hold it to talk (voice chat). No controller button by default."
+                                : i == BIND_QUIT ? "Asks to quit OpenTM2. Escape by default; no controller button by default."
                                                 : "Custom music on Random or In order. No controller button by default.",
                                 get_extra_button, set_extra_button, i, bind_button_names, BIND_TOUCHPAD + 1);
             r->tiny = 1;
@@ -8528,8 +8546,18 @@ static int run(PageId start)
                 capturing = -1;
             }
             touch_before = touch;
+            int input_pad_stick_any(void);   /* runtime/input.c: any controller's right stick (bit d: BIND_STICK + d) */
+            static int stick_before = 0xF;   /* (tilted when the capture started: not a press) */
+            int stick = script ? 0 : input_pad_stick_any(), stick_new = stick & ~stick_before;
+            stick_before = stick;
+            for (int d = 0; d < 4 && capturing >= 0; d++)
+                if (stick_new & (1 << d)) { /* the right stick flicked one way: that direction, as a button (Sage's) */
+                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_STICK + d : BIND_STICK + d - 1);
+                    key = 0;
+                    capturing = -1;
+                }
             for (unsigned k = 0; k < sizeof buttons / sizeof buttons[0]; k++)
-                if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS)) {
+                if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS_ALL)) {
                     cr->set(cr->arg, cr->extra || cr->energy ? buttons[k].button : buttons[k].button - 1);
                     key = 0;
                     capturing = -1;
@@ -9219,6 +9247,12 @@ static int run(PageId start)
                 snprintf(path, sizeof path, "%s/lobby_%d.bmp", getenv("TM2PC_NET_MENU_SHOT"), lobby_shot++ % 8);
                 image_save_bmp(&canvas, path);
             }
+            static int page_shot;
+            if (getenv("TM2PC_PAGE_SHOT")) { /* tests: any page's looks as it is drawn, as BMPs (the newest 8) */
+                char path[512];
+                snprintf(path, sizeof path, "%s/page_%d.bmp", getenv("TM2PC_PAGE_SHOT"), page_shot++ % 8);
+                image_save_bmp(&canvas, path);
+            }
             Psyz_VideoSetDisplayRGB24(canvas.px, canvas.w, canvas.h);
             dirty = 0;
         }
@@ -9245,6 +9279,9 @@ static int run(PageId start)
         profile_save(); /* player 1's controls are the profile's */
         profile_p2_save(); /* and player 2's, when signed in */
         fprintf(stderr, "options: saved profile %s\n", profile_name());
+        void humans_controls_changed(void); /* vplus/humans.c: the new buttons from the next step on (a battle: no restart,
+                                             * Tegu's 2026-11-23; online too: only this PC turns its buttons into actions) */
+        humans_controls_changed();
     }
     if (changed & SAVE_VIDEO)
         video_settings_changed();
@@ -16160,16 +16197,20 @@ static void battle_overlay_off(void)
  * closed the game at once). runtime/gpu_psyz.c opens it and asks each VBlank; the game goes on under it (online
  * too: nobody is held). Its own keys: Up / Down / Left / Right, Enter or Y (YES), Escape or N (NO); meanwhile the
  * keyboard is not the game's or the menus' (input_keys_off). NO is chosen first. */
-extern int input_keys_off; /* runtime/input.c */
+extern int input_keys_off, input_pads_off; /* runtime/input.c */
+uint16_t input_pad_buttons_raw(void);
 static int qp_open, qp_sel, qp_drawn;
 static bool qp_prev[SDL_SCANCODE_COUNT];
+static uint16_t qp_pad_prev; /* (the controllers too: D-pad / stick, Cross picks, Circle no; Tegu's, no keyboard) */
 void ui_quit_ask(void)
 {
     if (qp_open) return;
     const bool *k = SDL_GetKeyboardState(NULL);
     if (k) memcpy(qp_prev, k, sizeof qp_prev); /* (the Escape that opened it, still held, is not an answer) */
+    qp_pad_prev = input_pad_buttons_raw(); /* (the button that opened it, still held, is not an answer) */
     qp_open = 1, qp_sel = 1, qp_drawn = 0;
     input_keys_off = 1;
+    input_pads_off = 1;
     menu_sound(1);
     fprintf(stderr, "escape: asking to quit\n");
 }
@@ -16177,6 +16218,7 @@ static void qp_close(void)
 {
     qp_open = 0;
     input_keys_off = 0;
+    input_pads_off = 0;
     battle_overlay_off(); /* (the battle's overlay drawn again by scoreboard_frame) */
 }
 int ui_quit_frame(void) /* 1: quit now */
@@ -16190,6 +16232,11 @@ int ui_quit_frame(void) /* 1: quit now */
     int move = QP_HIT(SDL_SCANCODE_UP) || QP_HIT(SDL_SCANCODE_DOWN) || QP_HIT(SDL_SCANCODE_LEFT) || QP_HIT(SDL_SCANCODE_RIGHT);
 #undef QP_HIT
     memcpy(qp_prev, k, sizeof qp_prev);
+    uint16_t pad = input_pad_buttons_raw(), pad_hit = (uint16_t)(pad & ~qp_pad_prev);
+    qp_pad_prev = pad;
+    if (pad_hit & (B_UP | B_DOWN | B_LEFT | B_RIGHT)) move = 1;
+    if (pad_hit & B_CROSS) pick = 1;
+    if (pad_hit & B_CIRCLE) no = 1;
     if (move) { qp_sel = !qp_sel; qp_drawn = 0; menu_sound(0); }
     if (yes || (pick && qp_sel == 0)) {
         fprintf(stderr, "escape: quit\n");
@@ -16669,16 +16716,20 @@ void ui_net_wait_notice(const char *title, const char *line)
     }
     View v = view_fit(&canvas);
     int ts = S(&v, 18), ls = S(&v, 11), bw = S(&v, 300), bh = S(&v, 64);
+    plain_text(); /* (the line's font, measured) */
+    if (line && line[0] && text_width(line, ls) + S(&v, 24) > bw) bw = text_width(line, ls) + S(&v, 24); /* (a long name in it) */
     draw_fill(&canvas, X(&v, 320) - bw / 2, Y(&v, 240) - bh / 2, bw, bh, black, 200);
     lettering();
     text_draw(&canvas, title, X(&v, 320) - text_width(title, ts) / 2, text_top_for_center(Y(&v, 226), ts), ts, TITLE);
     plain_text();
     if (line && line[0]) text_draw(&canvas, line, X(&v, 320) - text_width(line, ls) / 2, text_top_for_center(Y(&v, 254), ls), ls, TITLE);
     Psyz_VideoSetDisplayRGB24(canvas.px, canvas.w, canvas.h);
-    static char shot_title[32]; /* (tests: TM2PC_NET_NOTICE_SHOT, each notice's first frame as a BMP there) */
-    if (getenv("TM2PC_NET_NOTICE_SHOT") && strcmp(shot_title, title)) {
+    static char shot_title[32], shot_line[96]; /* (tests: TM2PC_NET_NOTICE_SHOT, each notice's first frame as a BMP
+                                                * there; again when its line changes, the same file) */
+    if (getenv("TM2PC_NET_NOTICE_SHOT") && (strcmp(shot_title, title) || strcmp(shot_line, line ? line : ""))) {
         char path[512];
         snprintf(shot_title, sizeof shot_title, "%s", title);
+        snprintf(shot_line, sizeof shot_line, "%s", line ? line : "");
         char tag[24];
         int t = 0;
         for (const char *q = title; *q && t < 23; q++) if ((*q >= 'A' && *q <= 'Z') || (*q >= '0' && *q <= '9')) tag[t++] = *q;

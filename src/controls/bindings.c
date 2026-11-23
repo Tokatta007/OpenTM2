@@ -64,22 +64,23 @@ const char *const bind_action_names[BIND_ACTIONS] = {
 
 const char *const bind_button_names[BIND_TOUCHPAD + 1] = {
     "-", "SELECT", "START", "L1", "L2", "UP", "DOWN", "LEFT", "RIGHT",
-    "R1", "R2", "TRIANGLE", "CROSS", "SQUARE", "CIRCLE", "L3", "R3", "TOUCHPAD",
+    "R1", "R2", "TRIANGLE", "CROSS", "SQUARE", "CIRCLE", "L3", "R3", "RS UP", "RS DOWN", "RS LEFT", "RS RIGHT", "TOUCHPAD",
 };
 const char *const bind_button_names_xbox[BIND_TOUCHPAD + 1] = {
     "-", "VIEW", "MENU", "LB", "LT", "UP", "DOWN", "LEFT", "RIGHT",
-    "RB", "RT", "Y", "A", "X", "B", "LS", "RS", "SHARE",
+    "RB", "RT", "Y", "A", "X", "B", "LS", "RS", "RS UP", "RS DOWN", "RS LEFT", "RS RIGHT", "SHARE",
 };
 static const char *const button_keys[BIND_TOUCHPAD + 1] = {
     "default", "select", "start", "l1", "l2", "up", "down", "left", "right",
-    "r1", "r2", "triangle", "cross", "square", "circle", "l3", "r3", "touchpad",
+    "r1", "r2", "triangle", "cross", "square", "circle", "l3", "r3", "rs_up", "rs_down", "rs_left", "rs_right", "touchpad",
 };
 
-const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk", "Scoreboard"};
-static const char *const extra_keys[BIND_EXTRAS] = {"next_song", "previous_song", "push_to_talk", "scoreboard"}; /* (their ini names) */
-static int extra_button[BIND_EXTRAS] = {0, 0, 0, BIND_TOUCHPAD}; /* the songs and talking: none by default (not by
+const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk", "Scoreboard", "Quit game"};
+static const char *const extra_keys[BIND_EXTRAS] = {"next_song", "previous_song", "push_to_talk", "scoreboard", "quit_game"}; /* (their ini names) */
+static int extra_button[BIND_EXTRAS] = {0, 0, 0, BIND_TOUCHPAD, 0}; /* the songs and talking: none by default (not by
                                                                   * accident); the scoreboard: the touchpad (the user's) */
-static int extra_key[BIND_EXTRAS] = {SDL_SCANCODE_PAGEDOWN, SDL_SCANCODE_PAGEUP, SDL_SCANCODE_V, SDL_SCANCODE_TAB};
+static int extra_key[BIND_EXTRAS] = {SDL_SCANCODE_PAGEDOWN, SDL_SCANCODE_PAGEUP, SDL_SCANCODE_V, SDL_SCANCODE_TAB,
+                                       SDL_SCANCODE_ESCAPE};
 static int is_extra_key(const char *key) /* an extra control's ini name (or its _key): player 1's, unprefixed */
 {
     for (int i = 0; i < BIND_EXTRAS; i++) {
@@ -88,9 +89,9 @@ static int is_extra_key(const char *key) /* an extra control's ini name (or its 
     }
     return 0;
 }
-const char *const bind_energy_names[BIND_ENERGY] = {"Freeze", "Rear fire", "Mines", "Shield", "Invisibility"};
+const char *const bind_energy_names[BIND_ENERGY] = {"Freeze", "Rear fire", "Mines", "Shield", "Invisibility", "Jump"};
 static const char *const energy_keys[BIND_ENERGY] = {"energy_freeze", "energy_rear_fire", "energy_mines", "energy_shield",
-                                                     "energy_invisibility"}; /* (their ini names, after pN_) */
+                                                     "energy_invisibility", "energy_jump"}; /* (their ini names, after pN_) */
 static int energy_button[4][BIND_ENERGY];        /* none by default: the D-pad has the first four */
 static int energy_key[2][BIND_ENERGY];
 static int pad_type[4];                          /* 0 auto, 1 PlayStation, 2 Xbox */
@@ -105,6 +106,12 @@ void bind_set_analog_steer(int player, int on) { if (player >= 0 && player <= 3)
 int bind_steer_keep(int player) { return player >= 0 && player <= 3 && steer_keep[player]; }
 void bind_set_steer_keep(int player, int on) { if (player >= 0 && player <= 3) steer_keep[player] = on != 0; }
 int bind_jump_combo(int player) { return player >= 0 && player <= 3 && jump_combo[player]; }
+/* with L1 + R1 jump: a lone shoulder's weapon switch waits this many game steps (0 off, 1-3: 50, 100, 150 ms) for the
+ * other shoulder (then a jump, no switch) */
+static int jump_safety[4] = {1, 1, 1, 1};
+static const char *const jump_safety_keys[4] = {"off", "50", "100", "150"};
+int bind_jump_safety(int player) { return player >= 0 && player <= 3 ? jump_safety[player] : 0; }
+void bind_set_jump_safety(int player, int v) { if (player >= 0 && player <= 3 && v >= 0 && v <= 3) jump_safety[player] = v; }
 void bind_set_jump_combo(int player, int on) { if (player >= 0 && player <= 3) jump_combo[player] = on != 0; }
 int bind_easy_energy(int player) { return player >= 0 && player <= 3 && easy_energy[player]; }
 void bind_set_easy_energy(int player, int on) { if (player >= 0 && player <= 3) easy_energy[player] = on != 0; }
@@ -259,6 +266,10 @@ int bind_ini_key(const char *key, const char *val)
     if ((key[0] == 'p') && key[1] >= '1' && key[1] <= '4' && key[2] == '_') {
         int p = key[1] - '1', on = !strcmp(val, "yes") || !strcmp(val, "on") || !strcmp(val, "1");
         if (!strcmp(key + 3, "jump_l1_r1")) { jump_combo[p] = on; return 1; }
+        if (!strcmp(key + 3, "jump_safety")) { /* off, 50, 100, 150 (ms) */
+            for (int v = 0; v < 4; v++) if (!strcmp(val, jump_safety_keys[v])) jump_safety[p] = v;
+            return 1;
+        }
         if (!strcmp(key + 3, "energy_dpad")) { easy_energy[p] = on; return 1; }
         if (!strcmp(key + 3, "analog_steering")) { analog_steer[p] = on; return 1; }
         if (!strcmp(key + 3, "no_backwards_steering")) { steer_keep[p] = on; return 1; }
@@ -305,7 +316,7 @@ int bind_ini_key(const char *key, const char *val)
         size_t n = strlen(actions[a].key);
         if (strncmp(key + 3, actions[a].key, n)) continue;
         if (!key[3 + n]) {
-            for (int b = 0; b <= BIND_BUTTONS; b++)
+            for (int b = 0; b <= BIND_BUTTONS_ALL; b++) /* (L3, R3 and the right stick too) */
                 if (!strcmp(val, button_keys[b])) chosen[p][a] = (unsigned char)b;
             return 1;
         }
@@ -353,6 +364,8 @@ void bind_ini_write(FILE *f)
             easy_energy[1] ? "yes" : "no", analog_steer[1] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "p2_no_backwards_steering = %s\n", steer_keep[1] ? "yes" : "no");
+    fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
+               "p2_jump_safety = %s\n", jump_safety_keys[jump_safety[1]]);
 }
 
 /* ---- player 1's, in the profile ---- */
@@ -367,15 +380,18 @@ void bind_player1_defaults(void)
     }
     extra_button[0] = extra_button[1] = extra_button[BIND_PTT] = 0;
     extra_button[BIND_SCOREBOARD] = BIND_TOUCHPAD;
+    extra_button[BIND_QUIT] = 0;
     memset(energy_button[0], 0, sizeof energy_button[0]);
     memset(energy_key[0], 0, sizeof energy_key[0]);
     jump_combo[0] = easy_energy[0] = 0;
+    jump_safety[0] = 1;
     analog_steer[0] = 1;
     steer_keep[0] = 1;
     extra_key[0] = SDL_SCANCODE_PAGEDOWN;
     extra_key[1] = SDL_SCANCODE_PAGEUP;
     extra_key[BIND_PTT] = SDL_SCANCODE_V;
     extra_key[BIND_SCOREBOARD] = SDL_SCANCODE_TAB;
+    extra_key[BIND_QUIT] = SDL_SCANCODE_ESCAPE;
     settings_game.keypad[0] = 0;
 }
 
@@ -389,6 +405,7 @@ void bind_player2_defaults(void)
     memset(energy_key[1], 0, sizeof energy_key[1]);
     settings_game.keypad[1] = 0;
     jump_combo[1] = easy_energy[1] = 0;
+    jump_safety[1] = 1;
     analog_steer[1] = 1;
     steer_keep[1] = 1;
 }
@@ -408,6 +425,8 @@ void bind_profile_write_p2(FILE *f)
             easy_energy[1] ? "yes" : "no", analog_steer[1] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "no_backwards_steering = %s\n", steer_keep[1] ? "yes" : "no");
+    fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
+               "jump_safety = %s\n", jump_safety_keys[jump_safety[1]]);
 }
 
 int bind_profile_key_p2(const char *key, const char *val)
@@ -434,6 +453,7 @@ void bind_player_defaults(int p)
     memset(energy_button[p], 0, sizeof energy_button[p]);
     keypad34[p - 2] = 0;
     jump_combo[p] = easy_energy[p] = 0;
+    jump_safety[p] = 1;
     analog_steer[p] = 1;
     steer_keep[p] = 1;
 }
@@ -487,6 +507,8 @@ void bind_profile_write(FILE *f)
             easy_energy[0] ? "yes" : "no", analog_steer[0] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "no_backwards_steering = %s\n", steer_keep[0] ? "yes" : "no");
+    fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
+               "jump_safety = %s\n", jump_safety_keys[jump_safety[0]]);
 }
 
 /* sub_801206F4(layout, port), wrapped: the player's own buttons on top. */
@@ -497,7 +519,7 @@ void bind_LayoutApply(CPU *c)
 {
     uint32_t port = c->r[5];
     F_801206F4_orig(c);
-    if (port > 1)
+    if (port > 1 || apply_as == BIND_APPLY_BARE) /* (the bare layout: vplus/humans.c's shared table, no one's own buttons) */
         return;
     int who = apply_as >= 0 && apply_as <= 3 ? apply_as : (int)port;
     /* every action the player chose, and the weapon cycling's two always: the port's defaults are not the game's */

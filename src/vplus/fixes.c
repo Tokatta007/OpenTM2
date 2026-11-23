@@ -3812,7 +3812,7 @@ void vp_PickupRespawnTick(CPU *c)
 /* ---- Controls: jump on L1 + R1, energy attacks on the D-pad ----
  * carReadMoveCodes (800DECA8, decomp car_input.c) turns a human's D-pad
  * presses into the energy attacks: a move code sets the record's special
- * (+0x7D4: 100 freeze, 101 mines, 103 shield, 104 jump) and +0xEC to fire it
+ * (+0x7D4: 100 freeze, 101 mines, 102 napalm, 103 shield, 104 jump, 105 invisibility) and +0xEC to fire it
  * (the rear fire: +0x7CD and +0xEA). Here, after it, a player's shortcut
  * does the same: L1 and R1 together jump; with energy attacks on the D-pad,
  * Up freezes, Down fires behind, Left drops mines, Right shields (the energy
@@ -3820,6 +3820,13 @@ void vp_PickupRespawnTick(CPU *c)
 #include "controls/bindings.h"
 void F_800DECA8_orig(CPU *c);
 static uint16_t prev_easy[16], prev_pad[16]; /* (the energy attacks: a press is a change; by human) */
+/* L1 + R1 jump and the weapon switch on the same shoulders: the game switches the moment one of them goes down
+ * (weaponHumanCycleInput: then nothing more until both are up), so a jump's first shoulder switched the weapon
+ * (Brimstone's report, 2026-11-23). The player's Jump-Weapon Switch Safety (Controls; 0 off, 1-3 game steps of 50 ms,
+ * sent in their input: every machine the same): a lone shoulder's switch waits that many steps; the other shoulder in
+ * time is a jump and nothing switches; let go sooner, the switch then (a tap). Both held: never a switch */
+static int8_t jump_wait_dir[16];  /* (the waiting switch: 1 the 0x21 request (+0xE7), 2 the 0x20 (+0xE8); 0 none) */
+static int32_t jump_wait_at[16];
 uint16_t input_player_bits(int p); /* runtime/input.c: players 3-4's buttons (set = held) */
 void vp_MoveCodes(CPU *c)
 {
@@ -3852,7 +3859,9 @@ void vp_MoveCodes(CPU *c)
     int p = who;
     if (p < 0 || p > (on ? 15 : 3)) return;
     uint16_t easy = on ? humans_easy(p) : (uint16_t)killcam_input(2, p, input_easy_buttons(p)), pressed = (uint16_t)(easy & ~prev_easy[p]);
-    uint16_t pad = on ? humans_held(p) : p < 2 ? (uint16_t)~M.pad_buttons[p] : (uint16_t)killcam_input(0, p, input_player_bits(p)),
+    /* (the controller's own Select, L1 and R1: the jump and Select's buttons, whatever actions the player gave them; the
+     * input word has each action's Standard button, vplus/humans.c) */
+    uint16_t pad = on ? (uint16_t)((easy & EASY_SELECT ? 0x0001 : 0) | (easy & EASY_L1 ? 0x0400 : 0) | (easy & EASY_R1 ? 0x0800 : 0)) : p < 2 ? (uint16_t)~M.pad_buttons[p] : (uint16_t)killcam_input(0, p, input_player_bits(p)),
              new_pad = (uint16_t)(pad & ~prev_pad[p]); /* set = held */
     int killcam_battle_frame(void); /* vplus/killcam.c */
     if (rf < 6 && !getenv("TM2PC_NO_START_GUARD")) pressed = 0, new_pad = 0; /* a battle's first frames: buttons held from before (the
@@ -3862,11 +3871,48 @@ void vp_MoveCodes(CPU *c)
     prev_pad[p] = pad;
     int special = 0;
     if (pad & 0x0001) pressed = 0; /* Select held: the D-pad is Select's (HUD style, mirror, list), not energy */
-    if ((on ? easy & 1 : bind_jump_combo(p)) && (pad & 0x0400) && (pad & 0x0800) && (new_pad & 0x0C00)) special = 104; /* L1 + R1 */
+    int jump_on = on ? easy & 1 : bind_jump_combo(p), l1 = (pad & 0x0400) != 0, r1 = (pad & 0x0800) != 0;
+    static int move_debug = -1; /* (tests: TM2PC_MOVE_DEBUG: the waits, and the selected weapon's changes) */
+    if (move_debug < 0) move_debug = getenv("TM2PC_MOVE_DEBUG") != NULL;
+    int wait = on ? (easy >> 2) & 3 : bind_jump_safety(p);
+    if (jump_on && l1 && r1) { /* (both held: no weapon switch; one waiting, dropped: a jump) */
+        if (jump_wait_dir[p] && move_debug) fprintf(stderr, "controls: player %d jump: the waiting weapon switch dropped\n", p + 1);
+        jump_wait_dir[p] = 0;
+        mem_w8(c, rec + 0xE7, 0);
+        mem_w8(c, rec + 0xE8, 0);
+        mem_w8(c, rec + 0xE9, 0); /* (the switch's latch: again once both are up) */
+    } else if (jump_on && wait && jump_wait_dir[p]) { /* a lone shoulder's switch waiting */
+        if ((l1 || r1) && rf - jump_wait_at[p] < wait) { /* (still held, still in time: not yet) */
+            mem_w8(c, rec + 0xE7, 0);
+            mem_w8(c, rec + 0xE8, 0);
+        } else { /* (time up, or let go: the switch now, the latch armed all along) */
+            mem_w8(c, rec + 0xE7, jump_wait_dir[p] == 1);
+            mem_w8(c, rec + 0xE8, jump_wait_dir[p] == 2);
+            if (move_debug) fprintf(stderr, "controls: player %d weapon switch after %d steps\n", p + 1, (int)(rf - jump_wait_at[p]));
+            jump_wait_dir[p] = 0;
+        }
+    } else if (jump_on && wait && (l1 ^ r1) && (new_pad & 0x0C00) && mem_r8(c, rec + 0xE9) &&
+               (mem_r8(c, rec + 0xE7) || mem_r8(c, rec + 0xE8))) { /* a lone shoulder's switch: waits */
+        jump_wait_dir[p] = mem_r8(c, rec + 0xE7) ? 1 : 2;
+        jump_wait_at[p] = rf;
+        mem_w8(c, rec + 0xE7, 0);
+        mem_w8(c, rec + 0xE8, 0);
+        if (move_debug) fprintf(stderr, "controls: player %d weapon switch waits (%d steps)\n", p + 1, wait);
+    } else jump_wait_dir[p] = 0;
+    if (move_debug) {
+        static int8_t seen_sel[16];
+        int8_t sel = (int8_t)mem_r8(c, rec + 0x7D5);
+        if (sel != seen_sel[p]) fprintf(stderr, "controls: player %d weapon %d (frame %d)\n", p + 1, sel, rf);
+        seen_sel[p] = sel;
+    }
+    if (jump_on && l1 && r1 && (new_pad & 0x0C00)) special = 104; /* L1 + R1 */
     else if (pressed & 0x0010) special = 100; /* Up: freeze */
     else if (pressed & 0x0080) special = 101; /* Left: mines */
     else if (pressed & 0x0020) special = 103; /* Right: shield */
-    else if (pressed & 0x0100) special = 102; /* its own button (Controls): invisibility */
+    else if (pressed & 0x1000) special = 104; /* its own button (Controls, none by default): jump */
+    else if (pressed & 0x0100) special = 105; /* its own button (Controls): invisibility (the code Right, Down, Left, Up:
+                                               * 105; 102 is Right, Left, Up, the energy napalm: Phoenix's "invisibility
+                                               * key fires napalm", 2026-11-23) */
     else if (pressed & 0x0040) { /* Down: fire behind (the move code 3-4-2) */
         mem_w8(c, rec + 0x7CD, 1);
         mem_w8(c, rec + 0xEA, 1);
@@ -6317,6 +6363,7 @@ void vp_keep_register(void)
     KEEP(pickup_step); KEEP(pickup_taken_step);
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */
     KEEP(human_gone); KEEP(gone_left); KEEP(handed); KEEP(ai_team_plus1); KEEP(back_wait); KEEP(dropped_bot); /* (online: who left, who may come back) */
+    KEEP(jump_wait_dir); KEEP(jump_wait_at); /* (L1 + R1 jump: a lone shoulder's weapon switch waiting) */
 #undef KEEP
 }
 
@@ -6457,8 +6504,42 @@ static void hud_snap_out(int n)
     memcpy(hud_players, hud_live_set, sizeof hud_live_set);
     for (int k = 0; k < 8; k++) mem_w8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k, hud_live_vis[k]);
 }
+/* The weapon the HUD shows when the selected one is used up: the game moves on to the next one only once the shot's
+ * cooldown is over (weaponFireSelected: weaponCycleSelection(-1) then), so for that moment every style showed no
+ * weapon at all, as if none were left; the TM2 list showed them all (Brimstone's report, 2026-11-23). Here, for the
+ * HUD's drawing only, an empty selection reads as the one the game will pick (its own rule: the slots after it in
+ * turn, wrapping, the first with ammo); the record's byte back right after (the step, firing's timing untouched) */
+static int8_t hud_sel_was[CARS_HUMANS_MAX];
+static int hud_sel_n;
+static void hud_next_weapon_in(void)
+{
+    int n = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    hud_sel_n = n < 0 ? 0 : n > CARS_HUMANS_MAX ? CARS_HUMANS_MAX : n;
+    for (int h = 0; h < hud_sel_n; h++) {
+        uint32_t rec = HUMAN_REC(h);
+        int8_t s = (int8_t)mem_r8(&M.cpu, rec + 0x7D5);
+        hud_sel_was[h] = s;
+        if (s >= 0 && s < 8 && (int16_t)mem_r16(&M.cpu, rec + 0x7D6 + 2u * (uint32_t)s) > 0) continue; /* (one with ammo) */
+        int at = s >= 0 && s < 8 ? s : 0, start = at;
+        do at = (at + 1) % 8;
+        while (at != start && (int16_t)mem_r16(&M.cpu, rec + 0x7D6 + 2u * (uint32_t)at) <= 0);
+        if ((int16_t)mem_r16(&M.cpu, rec + 0x7D6 + 2u * (uint32_t)at) > 0) {
+            mem_w8(&M.cpu, rec + 0x7D5, (uint8_t)at);
+            static int debug = -1; /* (tests: TM2PC_MOVE_DEBUG) */
+            if (debug < 0) debug = getenv("TM2PC_MOVE_DEBUG") != NULL;
+            if (debug) fprintf(stderr, "hud: human %d's weapon %d used up: weapon %d shown (frame %d, VBlank %llu)\n", h + 1, s, at, vp_round_frames(),
+                           (unsigned long long)M.vblanks);
+        }
+    }
+}
+static void hud_next_weapon_out(void)
+{
+    for (int h = 0; h < hud_sel_n; h++) mem_w8(&M.cpu, HUMAN_REC(h) + 0x7D5, (uint8_t)hud_sel_was[h]);
+    hud_sel_n = 0;
+}
 static int hud_snap_depth; /* (one swap, the outermost: a HUD drawer calling another must not take the snapshot as live) */
-#define HUD_SNAPPED(body) { int n = hud_snap_depth++ ? 0 : hud_snap_in(); body(c); hud_snap_out(n); hud_snap_depth--; }
+#define HUD_SNAPPED(body) { int outer = !hud_snap_depth++, n = outer ? hud_snap_in() : 0; if (outer) hud_next_weapon_in(); \
+                            body(c); if (outer) hud_next_weapon_out(); hud_snap_out(n); hud_snap_depth--; }
 void vp_HudDraw(CPU *c) HUD_SNAPPED(vp_HudDraw_body)
 void vp_HudDrawSplitVertical(CPU *c) HUD_SNAPPED(vp_HudDrawSplitVertical_body)
 void vp_HudDrawSplitHorizontal(CPU *c) HUD_SNAPPED(vp_HudDrawSplitHorizontal_body)

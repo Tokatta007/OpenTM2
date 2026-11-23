@@ -184,7 +184,7 @@ if(WIN32)
     target_link_libraries(tm2pc PRIVATE ws2_32 winhttp) # net/net_udp.c; runtime/update.c
 endif()
 # The version (runtime/update.c compares it with the newest release's tag); the updater's zips (miniz, MIT, 3.0.2)
-set(TM2PC_VERSION "v1.0.12")
+set(TM2PC_VERSION "v1.0.13")
 target_compile_definitions(tm2pc PRIVATE TM2PC_VERSION="${TM2PC_VERSION}")
 target_include_directories(tm2pc PRIVATE third_party/miniz)
 set_source_files_properties(third_party/miniz/miniz.c PROPERTIES COMPILE_OPTIONS "-w")

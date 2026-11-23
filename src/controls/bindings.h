@@ -4,12 +4,14 @@
 
 #define BIND_ACTIONS 12
 #define BIND_BUTTONS 14   /* the game's button numbers 1..14 */
-#define BIND_BUTTONS_ALL 16 /* and L3 (15), R3 (16): only for the song keys, the game has no use for them */
-#define BIND_TOUCHPAD 17    /* the touchpad (PS4/PS5; Share on other pads): only for the extra controls (not a PS1 button) */
+#define BIND_STICK 17       /* the right stick's Up, Down, Left, Right (17..20): any action's, as a button (Sage's, 2026-11-23) */
+#define BIND_BUTTONS_ALL 20 /* and L3 (15), R3 (16), the right stick (17-20): the game has no such buttons; a player's own
+                             * machine turns them into the actions' Standard buttons (vplus/humans.c) */
+#define BIND_TOUCHPAD 21    /* the touchpad (PS4/PS5; Share on other pads): only for the extra controls (not a PS1 button) */
 
 /* The rebindable actions, in the order the Controls page lists them. */
 extern const char *const bind_action_names[BIND_ACTIONS];
-extern const char *const bind_button_names[BIND_TOUCHPAD + 1];      /* [1..17]: PlayStation */
+extern const char *const bind_button_names[BIND_TOUCHPAD + 1];      /* [1..21]: PlayStation */
 extern const char *const bind_button_names_xbox[BIND_TOUCHPAD + 1]; /* the same buttons on an Xbox pad */
 
 /* The button (1..14) an action has in one of the game's four layouts. */
@@ -39,7 +41,8 @@ const char *bind_key_name(int scancode); /* for the Controls page */
 #define BIND_SONGS 2   /* the extra controls: next and previous song (custom music), */
 #define BIND_PTT 2     /* push to talk (online voice chat, held) */
 #define BIND_SCOREBOARD 3 /* the scoreboard in a battle (held): the touchpad and Tab by default, on any controller */
-#define BIND_EXTRAS 4
+#define BIND_QUIT 4    /* "QUIT OPENTM2?" (runtime/gpu_psyz.c): Escape by default, no controller button (Tegu's, 2026-11-23) */
+#define BIND_EXTRAS 5
 extern const char *const bind_extra_names[BIND_EXTRAS];
 int bind_extra_button(int i);
 void bind_set_extra_button(int i, int button);
@@ -48,7 +51,7 @@ void bind_set_extra_key(int i, int scancode);
 
 /* Each player's energy attacks on buttons of their own (the user's, 2026-10-28): a controller button (1..16, 0
  * none) and, for players 1-2, a key; they work with "Easy Energy Attacks" on (input_easy_buttons). */
-#define BIND_ENERGY 5   /* freeze, rear fire, mines, shield, invisibility */
+#define BIND_ENERGY 6   /* freeze, rear fire, mines, shield, invisibility, jump (none by default: L1 + R1 or its code) */
 extern const char *const bind_energy_names[BIND_ENERGY];
 int bind_energy_button(int player, int i);
 void bind_set_energy_button(int player, int i, int button);
@@ -64,6 +67,8 @@ void bind_set_pad_type(int player, int type);
  * fire, Left mines, Right shield; steering then on the stick only). */
 int bind_jump_combo(int player);
 void bind_set_jump_combo(int player, int on);
+int bind_jump_safety(int player);            /* L1 + R1 jump's weapon switch wait: 0 off, 1-3 steps (50-150 ms) */
+void bind_set_jump_safety(int player, int v);
 int bind_easy_energy(int player);
 int bind_analog_steer(int player);   /* the stick turns as far as it is tilted (on by default) */
 void bind_set_analog_steer(int player, int on);
@@ -86,6 +91,7 @@ void bind_player2_defaults(void);
 void bind_player_defaults(int p);                           /* players 3-4 (p 2-3) */
 int bind_profile_key_p(int p, const char *key, const char *val);
 int bind_layout(int player);                                /* the keypad layout 0-3 */
+enum { BIND_APPLY_BARE = 9 };                              /* bind_apply_as: the layout alone (no one's own buttons) */
 void bind_apply_as(int player);                             /* -1, or a player's buttons in the next layout apply */
 int bind_profile_key_p2(const char *key, const char *val);
 void bind_profile_write_p2(FILE *f);

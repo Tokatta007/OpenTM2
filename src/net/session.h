@@ -19,7 +19,10 @@ enum {
                                 * see WAITING FOR PLAYERS from 0.7 s: the user's, 2026-11-05) */
     SES_AWAIT_MS = 20000,      /* (a machine waiting for the host's state: the host silent this long has left; before
                                 * the host takes a joining machine in, it says nothing, the more so through the relay) */
-    SES_MIGRATE_MS = 400,      /* a new host gathers the inputs this long before going on */
+    SES_LOAD_MS = 40000,       /* (host) a player's machine with no step run this long after the host's battle began never
+                                * came in: it has left (its game stopped loading; the others otherwise wait on it for
+                                * good). Under the game's minute (game_tm2.c: a wait that long, the match alone) */
+    SES_MIGRATE_MS = 400,     /* a new host gathers the inputs this long before going on */
 };
 
 typedef struct {
@@ -131,7 +134,9 @@ typedef struct {
 void ses_on_events(Session *s, const SesEvents *ev);
 /* what a machine is doing while it does not step (sent with the inputs; the host passes everyone's on), so a wait can
  * say why: SES_AWAY_NONE stepping, SES_AWAY_REPLAY a kill cam's replay, SES_AWAY_BETWEEN its results, a load */
-enum { SES_AWAY_NONE, SES_AWAY_REPLAY, SES_AWAY_BETWEEN };
+enum { SES_AWAY_NONE, SES_AWAY_REPLAY, SES_AWAY_BETWEEN, SES_AWAY_RESYNC }; /* (RESYNC: the host, holding the match while
+                                                                            * a machine takes its state again) */
+int ses_resync_node(const Session *s); /* (host) a machine the match is held for, its state on the way again; -1 none */
 void ses_set_away(Session *s, int away);
 int ses_away(const Session *s, int node);
 void ses_chat(Session *s, const char *text);

@@ -102,6 +102,23 @@ symbols (drawn: green triangle, red circle, blue cross, pink square), also in th
 or for an Xbox controller as its letters in their colors (A green, B red, X blue, Y
 yellow) and LB, RB, LT, RT, VIEW, MENU, LS, RS.
 
+**What reaches the game** (`src/vplus/humans.c`): every human plays with one button table, the Standard layout's
+alone, on every machine. A player's own layout, buttons and keys are used only on their own PC, to turn the buttons
+they hold into the ones Standard has for the same actions (the actions the car reads only). Online, then, no player's
+table travels and none can differ between machines, and a change in Controls applies from the next step, mid-battle and
+online too. Because of that an action may also have L3, R3 or a direction of the right stick (RS UP, RS DOWN, RS LEFT,
+RS RIGHT: flick the stick when Controls asks for a button). The controller's own Select, L1 and R1 go with the input
+separately: L1 + R1's jump and Select's buttons are those, whatever actions they have.
+
+**Jump on L1 + R1** has **Jump-Weapon Switch Safety** under it (gray while the jump is off): Off, 50, 100 or 150 ms
+(`jump_safety`), how long a lone L1 or R1 waits before switching weapons; the other shoulder in time makes it a jump and
+nothing switches, and a tap let go sooner switches then. The game switches the moment one shoulder goes down, so without
+it a jump's first shoulder switched the weapon. **Energy attacks** has a **Jump** row too (none by default).
+
+**Quit game** (with the song keys): Escape by default, and no controller button unless one is set; it opens "QUIT
+OPENTM2?", which takes the keyboard (Y / N, the arrows, Enter) or any controller (the D-pad, Cross picks, Circle is
+No); while it is open the game gets no keys or buttons.
+
 **Custom music** (`music.c`): In order plays the folder's files in name order, one per
 track start, with one position shared by every track set to it, so songs follow on from
 arena to arena. Page Down / Page Up play the next or previous song on a track set to
