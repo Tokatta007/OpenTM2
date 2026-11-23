@@ -800,14 +800,49 @@ void rbs_diff_end(int step)
         }
         o += hspan[i].n;
     }
-    int lines = 0;
-    for (unsigned r = 0; r < rc_rb_hash_count && lines < 40; r++) {
-        if (!row_n[r]) continue;
-        dif_name(row_first[r], name, sizeof name);
-        fprintf(stderr, "network:   %08X (%u bytes): %d words, the first %s (%08X) this machine %08x, the host %08x\n",
-                rc_rb_hash[r].addr, rc_rb_hash[r].size, row_n[r], name, row_first[r], row_mine[r], row_host[r]);
-        lines++;
+    /* by the nearest named variable (the port's symbols; a car record by car; else the hash row), the smallest groups
+     * first: where it began is usually a word or two, what it spread to the big ones */
+    enum { GROUPS = 512 };
+    static struct { uint32_t key, first, mine, host; int n; } g[GROUPS];
+    int ng = 0;
+    o = 0;
+    for (int i = 0; i < hspan_n && o + hspan[i].n <= dif_len; i++) {
+        const uint8_t *b = mem_direct(&M.cpu, hspan[i].a, (int)hspan[i].n);
+        for (uint32_t k = 0; k < hspan[i].n; k += 4) {
+            uint32_t a = hspan[i].a + k, mine, host;
+            memcpy(&mine, dif_mine + o + k, 4), memcpy(&host, b + k, 4);
+            if (a >= hum_lo && a < hum_hi) {
+                uint32_t off = (a - hum_lo) % HUMAN_REC_SIZE;
+                mine = human_rec_state_word(off, mine), host = human_rec_state_word(off, host);
+            }
+            if (mine == host) continue;
+            uint32_t key;
+            if (a >= hum_lo && a < hum_hi) key = hum_lo + (a - hum_lo) / HUMAN_REC_SIZE * HUMAN_REC_SIZE;
+            else if (a >= ai0 && a < ai1) key = ai0 + (a - ai0) / AI_REC_SIZE * AI_REC_SIZE;
+            else {
+                key = 0;
+                for (unsigned s = 0; s < rc_port_symbol_count; s++)
+                    if (rc_port_symbols[s].name && rc_port_symbols[s].addr <= a && rc_port_symbols[s].addr > key) key = rc_port_symbols[s].addr;
+                if (!key || a - key >= 0x10000u) key = a & ~0xFFFu;
+            }
+            int j = 0;
+            while (j < ng && g[j].key != key) j++;
+            if (j == ng) {
+                if (ng == GROUPS) continue;
+                g[ng].key = key, g[ng].first = a, g[ng].mine = mine, g[ng].host = host, g[ng].n = 0, ng++;
+            }
+            g[j].n++;
+        }
+        o += hspan[i].n;
     }
+    for (int lines = 0, want = 1; lines < 40 && want < 1 << 30; want *= 4) /* (counts 1, 2-4, 5-16, ...: the small first) */
+        for (int j = 0; j < ng && lines < 40; j++) {
+            if (g[j].n < (want == 1 ? 1 : want / 4 + 1) || g[j].n > want) continue;
+            dif_name(g[j].first, name, sizeof name);
+            fprintf(stderr, "network:   %d words from %s (%08X): this machine %08x, the host %08x\n", g[j].n, name, g[j].first,
+                    g[j].mine, g[j].host);
+            lines++;
+        }
     uint32_t r_mine;
     if (o + 4 <= dif_len) {
         memcpy(&r_mine, dif_mine + o, 4);
