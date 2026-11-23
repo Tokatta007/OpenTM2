@@ -49,6 +49,9 @@ typedef struct {
     uint32_t budget, budget_ms;    /* (its pacing: bytes it may send now, refilled with time) */
     uint32_t voice_ms;             /* (host) its last voice frame (the 8 speakers at once) */
     uint32_t kick_ms;              /* (host) removed then (gone a moment later, once told) */
+    uint32_t load_ms;              /* (host) no input of its own yet (loading the match) since then (0: in, or not looked) */
+    int played;                    /* it runs the match's steps (its step moved on) */
+    int32_t first_now;             /* its first step said above 0 (0: none yet) */
     uint8_t *app;                  /* an app message arriving (R_APP pieces, in order) */
     int app_got;
     uint8_t *base;                 /* (host) its base: the hashes of its own state's blocks (the game's), arriving */
@@ -403,6 +406,9 @@ static void handle_rel(Session *s, int from, const uint8_t *m, int len, uint32_t
         p->present = 1;
         p->slots = given;
         p->heard_ms = (asked || watch) && s->lockstep ? 0 : now_ms; /* (a machine coming back loads the match: timed once heard) */
+        p->played = 0; /* (in once its own steps run: SES_LOAD_MS) */
+        p->first_now = 0;
+        p->load_ms = 0;
         for (int i = 0; i < RB_MAX_SLOTS; i++) p->known[i] = -1;
         for (int n = 0; n < SES_MAX_NODES; n++) /* everyone: the new machine and its slots */
             if (n != s->node && s->peer[n].present && n != from) {
@@ -582,6 +588,11 @@ void ses_receive(Session *s, int from, const void *data, int len, uint32_t now_m
         int newer = its_now >= p->now; /* (a packet as new as the last: what it knows now; an older one's: no lower) */
         p->now = newer ? its_now : p->now;
         p->now_ms = now_ms;
+        if (!p->played) { /* (in once its own steps run: its step 2 past the first it said (a joiner's: the host's state's),
+                           * not the state's step alone (a game stopped after its load still takes the state)) */
+            if (p->now > 0 && !p->first_now) p->first_now = p->now;
+            else if (p->first_now && p->now >= p->first_now + 2) p->played = 1;
+        }
         for (int i = 0; i < RB_MAX_SLOTS; i++) {
             int32_t k = (int32_t)g32(&q);
             if (newer || k > p->known[i]) p->known[i] = k; /* (the latest: it falls when a slot comes back in) */
@@ -672,6 +683,20 @@ int ses_step(Session *s, const RbInput local[RB_MAX_SLOTS], uint32_t now_ms)
     for (int n = 0; n < SES_MAX_NODES; n++) {
         Peer *p = &s->peer[n];
         if (n == s->node || !p->present) continue;
+        if (s->host == s->node && (s->lockstep || s->one_step) && p->slots) { /* (host) a player's machine that never comes
+                * in: not heard, or heard (loading and between screens it says it is there) but never a step run. Its game
+                * stopped while loading (Skull Servant's v1.0.12 log: every machine held at step 5, one player's inputs
+                * never came, its packets did; no end): gone after a while, as one that left (its car a computer car) */
+            if (!p->played) {
+                if (!p->load_ms) p->load_ms = now_ms ? now_ms : 1;
+                else if (now_ms - p->load_ms > SES_LOAD_MS) {
+                    fprintf(stderr, "session: machine %d never came into the match (%u s): gone\n", n, SES_LOAD_MS / 1000u);
+                    p->load_ms = 0;
+                    node_left(s, n, now_ms);
+                    continue;
+                }
+            } else p->load_ms = 0;
+        }
         if ((s->lockstep || s->one_step) && !p->heard_ms) continue; /* (a game's match: a machine not heard yet is still loading
                                                                       * the match) */
         if (s->host == s->node || n == s->host) /* (waiting for the host's state: its sending, longer) */

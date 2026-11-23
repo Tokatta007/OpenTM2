@@ -955,6 +955,14 @@ static void frame_body(void)
     if (!ng.tried) start();
     battle_left_check();
     if (!ng.on || !feats_in_battle() || killcam_replaying || rt_fast_forward) return;
+    static int test_hang = -1; /* tests: TM2PC_NET_TEST_HANG_LOAD=1, this machine's game stops as its battle begins, its
+                                * network still on (it never comes into the match: the others wait, then the host drops it) */
+    if (test_hang < 0) test_hang = getenv("TM2PC_NET_TEST_HANG_LOAD") != NULL;
+    if (test_hang && ng.node != ng.host) {
+        fprintf(stderr, "network: test: this machine's game stops here\n");
+        fflush(stderr);
+        for (;;) { netplay_poll(); SDL_Delay(16); }
+    }
     if (ng.out_of_battle) { /* a battle again (a tournament's next level): every machine from the host's state */
         ng.out_of_battle = 0;
         if (ng.wait_stage) { /* (joined during the last stage: playing in this one, in their own car) */
@@ -1020,7 +1028,9 @@ static void frame_body(void)
                 fprintf(stderr, "network: no state came from the old host: this machine's battle goes to the others\n");
             }
         }
-        if (now_ms() - t0 >= 700 && now_ms() - drawn >= 100 && ng.battle_steps >= 8) { /* (a hold the players see: why) */
+        if (now_ms() - t0 >= 700 && now_ms() - drawn >= 100 && (ng.battle_steps >= 8 || now_ms() - t0 >= 5000)) { /* (a hold the
+                                                       * players see: why; at the battle's start once it is long: a
+                                                       * machine still loading, else a frozen picture with no word) */
             drawn = now_ms();
             noticed = 1;
             char line[64] = "";
@@ -1050,7 +1060,21 @@ static void frame_body(void)
                     who = n;
                     why = why == SES_AWAY_REPLAY || aw == SES_AWAY_REPLAY ? SES_AWAY_REPLAY : aw;
                 }
-                if (why > 0 && who >= 0) {
+                if (ng.battle_steps < 8) { /* (the battle's start: the machines behind are still loading it; the host drops
+                                            * one that never comes in, session.c SES_LOAD_MS) */
+                    who = -1, many = 0;
+                    for (int n = 0; v && n < SES_MAX_NODES; n++) {
+                        if (n == ng.node || !v->m[n].present || v->start.first[n] == 0xFF) continue;
+                        int behind = 0;
+                        for (int j = 0; j < v->m[n].count && v->start.first[n] + j < RB_MAX_SLOTS; j++)
+                            behind |= rb_known_through(ses_rollback(ng.ses), v->start.first[n] + j) < at;
+                        if (!behind) continue;
+                        if (who >= 0) many = 1;
+                        who = n;
+                    }
+                    if (who >= 0 && !many) snprintf(line, sizeof line, "Waiting for %s to load the match.", v->m[who].count ? v->m[who].p[0].name : "a player");
+                    else snprintf(line, sizeof line, "Waiting for the others to load the match.");
+                } else if (why > 0 && who >= 0) {
                     const char *name = v->m[who].count ? v->m[who].p[0].name : "a player";
                     if (why == SES_AWAY_REPLAY) {
                         if (many) snprintf(line, sizeof line, "Waiting for the others to finish the replay.");

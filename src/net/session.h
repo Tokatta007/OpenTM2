@@ -19,7 +19,10 @@ enum {
                                 * see WAITING FOR PLAYERS from 0.7 s: the user's, 2026-11-05) */
     SES_AWAIT_MS = 20000,      /* (a machine waiting for the host's state: the host silent this long has left; before
                                 * the host takes a joining machine in, it says nothing, the more so through the relay) */
-    SES_MIGRATE_MS = 400,      /* a new host gathers the inputs this long before going on */
+    SES_LOAD_MS = 40000,       /* (host) a player's machine with no step run this long after the host's battle began never
+                                * came in: it has left (its game stopped loading; the others otherwise wait on it for
+                                * good). Under the game's minute (game_tm2.c: a wait that long, the match alone) */
+    SES_MIGRATE_MS = 400,     /* a new host gathers the inputs this long before going on */
 };
 
 typedef struct {
