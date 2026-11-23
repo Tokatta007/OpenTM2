@@ -85,6 +85,16 @@ static int chat_everywhere(void)
     }
     return 1;
 }
+static int chat_past_full(void) /* (Tegu's: after 32 lines the newest showed nowhere) */
+{
+    for (int i = 0; i < 3; i++) {
+        int sp, k = lobby_chat_first(lb[i]);
+        const char *t = NULL;
+        while (lobby_chat_lines(lb[i], k, &sp, &t)) k++;
+        if (k < 41 || !lobby_chat_lines(lb[i], k - 1, &sp, &t) || strcmp(t, "line forty")) return 0;
+    }
+    return 1;
+}
 static int started_everywhere(void)
 {
     for (int i = 0; i < 3; i++) if (lobby_view(lb[i])->starts != 1) return 0;
@@ -171,6 +181,8 @@ int main(void)
 
     lobby_chat(lb[2], "hello from B");
     check("a chat line reaches every machine", wait_for(chat_everywhere, 3000));
+    for (int i = 0; i < 40; i++) lobby_chat(lb[0], i == 39 ? "line forty" : "more"); /* (past the 32 kept) */
+    check("chat past the 32 lines kept still reaches every machine", wait_for(chat_past_full, 3000));
 
     LobbyListing found[8];
     LanSearch *search = lobby_lan_search(1);

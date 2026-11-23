@@ -3001,6 +3001,7 @@ static int net_sync(void)
         }
     }
     if (lobby_is_host(l)) net_send_settings();
+    if (net_chat_seen < lobby_chat_first(l)) net_chat_seen = lobby_chat_first(l); /* (older ones gone) */
     for (int sp, k = net_chat_seen; ; k++) { /* the chat's new lines */
         const char *t;
         if (!lobby_chat_lines(l, k, &sp, &t)) break;
@@ -5570,6 +5571,7 @@ enum { TITLE_DIM = 110 }; /* the title picture under the profile screen, darkene
 /* A car's car-select portrait n (0 first, 1 second): the 14 drivers' from the sheets (picture car * 3 + n), the cars
  * after them from ui/cars/<car>_<n+1>.bmp (64x128 like the sheets' frames), or, until one is made, their name on black */
 static void draw_portrait_image(const View *v, int pic, int x, int y, int w, int h);
+static int portrait_any; /* (another player's picture: shown though this profile has not earned it) */
 static int skin_portrait(Image *c, int number, int n, int x, int y, int w, int h);
 static const char *car_label(int number);
 static void draw_car_portrait(const View *v, int car, int n, int x, int y, int w, int h)
@@ -5604,7 +5606,7 @@ static void draw_portrait_image(const View *v, int pic, int x, int y, int w, int
 {
     static const uint8_t black[3] = {0, 0, 0};
     draw_fill(v->c, x, y, w, h, black, 255);
-    if (profile_picture_hidden(pic)) { /* a secret, or an ending's still not earned: the ending stays a surprise */
+    if (!portrait_any && profile_picture_hidden(pic)) { /* a secret, or an ending's still not earned: the ending stays a surprise */
         int qs = h / 3;
         text_draw(v->c, "?", x + w / 2 - text_width("?", qs) / 2, text_top_for_center(y + h / 2, qs), qs, GRAY);
         return;
@@ -7629,8 +7631,12 @@ static void draw_lobby_screen(const View *v, int sel, int online)
          * host and the microphone under it */
         int ph = cellh - 4, pw = ph / 2;
         if (c->kind == LC_CPU && c->car >= 0x20) draw_car_portrait(v, c->car, 0, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph));
-        else if (c->pic >= 0) draw_portrait_image(v, c->pic, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph));
-        else draw_plate_car(v, -1, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph)); /* (a random driver: "?") */
+        else if (c->pic >= 0) { /* (another player's: their own picture, whatever this profile has earned: Z3NR's showed
+                                 * as "?" on Tegu's lobby, 2026-11-23) */
+            portrait_any = c->kind == LC_REMOTE;
+            draw_portrait_image(v, c->pic, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph));
+            portrait_any = 0;
+        } else draw_plate_car(v, -1, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph)); /* (a random driver: "?") */
         int plh = cellh - 8, plw = plh * 2, plx = x + cellw - plw - 4, ply = y + 4;
         int car = c->car;
         if (c->local >= 1 && c->local <= 4 && c->team < 0) { /* this PC's players, no teams: their player's color around the
