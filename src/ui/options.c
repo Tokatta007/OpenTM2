@@ -5010,7 +5010,7 @@ static void build(PageId page)
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
         for (int i = 0; i < BIND_ENERGY; i++) {
-            Row *r = add_choice(bind_energy_names[i], "Only works with Easy Energy Attacks turned on (then the D-pad by default).",
+            Row *r = add_choice(bind_energy_names[i], "Only works with Easy Energy Attacks turned on.",
                                 get_energy_button, set_energy_button, p * 8 + i, bind_button_names, BIND_BUTTONS_ALL + 1);
             r->tiny = 1;
             r->press = 1;
