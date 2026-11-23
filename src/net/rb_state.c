@@ -119,6 +119,7 @@ void rbs_new_round(void) /* (killcam.c: a round starts) the states kept are the 
     dmd_n = -1; /* (the models' list made again: a load) */
 }
 
+
 uint64_t vp_gv(void);
 static void set_gv(uint64_t gv) { M.vblank_offset = M.vblanks - gv; }
 static uint64_t gv_of(int32_t step) { return gv_tag[(uint32_t)step % SLOTS] == step ? gv_at[(uint32_t)step % SLOTS] : vp_gv(); }
@@ -194,6 +195,13 @@ static uint8_t *room(State *s, size_t need)
 }
 
 static void save_to(State *s, int32_t step);
+/* A host's state on its way (a resync): the session restarts at its step and keeps "its" state from this machine's
+ * memory as it is then, steps ahead, until the host's is put in and kept again (state_apply). That overwrote this
+ * machine's own state of the step, the one the resync's log compares with: every player's log said "not compared".
+ * While armed, a kept state about to be overwritten is copied here first. */
+static State bk[SLOTS];
+static int bk_n, bk_armed;
+void rbs_backup_arm(int on) { bk_armed = on; if (on) bk_n = 0; }
 void rbs_save(int32_t step)
 {
     if (!syms()) return;
@@ -205,7 +213,16 @@ void rbs_save(int32_t step)
     static int rebuild8 = -1;
     if (rebuild8 < 0) rebuild8 = getenv("TM2PC_DMD_REBUILD8") != NULL;
     if (rebuild8 && step % 8 == 0) dmd_n = -1;
-    save_to(&st[(uint32_t)step % SLOTS], step);
+    State *slot = &st[(uint32_t)step % SLOTS];
+    if (bk_armed && slot->step >= 0 && bk_n < SLOTS && slot->len) { /* (kept for the resync's log: rbs_diff_end) */
+        State *c = &bk[bk_n];
+        if (c->cap < slot->len) {
+            uint8_t *q = realloc(c->b, slot->len);
+            if (q) c->b = q, c->cap = slot->len;
+        }
+        if (c->cap >= slot->len) { memcpy(c->b, slot->b, slot->len); c->len = slot->len; c->step = slot->step; bk_n++; }
+    }
+    save_to(slot, step);
     if (!rbs_resimulating) { gv_tag[(uint32_t)step % SLOTS] = step; gv_at[(uint32_t)step % SLOTS] = vp_gv(); }
 }
 static void save_to(State *s, int32_t step)
@@ -742,9 +759,10 @@ static int dif_mine_build(void)
 {
     uint32_t want = mem_r32(&M.cpu, GA(0x8017EBFCu)), have;
     const State *s = NULL;
-    for (int k = 0; k < SLOTS; k++) {
-        if (st[k].step < 0 || !kept_word(&st[k], GA(0x8017EBFCu), &have) || have != want) continue;
-        if (!s || abs(st[k].step - dif_step) < abs(s->step - dif_step)) s = &st[k];
+    for (int k = 0; k < 2 * SLOTS; k++) {
+        const State *c = k < SLOTS ? &st[k] : &bk[k - SLOTS];
+        if (k >= SLOTS + bk_n || c->step < 0 || !kept_word(c, GA(0x8017EBFCu), &have) || have != want) continue;
+        if (!s || abs(c->step - dif_step) < abs(s->step - dif_step)) s = c;
     }
     if (!s) {
         fprintf(stderr, "network: step %d: no kept state of this machine at the host's step count %u (kept:", dif_step, want);

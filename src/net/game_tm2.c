@@ -625,6 +625,8 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
     if (resync) rbs_diff_begin(at_step);
     ng.loaded = n > ks && killcam_state_load(ng.raw, ks) && devices_load(ng.raw + ks, n - ks);
     if (resync && ng.loaded) rbs_diff_end(at_step);
+    void rbs_backup_arm(int on);
+    rbs_backup_arm(0);
     if (ng.loaded && feats_in_battle())
         for (size_t r = 0, o = 0; r < sizeof draw_keep / sizeof draw_keep[0]; o += draw_keep[r].n, r++)
             for (uint32_t i = 0; i < draw_keep[r].n; i++) mem_w8(&M.cpu, GA(draw_keep[r].at) + i, draw_mine[o + i]);
@@ -665,6 +667,9 @@ static void cb_deserialize(void *ctx, const uint8_t *in, int len)
     ng.pend = p;
     memcpy(ng.pend, in, (size_t)len);
     ng.pend_len = len;
+    void rbs_backup_arm(int on); /* net/rb_state.c: a resync's: this machine's own kept states copied before the session's
+                                  * restart overwrites them (the resync's log compares with them) */
+    if (ng.loaded && ng.rollback && feats_in_battle()) rbs_backup_arm(1);
 }
 
 static void neutral_all(void)
