@@ -113,7 +113,14 @@ void port_config_sync(void)
     for (int k = 0; k < 16; k++) mem_w8(&M.cpu, rc_port_config + PCFG_TEAMS + 5 + (uint32_t)k, ta[k]);
     for (int i = 4; i < 16; i++) mem_w8(&M.cpu, rc_port_config + 0x1Bu + (uint32_t)(i - 4), th[i]); /* +0x1B: humans 5-16's */
     extern int gte_precise_on;
-    mem_w8(&M.cpu, rc_port_config + PCFG_PRECISE, gte_precise_on && !(getenv("TM2PC_NO_PRECISE_C") && strcmp(getenv("TM2PC_NO_PRECISE_C"), "0")) ? 1 : 0); /* (tests: as the plain build) */
+    /* online: off on every machine. The subpixel places' C path ran with each player's own Wobble (Smooth and None on,
+     * PS1 off), and a step with it went another way than one without: two players of different Wobble parted at once,
+     * "Connection trouble" every few steps from the start (Ryupichu, Terror, Blues; v1.0.8's log: portConfig +5 and the
+     * cars' wheels). Off is the path every online test runs */
+    int netplay_in_match(void);
+    static int no_precise = -1; /* (tests: as the plain build) */
+    if (no_precise < 0) no_precise = getenv("TM2PC_NO_PRECISE_C") && strcmp(getenv("TM2PC_NO_PRECISE_C"), "0");
+    mem_w8(&M.cpu, rc_port_config + PCFG_PRECISE, gte_precise_on && !no_precise && !netplay_in_match() ? 1 : 0);
 }
 
 /* Subpixel places the variant's C computed for vertices it projects without the GTE (effect sprites: decomp/
