@@ -7517,8 +7517,7 @@ static void draw_lobby_screen(const View *v, int sel, int online)
         if (first < 0) first = 0;
         for (int k = 0; k < shown && first + k < net_chat_n; k++) {
             char up[64], fit[64];
-            snprintf(up, sizeof up, "%s", net_chat[first + k]);
-            upper(up);
+            snprintf(up, sizeof up, "%s", net_chat[first + k]); /* (as typed: small letters, punctuation; the user's) */
             fit_text(fit, sizeof fit, up, S(v, gw - 20), S(v, 9));
             int server = !strncmp(up, "SERVER:", 7), count = up[0] == NET_CHAT_COUNTDOWN[0];
             if (count) fit_text(fit, sizeof fit, up + 3, S(v, gw - 20), S(v, 9)); /* ("\x01: ": no name) */
@@ -8302,6 +8301,17 @@ static int naming_input(uint16_t script_buttons)
     if (key >= SDL_SCANCODE_A && key <= SDL_SCANCODE_Z) {
         if (shift) naming.caps = 1; /* a capital (then small letters again) */
         name_type((char)('a' + key - SDL_SCANCODE_A));
+        menu_sound(0);
+    } else if (naming.game_type == 4 && shift && key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) { /* chat: !@#$%^&*() */
+        name_type("!@#$%^&*()"[key - SDL_SCANCODE_1]);
+        menu_sound(0);
+    } else if (naming.game_type == 4 && (key == SDL_SCANCODE_COMMA || key == SDL_SCANCODE_SLASH || key == SDL_SCANCODE_SEMICOLON ||
+                                         key == SDL_SCANCODE_APOSTROPHE || key == SDL_SCANCODE_EQUALS ||
+                                         (shift && key == SDL_SCANCODE_PERIOD))) { /* chat: the rest of the punctuation */
+        char ch = key == SDL_SCANCODE_COMMA ? (shift ? '<' : ',') : key == SDL_SCANCODE_SLASH ? (shift ? '?' : '/')
+                : key == SDL_SCANCODE_SEMICOLON ? (shift ? ':' : ';') : key == SDL_SCANCODE_APOSTROPHE ? (shift ? '"' : '\'')
+                : key == SDL_SCANCODE_EQUALS ? (shift ? '+' : '=') : '>';
+        name_type(ch);
         menu_sound(0);
     } else if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) {
         name_type(key == SDL_SCANCODE_0 ? '0' : (char)('1' + key - SDL_SCANCODE_1));
