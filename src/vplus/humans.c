@@ -146,11 +146,12 @@ static uint16_t local_pad(int L)
  * buttons through that player's own table, copied to it through the lobby: two copies that differed parted the games
  * (Enough Boxes and Tegu: a re-sync every 8 steps on Roof Tops and Cyburbia), and a table could not change during a
  * match. A player on Standard with no buttons of their own sends their buttons as they are. */
-static const uint16_t button_bit[17] = { /* padButtonHeld's buttons 1..14 (and the port's L3, R3 15-16): PS1 bits */
+static const uint32_t button_bit[BIND_BUTTONS_ALL + 1] = { /* padButtonHeld's buttons 1..14 (and the port's L3, R3
+                                                             * 15-16): PS1 bits; the right stick's 17-20: bits 16-19 */
     0, 0x0001, 0x0008, 0x0400, 0x0100, 0x0010, 0x0040, 0x0080, 0x0020, 0x0800, 0x0200, 0x1000, 0x4000, 0x8000, 0x2000,
-    0x0002, 0x0004};
+    0x0002, 0x0004, 1u << 16, 1u << 17, 1u << 18, 1u << 19};
 static uint8_t bare[128], own[4][128];
-static uint16_t bare_used, own_used[4];
+static uint32_t bare_used, own_used[4];
 static int bare_ok, own_ok[4];
 /* the actions a human's word is read for (humanCarReadInput's ACTION(), decomp car_input.c; carReadMoveCodes' D-pad
  * codes are 0x16-0x1B): only these turned. The table's other entries are the menus' (several share a button with
@@ -158,12 +159,12 @@ static int bare_ok, own_ok[4];
 static const uint8_t car_actions[] = {0x08, 0x09, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21,
                                       0x31, 0x39, 0x3A, 0x3B, 0x3C};
 enum { CAR_ACTIONS = sizeof car_actions };
-static uint16_t buttons_used(const uint8_t t[128])
+static uint32_t buttons_used(const uint8_t t[128])
 {
-    uint16_t u = 0;
+    uint32_t u = 0;
     for (int i = 0; i < CAR_ACTIONS; i++) {
         int b = t[car_actions[i]];
-        if (b >= 1 && b <= 16) u |= button_bit[b];
+        if (b >= 1 && b <= BIND_BUTTONS_ALL) u |= button_bit[b];
     }
     return u;
 }
@@ -179,13 +180,13 @@ static void bare_table(uint8_t out[128]) /* the Standard layout's table, no one'
 }
 /* local player L's buttons held (PS1 bits, set = held) as Standard's: each action they hold, its Standard button; a
  * button no action uses (in their table or Standard's) as it is */
-static uint16_t as_standard(int L, uint16_t mine)
+static uint16_t as_standard(int L, uint32_t mine) /* (mine: bits 16-19 the right stick) */
 {
-    if (L < 0 || L > 3 || !own_ok[L] || !bare_ok) return mine;
+    if (L < 0 || L > 3 || !own_ok[L] || !bare_ok) return (uint16_t)mine;
     uint16_t out = (uint16_t)(mine & ~(own_used[L] | bare_used));
     for (int i = 0; i < CAR_ACTIONS; i++) {
         int a = car_actions[i], b = own[L][a], s = bare[a];
-        if (b >= 1 && b <= 16 && (mine & button_bit[b]) && s >= 1 && s <= 16) out |= button_bit[s];
+        if (b >= 1 && b <= BIND_BUTTONS_ALL && (mine & button_bit[b]) && s >= 1 && s <= 14) out |= (uint16_t)button_bit[s];
     }
     return out;
 }
@@ -240,7 +241,9 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
     for (int h = 0; h < n; h++) {
         int L = humans_slot(h);
         uint16_t mine = L >= 0 ? (uint16_t)~local_pad(L) : 0; /* (this PC's player: their buttons, set = held) */
-        uint16_t raw = (uint16_t)killcam_input(0, h, L >= 0 ? (uint16_t)~as_standard(L, mine) : 0xFFFFu); /* (active low) */
+        int input_stick_bits(int p); /* runtime/input.c: the right stick as buttons (an action's, Controls) */
+        uint32_t mine_all = L >= 0 ? mine | (uint32_t)input_stick_bits(L) << 16 : 0;
+        uint16_t raw = (uint16_t)killcam_input(0, h, L >= 0 ? (uint16_t)~as_standard(L, mine_all) : 0xFFFFu); /* (active low) */
         uint16_t held = (uint16_t)~raw;
         mem_w16(&M.cpu, a_pad + 2u * (uint32_t)h, (uint16_t)((held >> 8) | (held << 8))); /* padButtonsDecoded's half layout */
         uint32_t steer = killcam_input(1, h, L >= 0 ? (uint32_t)input_steer_amount(L) : 4096u);

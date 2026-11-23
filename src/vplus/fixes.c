@@ -3909,6 +3909,7 @@ void vp_MoveCodes(CPU *c)
     else if (pressed & 0x0010) special = 100; /* Up: freeze */
     else if (pressed & 0x0080) special = 101; /* Left: mines */
     else if (pressed & 0x0020) special = 103; /* Right: shield */
+    else if (pressed & 0x1000) special = 104; /* its own button (Controls, none by default): jump */
     else if (pressed & 0x0100) special = 105; /* its own button (Controls): invisibility (the code Right, Down, Left, Up:
                                                * 105; 102 is Right, Left, Up, the energy napalm: Phoenix's "invisibility
                                                * key fires napalm", 2026-11-23) */

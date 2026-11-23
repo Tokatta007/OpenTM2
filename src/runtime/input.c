@@ -31,7 +31,9 @@ enum {
 /* the game's button numbers (bindings.h) as PS1 pad bits */
 static const uint16_t button_bits[BIND_TOUCHPAD + 1] = {
     0, PSX_SELECT, PSX_START, PSX_L1, PSX_L2, PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT,
-    PSX_R1, PSX_R2, PSX_TRIANGLE, PSX_CROSS, PSX_SQUARE, PSX_CIRCLE, PSX_L3, PSX_R3, 0, /* (the touchpad: no PS1 bit) */
+    PSX_R1, PSX_R2, PSX_TRIANGLE, PSX_CROSS, PSX_SQUARE, PSX_CIRCLE, PSX_L3, PSX_R3,
+    0, 0, 0, 0, /* (the right stick's directions, BIND_STICK..: no PS1 bit, stick_held) */
+    0, /* (the touchpad: no PS1 bit) */
 };
 
 static const struct { SDL_Scancode key; uint16_t bits; } menu_keys[] = {
@@ -174,6 +176,8 @@ void input_init(void)
     open_gamepads();
 }
 
+int input_pads_off;  /* (ui/options.c: "QUIT OPENTM2?" open) the controllers read as nothing, but by it */
+static int pads_raw; /* (input_pad_buttons_raw: the question's own read) */
 static uint16_t gamepad_bits_ex(SDL_Gamepad *g, int stick_dpad)
 {
     static const struct { SDL_GamepadButton b; uint16_t bits; } map[] = {
@@ -186,7 +190,7 @@ static uint16_t gamepad_bits_ex(SDL_Gamepad *g, int stick_dpad)
         {SDL_GAMEPAD_BUTTON_LEFT_STICK, PSX_L3},       {SDL_GAMEPAD_BUTTON_RIGHT_STICK, PSX_R3},
     };
     uint16_t bits = 0;
-    if (!g) return 0;
+    if (!g || (input_pads_off && !pads_raw)) return 0; /* (the quit question open: the controllers are its) */
     for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++)
         if (SDL_GetGamepadButton(g, map[i].b)) bits |= map[i].bits;
     if (SDL_GetGamepadAxis(g, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > TRIGGER_THRESHOLD) bits |= PSX_L2;
@@ -207,11 +211,34 @@ static bool gamepad_touchpad(SDL_Gamepad *g)
     return SDL_GamepadHasButton(g, SDL_GAMEPAD_BUTTON_TOUCHPAD) ? SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_TOUCHPAD)
                                                                 : SDL_GetGamepadButton(g, SDL_GAMEPAD_BUTTON_MISC1);
 }
-/* an extra control's button (1..17) held on a pad (bits: its gamepad_bits) */
+/* the right stick tilted one way (BIND_STICK + 0 up, 1 down, 2 left, 3 right) past the deadzone */
+static bool stick_held(SDL_Gamepad *g, int b)
+{
+    if (!g || input_pads_off || b < BIND_STICK || b > BIND_STICK + 3) return 0;
+    int d = b - BIND_STICK, v = SDL_GetGamepadAxis(g, d < 2 ? SDL_GAMEPAD_AXIS_RIGHTY : SDL_GAMEPAD_AXIS_RIGHTX);
+    return d == 0 || d == 2 ? v < -STICK_DEADZONE : v > STICK_DEADZONE;
+}
+/* an extra control's button (1..21) held on a pad (bits: its gamepad_bits) */
 static bool extra_button_held(SDL_Gamepad *g, uint16_t bits, int b)
 {
     if (b == BIND_TOUCHPAD) return gamepad_touchpad(g);
+    if (b >= BIND_STICK && b <= BIND_STICK + 3) return stick_held(g, b);
     return b > 0 && b <= BIND_BUTTONS_ALL && (bits & button_bits[b]);
+}
+/* Player p's right stick as buttons (bit d: BIND_STICK + d held), for the actions given them (vplus/humans.c turns
+ * them into the actions' Standard buttons): their controller's stick, and their keyboard keys for those actions */
+static const bool *input_keys(int *n);
+int input_stick_bits(int p)
+{
+    if (p < 0 || p >= PLAYERS || input_pads_off) return 0;
+    int m = 0;
+    for (int d = 0; d < 4; d++) if (stick_held(pads[p], BIND_STICK + d)) m |= 1 << d;
+    const bool *keys = p < 2 ? input_keys(NULL) : NULL;
+    for (int a = 0; keys && a < BIND_ACTIONS; a++) {
+        int b = bind_button(p, a), k = bind_key(p, a);
+        if (b >= BIND_STICK && b <= BIND_STICK + 3 && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) m |= 1 << (b - BIND_STICK);
+    }
+    return m;
 }
 
 /* A player's driving keys, as the PS1 buttons of their actions. */
@@ -309,7 +336,7 @@ uint16_t input_player_bits(int p)
  * steering on), else 4096 (the D-pad, the keyboard: full lock as the game's). */
 int input_steer_amount(int p)
 {
-    if (p < 0 || p > 3 || !pads[p] || !bind_analog_steer(p)) return 4096;
+    if (p < 0 || p > 3 || !pads[p] || !bind_analog_steer(p) || input_pads_off) return 4096;
     if (SDL_GetGamepadButton(pads[p], SDL_GAMEPAD_BUTTON_DPAD_LEFT) || SDL_GetGamepadButton(pads[p], SDL_GAMEPAD_BUTTON_DPAD_RIGHT))
         return 4096;
     int x = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTX);
@@ -318,20 +345,21 @@ int input_steer_amount(int p)
     int a = (int)((x - STICK_DEADZONE) * 4096L / (32767 - STICK_DEADZONE));
     return a < 400 ? 400 : a > 4096 ? 4096 : a;
 }
-uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility) */
+uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump) */
 {
-    if (p < 0 || p > 3 || !bind_easy_energy(p)) return 0;
+    if (p < 0 || p > 3 || !bind_easy_energy(p) || input_pads_off) return 0;
     uint16_t pad = pads[p] ? gamepad_bits(pads[p]) : 0;
     if (pad & PSX_SELECT) return 0; /* Select held: the D-pad is for Select's buttons */
     uint16_t bits = 0;
     /* each attack's button (by default the D-pad's direction: bind_energy_button) and key (Controls) */
-    static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100};
+    static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100, 0x1000}; /* (0x1000 jump) */
     static const SDL_GamepadButton dpad[4] = {SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
                                               SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT};
     const bool *keys = input_keys(0);
     for (int i = 0; i < BIND_ENERGY; i++) {
         int b = bind_energy_button(p, i), k = bind_energy_key(p, i);
         int held = b >= 5 && b <= 8 ? pads[p] && SDL_GetGamepadButton(pads[p], dpad[b - 5]) /* (the D-pad itself, not the stick) */
+                 : b >= BIND_STICK && b <= BIND_STICK + 3 ? stick_held(pads[p], b) /* (the right stick) */
                                     : b && (pad & button_bits[b]);
         if (held || (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k])) bits |= as[i];
     }
@@ -422,6 +450,38 @@ uint16_t input_pad_buttons(void)
     uint16_t bits = 0;
     for (int i = 0; i < all_count; i++) bits |= gamepad_bits(all[i]);
     return bits;
+}
+int input_pad_stick_any(void) /* (the Controls page's capture) any controller's right stick: bit d, BIND_STICK + d tilted */
+{
+    SDL_UpdateGamepads();
+    int m = 0;
+    for (int i = 0; i < all_count; i++)
+        for (int d = 0; d < 4; d++) if (stick_held(all[i], BIND_STICK + d)) m |= 1 << d;
+    return m;
+}
+uint16_t input_pad_buttons_raw(void) /* (the quit question) the same, while input_pads_off holds them from everything else */
+{
+    pads_raw = 1;
+    uint16_t bits = input_pad_buttons();
+    pads_raw = 0;
+    return bits;
+}
+/* The Quit game control's button (Controls; none by default) just pressed on any controller: "QUIT OPENTM2?" */
+int input_quit_button_pressed(void)
+{
+    static int was, last_b;
+    int b = bind_extra_button(BIND_QUIT), held = 0;
+    if (b != last_b) { last_b = b; was = 1; } /* (just set in Controls, by this very press: not until let go) */
+    if (b) {
+        SDL_UpdateGamepads();
+        pads_raw = 1;
+        for (int i = 0; i < all_count && !held; i++)
+            held = extra_button_held(all[i], b == BIND_TOUCHPAD ? 0 : gamepad_bits_ex(all[i], 0), b);
+        pads_raw = 0;
+    }
+    int pressed = held && !was;
+    was = held;
+    return pressed;
 }
 
 /* A key pressed since the last call (its scancode), or 0. F1, Escape and

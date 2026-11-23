@@ -109,9 +109,12 @@ extern uint64_t ui_naming_seen_ns; /* ui/options.c */
 void ui_quit_ask(void);            /* ui/options.c: the question over the game */
 int ui_quit_frame(void);           /* (each VBlank: 1 when YES) */
 static int escape_pending;
+int bind_extra_key(int i);            /* controls/bindings.c: the Quit game control's key (BIND_QUIT 4; Escape by default) */
+int input_quit_button_pressed(void);  /* runtime/input.c: its controller button (none by default) */
 static void SDLCALL escape_seen(const SDL_Event *e)
 {
-    if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_ESCAPE && !e->key.repeat &&
+    int key = bind_extra_key(4);
+    if (e->type == SDL_EVENT_KEY_DOWN && key > 0 && (int)e->key.scancode == key && !e->key.repeat &&
         SDL_GetTicksNS() - ui_naming_seen_ns > 250000000ull)
         escape_pending = 1;
 }
@@ -129,6 +132,7 @@ void gpu_escape_frame(void) /* (each VBlank, and each frame of the port's own me
     static long long ask_at = -2; /* tests: TM2PC_TEST_ESCAPE_AT=N, Escape pressed at the Nth VBlank */
     if (ask_at == -2) ask_at = getenv("TM2PC_TEST_ESCAPE_AT") ? atoll(getenv("TM2PC_TEST_ESCAPE_AT")) : -1;
     if (ask_at >= 0 && frames == ask_at) escape_pending = 1;
+    if (input_quit_button_pressed()) escape_pending = 1; /* (a controller's Quit game button: Tegu's, no keyboard) */
     if (escape_pending) {
         escape_pending = 0;
         ui_quit_ask();

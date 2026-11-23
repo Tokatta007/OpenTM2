@@ -4983,8 +4983,8 @@ static void build(PageId page)
         add_choice("Jump on L1 + R1", "Press L1 and R1 together to jump, as well as with its button code.", get_jump_combo,
                    set_jump_combo, p, onoff_values, 2)->small = 1;
         { /* (right under the jump, grayed while it is off: it is its safety) */
-            Row *js = add_choice("Jump-Weapon Switch Safety", "Pressing L1 or R1 alone waits this long before switching weapons. "
-                                 "If the other is pressed in time, you jump instead. Off: switches at once.", get_jump_safety,
+            Row *js = add_choice("Jump-Weapon Switch Safety", "Holding or pressing L1 or R1 alone waits this long before switching weapons. "
+                                 "If the other is pressed in time, you jump instead.", get_jump_safety,
                                  set_jump_safety, p, jump_safety_values, 4);
             js->small = 1;
             js->locked = !bind_jump_combo(p);
@@ -5000,7 +5000,8 @@ static void build(PageId page)
             Row *r = add_choice(bind_action_names[a], /* (Left / Right only turn the controller's: Da Toasty Mane, 2026-11-22) */
                                 p < 2 ? "Press X or Enter, then the new button or key. Left and Right change the controller button."
                                       : "Press X or Enter, then the new button. Left and Right change it too.",
-                                get_binding, set_binding, p * 16 + a, bind_button_names + 1, BIND_BUTTONS);
+                                get_binding, set_binding, p * 16 + a, bind_button_names + 1, BIND_BUTTONS_ALL); /* (L3, R3, the right
+                                                                                    * stick too: turned into the actions) */
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
@@ -5016,14 +5017,15 @@ static void build(PageId page)
             r->keys = 1;
             r->energy = 1;
         }
-        add(ROW_HEADER, "Music, voice and scores", NULL);
-        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT, BIND_SCOREBOARD}; /* previous song above next song (the user's) */
+        add(ROW_HEADER, "Music, voice and more", NULL);
+        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT, BIND_SCOREBOARD, BIND_QUIT}; /* previous song above next song (the user's) */
         for (int k = 0; k < BIND_EXTRAS; k++) {
             int i = extra_order[k];
             Row *r = add_choice(bind_extra_names[i], p && i == BIND_SCOREBOARD ? "Set on player 1's page. Works on every controller."
                                 : p ? "Player 1's controller and keyboard only."
                                 : i == BIND_SCOREBOARD ? "Hold it in a battle to see the scores. Works on every controller."
                                 : i == BIND_PTT ? "Online: hold it to talk (voice chat). No controller button by default."
+                                : i == BIND_QUIT ? "Asks to quit OpenTM2. Escape by default; no controller button by default."
                                                 : "Custom music on Random or In order. No controller button by default.",
                                 get_extra_button, set_extra_button, i, bind_button_names, BIND_TOUCHPAD + 1);
             r->tiny = 1;
@@ -8544,8 +8546,18 @@ static int run(PageId start)
                 capturing = -1;
             }
             touch_before = touch;
+            int input_pad_stick_any(void);   /* runtime/input.c: any controller's right stick (bit d: BIND_STICK + d) */
+            static int stick_before = 0xF;   /* (tilted when the capture started: not a press) */
+            int stick = script ? 0 : input_pad_stick_any(), stick_new = stick & ~stick_before;
+            stick_before = stick;
+            for (int d = 0; d < 4 && capturing >= 0; d++)
+                if (stick_new & (1 << d)) { /* the right stick flicked one way: that direction, as a button (Sage's) */
+                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_STICK + d : BIND_STICK + d - 1);
+                    key = 0;
+                    capturing = -1;
+                }
             for (unsigned k = 0; k < sizeof buttons / sizeof buttons[0]; k++)
-                if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS)) {
+                if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS_ALL)) {
                     cr->set(cr->arg, cr->extra || cr->energy ? buttons[k].button : buttons[k].button - 1);
                     key = 0;
                     capturing = -1;
@@ -16185,16 +16197,20 @@ static void battle_overlay_off(void)
  * closed the game at once). runtime/gpu_psyz.c opens it and asks each VBlank; the game goes on under it (online
  * too: nobody is held). Its own keys: Up / Down / Left / Right, Enter or Y (YES), Escape or N (NO); meanwhile the
  * keyboard is not the game's or the menus' (input_keys_off). NO is chosen first. */
-extern int input_keys_off; /* runtime/input.c */
+extern int input_keys_off, input_pads_off; /* runtime/input.c */
+uint16_t input_pad_buttons_raw(void);
 static int qp_open, qp_sel, qp_drawn;
 static bool qp_prev[SDL_SCANCODE_COUNT];
+static uint16_t qp_pad_prev; /* (the controllers too: D-pad / stick, Cross picks, Circle no; Tegu's, no keyboard) */
 void ui_quit_ask(void)
 {
     if (qp_open) return;
     const bool *k = SDL_GetKeyboardState(NULL);
     if (k) memcpy(qp_prev, k, sizeof qp_prev); /* (the Escape that opened it, still held, is not an answer) */
+    qp_pad_prev = input_pad_buttons_raw(); /* (the button that opened it, still held, is not an answer) */
     qp_open = 1, qp_sel = 1, qp_drawn = 0;
     input_keys_off = 1;
+    input_pads_off = 1;
     menu_sound(1);
     fprintf(stderr, "escape: asking to quit\n");
 }
@@ -16202,6 +16218,7 @@ static void qp_close(void)
 {
     qp_open = 0;
     input_keys_off = 0;
+    input_pads_off = 0;
     battle_overlay_off(); /* (the battle's overlay drawn again by scoreboard_frame) */
 }
 int ui_quit_frame(void) /* 1: quit now */
@@ -16215,6 +16232,11 @@ int ui_quit_frame(void) /* 1: quit now */
     int move = QP_HIT(SDL_SCANCODE_UP) || QP_HIT(SDL_SCANCODE_DOWN) || QP_HIT(SDL_SCANCODE_LEFT) || QP_HIT(SDL_SCANCODE_RIGHT);
 #undef QP_HIT
     memcpy(qp_prev, k, sizeof qp_prev);
+    uint16_t pad = input_pad_buttons_raw(), pad_hit = (uint16_t)(pad & ~qp_pad_prev);
+    qp_pad_prev = pad;
+    if (pad_hit & (B_UP | B_DOWN | B_LEFT | B_RIGHT)) move = 1;
+    if (pad_hit & B_CROSS) pick = 1;
+    if (pad_hit & B_CIRCLE) no = 1;
     if (move) { qp_sel = !qp_sel; qp_drawn = 0; menu_sound(0); }
     if (yes || (pick && qp_sel == 0)) {
         fprintf(stderr, "escape: quit\n");
