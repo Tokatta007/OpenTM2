@@ -28,6 +28,8 @@ void rbs_new_round(void);
 void rbs_dmd_again(void);      /* the models' list made again at its next use (every machine at the same step) */
 int rbs_dmd_list(uint32_t *buf); /* the models' mutable node fields: (address, bytes) pairs at *buf, their count */
 void rbs_debug_blocks(int32_t step);
+void rbs_diff_begin(int32_t step); /* a resync: this machine's own state of step kept (before the host's is put in) */
+void rbs_diff_end(int step);       /* and what differs from the host's, logged by name */
 void rbs_hash_dump(const char *path); /* tests: every hashed word to a file */
 void rbs_span_hashes(FILE *f, int32_t step); /* tests: each hashed span's hash */ /* tests: each kept block's hash and the guest regions', one line */     /* a round starts: the states kept are the round before's, none to go back to */
 

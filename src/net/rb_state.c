@@ -123,9 +123,18 @@ uint64_t vp_gv(void);
 static void set_gv(uint64_t gv) { M.vblank_offset = M.vblanks - gv; }
 static uint64_t gv_of(int32_t step) { return gv_tag[(uint32_t)step % SLOTS] == step ? gv_at[(uint32_t)step % SLOTS] : vp_gv(); }
 static int step_ran; /* a live step ran in this iteration of the main loop */
+extern int32_t rbs_step_running;
 void rbs_live_step(void) /* (hle_SetFrameStart: a live step's) */
 {
     if (!rbs_resimulating) step_ran = 1;
+    static long poke_at = -2; /* tests: TM2PC_NET_TEST_POKE=N, at this machine's live step N human 1's health 10 lower
+                               * (a real difference: the resync's log names it) */
+    if (poke_at == -2) poke_at = getenv("TM2PC_NET_TEST_POKE") ? atol(getenv("TM2PC_NET_TEST_POKE")) : -1;
+    if (poke_at >= 0 && !rbs_resimulating && rbs_step_running == poke_at) {
+        mem_w16(&M.cpu, HUMAN_REC(0) + 0x1F0, (uint16_t)(mem_r16(&M.cpu, HUMAN_REC(0) + 0x1F0) - 10));
+        fprintf(stderr, "test: human 1's health 10 lower at step %ld\n", poke_at);
+        poke_at = -1;
+    }
 }
 
 /* The models' mutable node fields (portDmdMutableList, decomp ONLINE_ROLLBACK.md 15.1): every root of every model
@@ -684,4 +693,126 @@ void rbs_pose_check(int resim)
                 resim ? " (run again)" : "", k, type, life, mem_r32(&M.cpu, r + 0x34), t, (int32_t)mem_r32(&M.cpu, t),
                 (int32_t)mem_r32(&M.cpu, t + 4), (int32_t)mem_r32(&M.cpu, t + 8));
     }
+}
+
+/* ---- What differs from the host's state (a resync: Terror's and Blues's "Connection trouble" every few steps) ----
+ * Before the host's state is put in place, this machine at the same step: its hashed words (the spans, less each
+ * machine's own words, as rbs_hash takes them), the port's random number and the models' node fields kept; after it,
+ * compared, and the words that differ logged by name (a car record and its offset, else the nearest symbol), a few
+ * a resync and only the first resyncs of a match, so a player's log says what went another way on this machine. */
+extern const struct { const char *name; uint32_t addr; } rc_port_symbols[];
+extern const unsigned rc_port_symbol_count;
+static uint8_t *dif_mine;
+static size_t dif_len, dif_cap;
+static int dif_on;
+static void dif_name(uint32_t a, char *out, size_t n)
+{
+    if (a >= HUMAN_REC(0) && a < HUMAN_REC(CARS_HUMANS_MAX)) {
+        snprintf(out, n, "human %u +0x%X", (a - HUMAN_REC(0)) / HUMAN_REC_SIZE + 1, (a - HUMAN_REC(0)) % HUMAN_REC_SIZE);
+        return;
+    }
+    uint32_t ai0 = AI_REC(0), ai1 = AI_REC(cars_ai_max());
+    if (a >= ai0 && a < ai1) { snprintf(out, n, "computer car %u +0x%X", (a - ai0) / AI_REC_SIZE, (a - ai0) % AI_REC_SIZE); return; }
+    const char *best = NULL;
+    uint32_t at = 0;
+    for (unsigned i = 0; i < rc_port_symbol_count; i++)
+        if (rc_port_symbols[i].name && rc_port_symbols[i].addr <= a && rc_port_symbols[i].addr >= at) best = rc_port_symbols[i].name, at = rc_port_symbols[i].addr;
+    if (best && a - at < 0x10000u) snprintf(out, n, "%s +0x%X", best, a - at);
+    else snprintf(out, n, "%08X", a);
+}
+/* step: the host's state's (this machine's own of that step, from the states kept for rollback; it may be steps on) */
+void rbs_diff_begin(int32_t step)
+{
+    dif_on = 0;
+    if (!syms()) return;
+    const State *s = &st[(uint32_t)step % SLOTS];
+    if (s->step != step) { fprintf(stderr, "network: step %d: this machine's own state of it is gone (not compared)\n", (int)step); return; }
+    static uint8_t *img; /* (this machine's RAM at that step's start, where the kept regions say) */
+    if (!img && !(img = calloc(1, GUEST_RAM_BYTES))) return;
+    const uint8_t *r = s->b;
+    for (unsigned i = 0; i < rc_rb_snap_count; i++) {
+        uint32_t a0 = rc_rb_snap[i].addr & 0x00FFFFFFu;
+        if (a0 + rc_rb_snap[i].size <= GUEST_RAM_BYTES) memcpy(img + a0, r, rc_rb_snap[i].size);
+        r += rc_rb_snap[i].size;
+    }
+    uint32_t rnd;
+    memcpy(&rnd, r, 4);
+    hspans_now();
+    size_t need = 8;
+    for (int i = 0; i < hspan_n; i++) need += hspan[i].n;
+    if (need > dif_cap) {
+        uint8_t *p = realloc(dif_mine, need);
+        if (!p) return;
+        dif_mine = p, dif_cap = need;
+    }
+    size_t o = 0;
+    for (int i = 0; i < hspan_n; i++) {
+        uint32_t a0 = hspan[i].a & 0x00FFFFFFu;
+        if (a0 + hspan[i].n <= GUEST_RAM_BYTES) memcpy(dif_mine + o, img + a0, hspan[i].n);
+        o += hspan[i].n;
+    }
+    memcpy(dif_mine + o, &rnd, 4), o += 4;
+    dif_len = o;
+    dif_on = 1;
+}
+void rbs_diff_end(int step)
+{
+    static int told;
+    if (!dif_on || told >= 6) return; /* (the first resyncs of the match: enough to see what goes another way) */
+    dif_on = 0;
+    hspans_now();
+    /* by the table's hash rows (one line each: how many words, the first), the cars' records by field */
+    static int *row_n;
+    static uint32_t *row_first, *row_mine, *row_host;
+    if (!row_n) {
+        row_n = calloc(rc_rb_hash_count, sizeof *row_n);
+        row_first = calloc(rc_rb_hash_count, 4), row_mine = calloc(rc_rb_hash_count, 4), row_host = calloc(rc_rb_hash_count, 4);
+        if (!row_n || !row_first || !row_mine || !row_host) return;
+    }
+    memset(row_n, 0, rc_rb_hash_count * sizeof *row_n);
+    int total = 0, cars = 0;
+    uint32_t hum_lo = HUMAN_REC(0), hum_hi = HUMAN_REC(CARS_HUMANS_MAX), ai0 = AI_REC(0), ai1 = AI_REC(cars_ai_max());
+    size_t o = 0;
+    char name[96];
+    unsigned row = 0;
+    for (int i = 0; i < hspan_n && o + hspan[i].n <= dif_len; i++) {
+        const uint8_t *b = mem_direct(&M.cpu, hspan[i].a, (int)hspan[i].n);
+        for (uint32_t k = 0; k < hspan[i].n; k += 4) {
+            uint32_t a = hspan[i].a + k, mine, host;
+            memcpy(&mine, dif_mine + o + k, 4), memcpy(&host, b + k, 4);
+            if (a >= hum_lo && a < hum_hi) {
+                uint32_t off = (a - hum_lo) % HUMAN_REC_SIZE;
+                mine = human_rec_state_word(off, mine), host = human_rec_state_word(off, host);
+            }
+            if (mine == host) continue;
+            if (!total) fprintf(stderr, "network: step %d, what differed from the host's state here (build %s):\n", step, TM2PC_VERSION);
+            total++;
+            if (((a >= hum_lo && a < hum_hi) || (a >= ai0 && a < ai1)) && cars < 16) { /* (each car field: the likeliest start) */
+                dif_name(a, name, sizeof name);
+                fprintf(stderr, "network:   %s: this machine %08x, the host %08x\n", name, mine, host);
+                cars++;
+            }
+            if (!(rc_rb_hash[row].addr <= a && a < rc_rb_hash[row].addr + rc_rb_hash[row].size))
+                for (row = 0; row < rc_rb_hash_count; row++)
+                    if (rc_rb_hash[row].addr <= a && a < rc_rb_hash[row].addr + rc_rb_hash[row].size) break;
+            if (row >= rc_rb_hash_count) { row = 0; continue; }
+            if (!row_n[row]++) row_first[row] = a, row_mine[row] = mine, row_host[row] = host;
+        }
+        o += hspan[i].n;
+    }
+    int lines = 0;
+    for (unsigned r = 0; r < rc_rb_hash_count && lines < 40; r++) {
+        if (!row_n[r]) continue;
+        dif_name(row_first[r], name, sizeof name);
+        fprintf(stderr, "network:   %08X (%u bytes): %d words, the first %s (%08X) this machine %08x, the host %08x\n",
+                rc_rb_hash[r].addr, rc_rb_hash[r].size, row_n[r], name, row_first[r], row_mine[r], row_host[r]);
+        lines++;
+    }
+    uint32_t r_mine;
+    if (o + 4 <= dif_len) {
+        memcpy(&r_mine, dif_mine + o, 4);
+        if (r_mine != mem_r32(&M.cpu, PORT_RAND)) { total++; fprintf(stderr, "network:   the port's random number: this machine %08x, the host %08x\n", r_mine, mem_r32(&M.cpu, PORT_RAND)); }
+    }
+    if (total) { told++; fprintf(stderr, "network: step %d: %d words differed\n", step, total); }
+    else fprintf(stderr, "network: step %d: the host's state the same as this machine's here (what differed was before, or outside the step)\n", step);
 }
