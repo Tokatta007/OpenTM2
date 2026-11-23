@@ -11646,6 +11646,7 @@ static void net_play(CPU *c, int resume)
             const uint32_t S = GA(0x8016475Cu);
             four_setup(0, -1, -1);
             if (net_match_game == NET_GAME_TOURNAMENT && !net_match_custom) { /* the co-op tournament: level 1, every level from the host's state */
+                if (getenv("TM2PC_NET_TOUR_LEVEL")) net_match_level = atoi(getenv("TM2PC_NET_TOUR_LEVEL")); /* tests: from this level (every machine) */
                 guest_call(GA(0x80137930u), S, 2, 0, 0);
                 guest_call(GA(0x80137900u), S, 0, 0, 0);
                 guest_call(GA(0x801378B4u), S, 0, 0, 0);

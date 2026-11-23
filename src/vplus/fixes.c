@@ -6327,6 +6327,33 @@ void vp_ViewSetBgColor(CPU *c)
     F_8015659C_orig(c);
 }
 
+/* A debris burst whose pieces' models are not in RAM (or not models): not drawn. fxDebrisDraw (8014C19C) walks each
+ * piece's model's primitives; a model pointer gone bad (a co-op tournament's next level, Phoenix's 2026-11-22: reads at
+ * FFFFFF0D, FFFFFF02 for ever) gave it billions of them and the game froze. Drawing only: the burst's record is left
+ * as it is. Burst +4 the pieces' count, +0xE8 the pieces (20 bytes: model, x, y, z, shift); a model +4 vertices,
+ * +8 normals, +12 primitives, +16 their count. */
+void F_8014C19C_orig(CPU *c);
+static int debris_ram(uint32_t p) { return p >= 0x80000000u && p < 0x80000000u + GUEST_RAM_BYTES; }
+void vp_FxDebrisDraw(CPU *c)
+{
+    uint32_t obj = c->r[5];
+    int ok = debris_ram(obj);
+    int32_t n = ok ? (int32_t)mem_r32(c, obj + 4) : 0;
+    if (n < 0 || n > 256) ok = 0;
+    for (int32_t i = 0; ok && i < n; i++) {
+        uint32_t model = mem_r32(c, obj + 0xE8 + 20u * (uint32_t)i);
+        if (!debris_ram(model) || !debris_ram(model + 16) || !debris_ram(mem_r32(c, model + 4)) ||
+            !debris_ram(mem_r32(c, model + 8)) || !debris_ram(mem_r32(c, model + 12)) || mem_r32(c, model + 16) > 4096)
+            ok = 0;
+    }
+    if (!ok) {
+        static int told;
+        if (told++ < 3) fprintf(stderr, "debris: a burst at %08x with a bad model (%d pieces): not drawn\n", obj, (int)n);
+        return;
+    }
+    F_8014C19C_orig(c);
+}
+
 /* ---- Burning wrecks: kept as the original keeps them ----
  * carWreckUpdate (800E75F4, decomp car_crash.c) keeps a computer car's burning wreck only while the car's target is
  * within 4320 of it, else blows it up at once. Retail's target is the nearest player; the port's targeting (computer
