@@ -416,16 +416,6 @@ static void apply(const Poses *a, const Poses *b, double t)
 typedef struct { uint32_t rec; uint8_t saved[0x80]; } Rec;
 static Rec recs[5];
 static int rec_n;
-/* the one-view mirror's record for a frame in between: online, mirrors_rear_pair leaves the game's pointer on the other
- * record (the game's drawing flips it first, so the step frame's mirror is in view 1's buffer); this drawing does no
- * flip, so the pointer as it is drew the mirror into the buffer not shown: the mirror empty two frames of three at 60
- * FPS online (Enough Boxes, v1.0.13). The record of view 1's own parity, as the step frame's after its flip. */
-static uint32_t mirror_rec(CPU *c, uint32_t slot)
-{
-    int netplay_rollback(void), netplay_on(void);
-    if (!(netplay_rollback() && netplay_on())) return mem_r32(c, SLOT_MIRROR);
-    return VIEW0_FRAMES + 0x200u + (slot == VIEW0_FRAMES ? 0u : 0x80u);
-}
 static uint32_t take_rec(uint32_t rec, uint32_t twin)
 {
     Rec *r = &recs[rec_n];
@@ -561,7 +551,7 @@ static void redraw(const Poses *ea, const Poses *eb, const Poses *la, const Pose
              * parity: online its pairing is the game's (mirrors_rear_pair: view 1's first record, the mirror's second),
              * and by view 1's parity the twin was the mirror's own record: each frame in between wrote over the packets
              * it was to show (garbage, slower and slower, then a crash at 60 FPS and uncapped: Slick's, 2026-11-22) */
-            uint32_t mslot = mirror_rec(c, slot);
+            uint32_t mslot = mem_r32(c, SLOT_MIRROR);
             draw_view(take_rec(mslot, mslot == VIEW0_FRAMES + 0x200u ? VIEW0_FRAMES + 0x280u : VIEW0_FRAMES + 0x200u), 1, r0);
             for (int h = 0; blend && h < humans && h < MOTION_HUMANS; h++) {
                 uint32_t r = HUMAN_REC(h) + 0x6DC;
@@ -582,7 +572,7 @@ static void redraw(const Poses *ea, const Poses *eb, const Poses *la, const Pose
         else guest_call(GA(0x800F8370u), 0, first, 0, 0);        /* hudDrawSingleView */
     }
     if (mirror) {
-        uint32_t rm = mirror_rec(c, slot);
+        uint32_t rm = mem_r32(c, SLOT_MIRROR);
         guest_call(GA(0x80141AA4u), rm + 0x10, 0, 0, 0);
         guest_call(GA(0x80141A30u), mem_r32(c, rm) + 4095u * 4, 0, 0, 0);
     }
