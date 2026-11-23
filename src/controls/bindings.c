@@ -105,6 +105,12 @@ void bind_set_analog_steer(int player, int on) { if (player >= 0 && player <= 3)
 int bind_steer_keep(int player) { return player >= 0 && player <= 3 && steer_keep[player]; }
 void bind_set_steer_keep(int player, int on) { if (player >= 0 && player <= 3) steer_keep[player] = on != 0; }
 int bind_jump_combo(int player) { return player >= 0 && player <= 3 && jump_combo[player]; }
+/* with L1 + R1 jump: a lone shoulder's weapon switch waits this many game steps (0 off, 1-3: 50, 100, 150 ms) for the
+ * other shoulder (then a jump, no switch) */
+static int jump_safety[4] = {1, 1, 1, 1};
+static const char *const jump_safety_keys[4] = {"off", "50", "100", "150"};
+int bind_jump_safety(int player) { return player >= 0 && player <= 3 ? jump_safety[player] : 0; }
+void bind_set_jump_safety(int player, int v) { if (player >= 0 && player <= 3 && v >= 0 && v <= 3) jump_safety[player] = v; }
 void bind_set_jump_combo(int player, int on) { if (player >= 0 && player <= 3) jump_combo[player] = on != 0; }
 int bind_easy_energy(int player) { return player >= 0 && player <= 3 && easy_energy[player]; }
 void bind_set_easy_energy(int player, int on) { if (player >= 0 && player <= 3) easy_energy[player] = on != 0; }
@@ -259,6 +265,10 @@ int bind_ini_key(const char *key, const char *val)
     if ((key[0] == 'p') && key[1] >= '1' && key[1] <= '4' && key[2] == '_') {
         int p = key[1] - '1', on = !strcmp(val, "yes") || !strcmp(val, "on") || !strcmp(val, "1");
         if (!strcmp(key + 3, "jump_l1_r1")) { jump_combo[p] = on; return 1; }
+        if (!strcmp(key + 3, "jump_safety")) { /* off, 50, 100, 150 (ms) */
+            for (int v = 0; v < 4; v++) if (!strcmp(val, jump_safety_keys[v])) jump_safety[p] = v;
+            return 1;
+        }
         if (!strcmp(key + 3, "energy_dpad")) { easy_energy[p] = on; return 1; }
         if (!strcmp(key + 3, "analog_steering")) { analog_steer[p] = on; return 1; }
         if (!strcmp(key + 3, "no_backwards_steering")) { steer_keep[p] = on; return 1; }
@@ -353,6 +363,8 @@ void bind_ini_write(FILE *f)
             easy_energy[1] ? "yes" : "no", analog_steer[1] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "p2_no_backwards_steering = %s\n", steer_keep[1] ? "yes" : "no");
+    fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
+               "p2_jump_safety = %s\n", jump_safety_keys[jump_safety[1]]);
 }
 
 /* ---- player 1's, in the profile ---- */
@@ -370,6 +382,7 @@ void bind_player1_defaults(void)
     memset(energy_button[0], 0, sizeof energy_button[0]);
     memset(energy_key[0], 0, sizeof energy_key[0]);
     jump_combo[0] = easy_energy[0] = 0;
+    jump_safety[0] = 1;
     analog_steer[0] = 1;
     steer_keep[0] = 1;
     extra_key[0] = SDL_SCANCODE_PAGEDOWN;
@@ -389,6 +402,7 @@ void bind_player2_defaults(void)
     memset(energy_key[1], 0, sizeof energy_key[1]);
     settings_game.keypad[1] = 0;
     jump_combo[1] = easy_energy[1] = 0;
+    jump_safety[1] = 1;
     analog_steer[1] = 1;
     steer_keep[1] = 1;
 }
@@ -408,6 +422,8 @@ void bind_profile_write_p2(FILE *f)
             easy_energy[1] ? "yes" : "no", analog_steer[1] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "no_backwards_steering = %s\n", steer_keep[1] ? "yes" : "no");
+    fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
+               "jump_safety = %s\n", jump_safety_keys[jump_safety[1]]);
 }
 
 int bind_profile_key_p2(const char *key, const char *val)
@@ -434,6 +450,7 @@ void bind_player_defaults(int p)
     memset(energy_button[p], 0, sizeof energy_button[p]);
     keypad34[p - 2] = 0;
     jump_combo[p] = easy_energy[p] = 0;
+    jump_safety[p] = 1;
     analog_steer[p] = 1;
     steer_keep[p] = 1;
 }
@@ -487,6 +504,8 @@ void bind_profile_write(FILE *f)
             easy_energy[0] ? "yes" : "no", analog_steer[0] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "no_backwards_steering = %s\n", steer_keep[0] ? "yes" : "no");
+    fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
+               "jump_safety = %s\n", jump_safety_keys[jump_safety[0]]);
 }
 
 /* sub_801206F4(layout, port), wrapped: the player's own buttons on top. */

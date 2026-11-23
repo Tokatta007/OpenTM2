@@ -192,10 +192,13 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
         mem_w16(&M.cpu, a_pad + 2u * (uint32_t)h, (uint16_t)((held >> 8) | (held << 8))); /* padButtonsDecoded's half layout */
         uint32_t steer = killcam_input(1, h, L >= 0 ? (uint32_t)input_steer_amount(L) : 4096u);
         if (a_steer) mem_w16(&M.cpu, a_steer + 2u * (uint32_t)h, (uint16_t)steer);
-        /* the easy energy buttons, and bit 0 the player's L1 + R1 jump, bit 1 their steering in reverse "like the screen"
-         * (their controls' choices, in the input: every machine and every re-run the same) */
+        /* the easy energy buttons, and bit 0 the player's L1 + R1 jump, bit 1 their steering in reverse "like the screen",
+         * bits 2-3 their jump's weapon switch safety (0 off, 1-3 steps) (their controls' choices, in the input: every
+         * machine and every re-run the same) */
+        int bind_jump_safety(int player);
         easy[h] = (uint16_t)killcam_input(2, h, L >= 0 ? (uint32_t)(input_easy_buttons(L) | (bind_jump_combo(L) ? 1 : 0) |
-                                                                    (bind_steer_keep(L) ? 2 : 0)) : 0);
+                                                                    (bind_steer_keep(L) ? 2 : 0) |
+                                                                    (uint32_t)(bind_jump_safety(L) & 3) << 2) : 0);
         if (a_control) mem_w8(&M.cpu, a_control + (uint32_t)h, (uint8_t)((mem_r8(&M.cpu, a_control + (uint32_t)h) & ~1u) | ((easy[h] >> 1) & 1)));
     }
 }

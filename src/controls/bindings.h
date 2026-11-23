@@ -64,6 +64,8 @@ void bind_set_pad_type(int player, int type);
  * fire, Left mines, Right shield; steering then on the stick only). */
 int bind_jump_combo(int player);
 void bind_set_jump_combo(int player, int on);
+int bind_jump_safety(int player);            /* L1 + R1 jump's weapon switch wait: 0 off, 1-3 steps (50-150 ms) */
+void bind_set_jump_safety(int player, int v);
 int bind_easy_energy(int player);
 int bind_analog_steer(int player);   /* the stick turns as far as it is tilted (on by default) */
 void bind_set_analog_steer(int player, int on);

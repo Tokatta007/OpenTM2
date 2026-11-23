@@ -882,7 +882,10 @@ static int get_analog_steer(int p) { return bind_analog_steer(p); }
 static int get_steer_keep(int p) { return bind_steer_keep(p); }
 static void set_steer_keep(int p, int v) { bind_set_steer_keep(p, v); changed |= SAVE_CONTROLS; }
 static void set_analog_steer(int p, int v) { bind_set_analog_steer(p, v); changed |= SAVE_CONTROLS; }
-static void set_jump_combo(int p, int v) { bind_set_jump_combo(p, v); changed |= SAVE_CONTROLS; }
+static void set_jump_combo(int p, int v) { bind_set_jump_combo(p, v); changed |= SAVE_CONTROLS; rebuild_page = 1; } /* (its safety row) */
+static const char *const jump_safety_values[] = {"OFF", "50 MS", "100 MS", "150 MS"};
+static int get_jump_safety(int p) { return bind_jump_safety(p); }
+static void set_jump_safety(int p, int v) { bind_set_jump_safety(p, v); changed |= SAVE_CONTROLS; }
 static int get_easy_energy(int p) { return bind_easy_energy(p); }
 static void set_easy_energy(int p, int v) { bind_set_easy_energy(p, v); changed |= SAVE_CONTROLS; }
 static const char *const draw_distance_values[] = {"ORIGINAL", "FAR", "FARTHEST"};
@@ -4979,6 +4982,10 @@ static void build(PageId page)
                    get_steer_keep, set_steer_keep, p, onoff_values, 2)->small = 1;
         add_choice("Jump on L1 + R1", "Press L1 and R1 together to jump, as well as with its button code.", get_jump_combo,
                    set_jump_combo, p, onoff_values, 2)->small = 1;
+        if (bind_jump_combo(p)) /* (only with the jump on: it is its safety) */
+            add_choice("Jump-Weapon Switch Safety", "A lone L1 or R1 waits this long for the other before switching weapons. "
+                       "Both in time: a jump, no switch. Off: switches at once.", get_jump_safety, set_jump_safety, p,
+                       jump_safety_values, 4)->small = 1;
         add_choice("Easy Energy Attacks", "Up freeze, Down rear fire, Left mines, Right shield. Steer with the stick.",
                    get_easy_energy, set_easy_energy, p, onoff_values, 2)->small = 1;
         add_choice("Layout", "The game's button layout. Changing it resets this player's controller buttons.",
