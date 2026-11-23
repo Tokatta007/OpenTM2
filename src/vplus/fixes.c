@@ -6327,6 +6327,34 @@ void vp_ViewSetBgColor(CPU *c)
     F_8015659C_orig(c);
 }
 
+/* The drawing's state when an order table first goes wrong (runtime/gpu.c: a list that loops; the players' broken
+ * pictures and freezes online, 2026-11-22: Ryupichu, Slick, Phoenix, Da Toasty Mane): once a run, so a log says
+ * which frame record the list was, how full each record's packets were, whether steps were being run again, a frame in
+ * between drawn, the mirror on. Records (renderView0Frames, 6 of 0x80: +0 the order table, +4 / +8 / +C the packet
+ * pointers), the three slots drawn into (D_80180EE4, renderBufferView1, renderBufferRearView). */
+void vp_draw_report(uint32_t madr, const char *why)
+{
+    static int told;
+    if (told++) return;
+    int interp_redrawing(void), netplay_in_match(void), netplay_rollback(void), four_views(void);
+    extern int rbs_resimulating;
+    extern int32_t rbs_step_running;
+    fprintf(stderr, "draw: %s (list %08X) at VBlank %llu: step %d%s%s%s%s, %d views, mirror %u (allowed %u)\n", why, madr,
+            (unsigned long long)M.vblanks, (int)rbs_step_running, rbs_resimulating ? ", steps being run again" : "",
+            interp_redrawing() ? ", a frame in between" : "", netplay_in_match() ? (netplay_rollback() ? ", online" : ", online lockstep") : "",
+            feats_in_battle() ? ", in a battle" : "", four_views(), mem_r32(&M.cpu, GA(0x801809DCu)), mem_r32(&M.cpu, GA(0x801809E0u)));
+    uint32_t recs = GA(0x8018118Cu);
+    fprintf(stderr, "draw:   drawn into: view 0 %08X, view 1 %08X, mirror %08X\n", mem_r32(&M.cpu, GA(0x80180EE4u)),
+            mem_r32(&M.cpu, GA(0x80180EE4u) + 4), mem_r32(&M.cpu, GA(0x80180EE4u) + 8));
+    static const char *const names[6] = {"view 0 A", "view 0 B", "view 1 A", "view 1 B", "mirror A", "mirror B"};
+    for (uint32_t k = 0; k < 6; k++) {
+        uint32_t r = recs + 0x80u * k, ot = mem_r32(&M.cpu, r);
+        fprintf(stderr, "draw:   %s %08X: order table %08X, packets %08X %08X %08X%s\n", names[k], r, ot, mem_r32(&M.cpu, r + 4),
+                mem_r32(&M.cpu, r + 8), mem_r32(&M.cpu, r + 12), (ot & 0x1FFFFFFFu) <= (madr & 0x1FFFFFFFu) &&
+                (madr & 0x1FFFFFFFu) < (ot & 0x1FFFFFFFu) + 0x4000u ? "  <- this list's" : "");
+    }
+}
+
 /* A debris burst whose pieces' models are not in RAM (or not models): not drawn. fxDebrisDraw (8014C19C) walks each
  * piece's model's primitives; a model pointer gone bad (a co-op tournament's next level, Phoenix's 2026-11-22: reads at
  * FFFFFF0D, FFFFFF02 for ever) gave it billions of them and the game froze. Drawing only: the burst's record is left
