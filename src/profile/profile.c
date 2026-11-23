@@ -85,7 +85,13 @@ static int shared_count(void)
 {
     /* TM2PC_UNLOCK_ALL (tests: tm2pc-unlocked.bat): every driver, Dark Tooth and the secret arenas offered, nothing
      * written to the profile (its endings stay its own) */
-    if (getenv("TM2PC_UNLOCK_ALL")) return PROFILE_CHARACTERS;
+    static int all = -1; /* (cached: asked every frame) */
+    if (all < 0) all = getenv("TM2PC_UNLOCK_ALL") != NULL;
+    if (all) return PROFILE_CHARACTERS;
+    /* Network Play (the community's idea, the user's 2026-11-23): Sweet Tooth, Minion, Dark Tooth and the three secret
+     * arenas open for everyone online, whoever has earned them; Local Play keeps each profile's own */
+    int ui_online(void); /* ui/options.c */
+    if (ui_online()) return PROFILE_CHARACTERS;
     int n = 0;
     for (int i = 0; i < PROFILE_CHARACTERS; i++) n += shared_ending(i);
     return n;

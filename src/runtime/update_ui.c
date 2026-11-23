@@ -54,6 +54,11 @@ static void draw(Image *im, float scale, Uint64 t0)
 
 void update_pregame(const char *base)
 {
+    /* online, this build's id is a hash of the executable's file: taken now, before an update can replace the file.
+     * Updated from Options and not restarted, the game read the new file later and joined servers of the new version
+     * while still running the old one (Skull Servant's v1.0.11 log: "this is v1.0.10", "v1.0.11 in place", then online) */
+    uint32_t lobby_build_id(void); /* net/lobby.c */
+    lobby_build_id();
     update_start(base);
     Uint64 t0 = SDL_GetTicks();
     while (update_state() == UPDATE_CHECKING && SDL_GetTicks() - t0 < 4000) SDL_Delay(20); /* (a slow answer: the game

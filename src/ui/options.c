@@ -2407,6 +2407,9 @@ static int net_voice_mode = 1;      /* this player's voice chat: off, push to ta
 static int net_car[4] = {-1, -1, -1, -1}; /* the local players' cars on the server (the game's numbers; -1 random) */
 static int net_carsel;              /* the game's car select opened from the lobby: back to it after */
 int ui_net_carsel(void) { return net_carsel; } /* (vplus/mod_cars.c: no skins online) */
+/* Network Play: making a server's game, in a server, or a match from one (profile.c: every character and secret arena
+ * unlocked there, the same for everyone; the title's Network Play exit clears both flags) */
+int ui_online(void) { return net_hosting || net_in_server || netplay_lobby() != NULL; }
 static int net_carsel_host_game;    /* (a joiner) car select under the host's game */
 static int net_return;              /* the title: straight back to the lobby (after car select) */
 static int net_ready[4];            /* the local players who chose their car (their cells solid) */
@@ -2858,8 +2861,10 @@ static int net_sync(void)
                                           "The server cannot be reached.", "You were removed from the server.",
                                           "Wrong password. This server is private: choose it in the server list to type its password."};
         if (st >= LOBBY_REFUSED_BUILD && why[st]) {
-            net_chat_add("SERVER", why[st]);
-            fprintf(stderr, "network: %s\n", why[st]);
+            const char *say = st == LOBBY_REFUSED_BUILD && update_state() == UPDATE_READY /* (updated, not restarted) */
+                                  ? "The new version is in place: restart the game to play online." : why[st];
+            net_chat_add("SERVER", say);
+            fprintf(stderr, "network: %s\n", say);
             netplay_leave();
             net_in_server = 0;
             net_server.host = 0;
@@ -3883,7 +3888,11 @@ static int net_action(int act, int arg)
     case ACT_NET_JOIN: {
         const NetServer *s = &net_list[arg % NET_SERVERS_MAX];
         if (s->addr[0]) { /* a real server (LAN) */
-            if (s->other_build) { net_chat_add("SERVER", "That server runs another version of the game."); return NET_REBUILD; }
+            if (s->other_build) {
+                net_chat_add("SERVER", update_state() == UPDATE_READY ? "The new version is in place: restart the game to play online."
+                                                                      : "That server runs another version of the game.");
+                return NET_REBUILD;
+            }
             char where[64];
             snprintf(where, sizeof where, "%s:%d", s->addr, s->port);
             if (s->locked) { /* a private server: its password first (the name grid), then the join (net_named 9) */
