@@ -88,6 +88,7 @@ void bind_player2_defaults(void);
 void bind_player_defaults(int p);                           /* players 3-4 (p 2-3) */
 int bind_profile_key_p(int p, const char *key, const char *val);
 int bind_layout(int player);                                /* the keypad layout 0-3 */
+enum { BIND_APPLY_BARE = 9 };                              /* bind_apply_as: the layout alone (no one's own buttons) */
 void bind_apply_as(int player);                             /* -1, or a player's buttons in the next layout apply */
 int bind_profile_key_p2(const char *key, const char *val);
 void bind_profile_write_p2(FILE *f);

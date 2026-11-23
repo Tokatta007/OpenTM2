@@ -3859,7 +3859,9 @@ void vp_MoveCodes(CPU *c)
     int p = who;
     if (p < 0 || p > (on ? 15 : 3)) return;
     uint16_t easy = on ? humans_easy(p) : (uint16_t)killcam_input(2, p, input_easy_buttons(p)), pressed = (uint16_t)(easy & ~prev_easy[p]);
-    uint16_t pad = on ? humans_held(p) : p < 2 ? (uint16_t)~M.pad_buttons[p] : (uint16_t)killcam_input(0, p, input_player_bits(p)),
+    /* (the controller's own Select, L1 and R1: the jump and Select's buttons, whatever actions the player gave them; the
+     * input word has each action's Standard button, vplus/humans.c) */
+    uint16_t pad = on ? (uint16_t)((easy & EASY_SELECT ? 0x0001 : 0) | (easy & EASY_L1 ? 0x0400 : 0) | (easy & EASY_R1 ? 0x0800 : 0)) : p < 2 ? (uint16_t)~M.pad_buttons[p] : (uint16_t)killcam_input(0, p, input_player_bits(p)),
              new_pad = (uint16_t)(pad & ~prev_pad[p]); /* set = held */
     int killcam_battle_frame(void); /* vplus/killcam.c */
     if (rf < 6 && !getenv("TM2PC_NO_START_GUARD")) pressed = 0, new_pad = 0; /* a battle's first frames: buttons held from before (the

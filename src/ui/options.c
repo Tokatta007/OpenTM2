@@ -9267,6 +9267,9 @@ static int run(PageId start)
         profile_save(); /* player 1's controls are the profile's */
         profile_p2_save(); /* and player 2's, when signed in */
         fprintf(stderr, "options: saved profile %s\n", profile_name());
+        void humans_controls_changed(void); /* vplus/humans.c: the new buttons from the next step on (a battle: no restart,
+                                             * Tegu's 2026-11-23; online too: only this PC turns its buttons into actions) */
+        humans_controls_changed();
     }
     if (changed & SAVE_VIDEO)
         video_settings_changed();

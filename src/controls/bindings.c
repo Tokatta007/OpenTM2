@@ -516,7 +516,7 @@ void bind_LayoutApply(CPU *c)
 {
     uint32_t port = c->r[5];
     F_801206F4_orig(c);
-    if (port > 1)
+    if (port > 1 || apply_as == BIND_APPLY_BARE) /* (the bare layout: vplus/humans.c's shared table, no one's own buttons) */
         return;
     int who = apply_as >= 0 && apply_as <= 3 ? apply_as : (int)port;
     /* every action the player chose, and the weapon cycling's two always: the port's defaults are not the game's */

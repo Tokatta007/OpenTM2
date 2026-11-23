@@ -11,6 +11,7 @@
 #include "../runtime/runtime.h"
 #include "vplus.h"
 #include "cars.h"
+#include "../controls/bindings.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -104,11 +105,11 @@ int humans_of_slot(int L)
     return -1;
 }
 int humans_view_human(int view) { int h = humans_of_slot(view); return h < 0 ? 0 : h; }
-void humans_set_table(int h, const uint8_t t[128]) /* another machine's player's button table (online) */
+void humans_set_table(int h, const uint8_t t[128]) /* another machine's player's button table (online): not used any more,
+                                                   * every human plays with the bare Standard table (humans_frame) */
 {
-    if (h < 0 || h >= HUMANS_MAX) return;
-    memcpy(table[h], t, 128);
-    table_given[h] = 1;
+    (void)h;
+    (void)t;
 }
 void humans_clear_tables(void) { memset(table_given, 0, sizeof table_given); }
 /* local player L's button table: the game's for pad 0 as their layout and own buttons make it (padSetLayout 801206F4
@@ -139,10 +140,61 @@ static uint16_t local_pad(int L)
     return b;
 }
 
+/* Every human plays with one table, the Standard layout's alone, on every machine; a player's own layout and buttons
+ * are used only on their own machine, to turn the buttons they hold into the ones Standard has for the same actions
+ * (the players' 2026-11-23 idea: send what a press does, not which button). Before, each machine read every player's
+ * buttons through that player's own table, copied to it through the lobby: two copies that differed parted the games
+ * (Enough Boxes and Tegu: a re-sync every 8 steps on Roof Tops and Cyburbia), and a table could not change during a
+ * match. A player on Standard with no buttons of their own sends their buttons as they are. */
+static const uint16_t button_bit[17] = { /* padButtonHeld's buttons 1..14 (and the port's L3, R3 15-16): PS1 bits */
+    0, 0x0001, 0x0008, 0x0400, 0x0100, 0x0010, 0x0040, 0x0080, 0x0020, 0x0800, 0x0200, 0x1000, 0x4000, 0x8000, 0x2000,
+    0x0002, 0x0004};
+static uint8_t bare[128], own[4][128];
+static uint16_t bare_used, own_used[4];
+static int bare_ok, own_ok[4];
+/* the actions a human's word is read for (humanCarReadInput's ACTION(), decomp car_input.c; carReadMoveCodes' D-pad
+ * codes are 0x16-0x1B): only these turned. The table's other entries are the menus' (several share a button with
+ * these, Square both accelerate and a menu's: turned too, a moved accelerate's old button still drove) */
+static const uint8_t car_actions[] = {0x08, 0x09, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21,
+                                      0x31, 0x39, 0x3A, 0x3B, 0x3C};
+enum { CAR_ACTIONS = sizeof car_actions };
+static uint16_t buttons_used(const uint8_t t[128])
+{
+    uint16_t u = 0;
+    for (int i = 0; i < CAR_ACTIONS; i++) {
+        int b = t[car_actions[i]];
+        if (b >= 1 && b <= 16) u |= button_bit[b];
+    }
+    return u;
+}
+static void bare_table(uint8_t out[128]) /* the Standard layout's table, no one's own buttons */
+{
+    uint8_t act[128], conf[128];
+    for (uint32_t i = 0; i < 128; i++) { act[i] = mem_r8(&M.cpu, PAD_ACTIVE + i); conf[i] = mem_r8(&M.cpu, PAD_CONFIGURED + i); }
+    bind_apply_as(BIND_APPLY_BARE);
+    guest_call(GA(0x801206F4u), 0, 0, 0, 0);
+    bind_apply_as(-1);
+    for (uint32_t i = 0; i < 128; i++) out[i] = mem_r8(&M.cpu, PAD_ACTIVE + i);
+    for (uint32_t i = 0; i < 128; i++) { mem_w8(&M.cpu, PAD_ACTIVE + i, act[i]); mem_w8(&M.cpu, PAD_CONFIGURED + i, conf[i]); }
+}
+/* local player L's buttons held (PS1 bits, set = held) as Standard's: each action they hold, its Standard button; a
+ * button no action uses (in their table or Standard's) as it is */
+static uint16_t as_standard(int L, uint16_t mine)
+{
+    if (L < 0 || L > 3 || !own_ok[L] || !bare_ok) return mine;
+    uint16_t out = (uint16_t)(mine & ~(own_used[L] | bare_used));
+    for (int i = 0; i < CAR_ACTIONS; i++) {
+        int a = car_actions[i], b = own[L][a], s = bare[a];
+        if (b >= 1 && b <= 16 && (mine & button_bit[b]) && s >= 1 && s <= 16) out |= button_bit[s];
+    }
+    return out;
+}
+void humans_controls_changed(void) { memset(own_ok, 0, sizeof own_ok); } /* (Controls: at once, from the next step) */
+
 void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's frame): every human's word and tilt */
 {
     int battle = feats_in_battle();
-    if (!battle) { tables_n = 0; return; }
+    if (!battle) { tables_n = 0; memset(own_ok, 0, sizeof own_ok); return; } /* (each battle: its players' own tables again) */
     if (!syms()) return;
     int n = (int)mem_r32(&M.cpu, HUMAN_TOTAL);
     if (n < 0) n = 0;
@@ -150,26 +202,26 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
     mem_w32(&M.cpu, a_options, mem_r32(&M.cpu, a_options) | OPT_INPUT_ALL);
     for (int h = 0; h < HUMANS_MAX; h++) /* (1 + slot: this machine's; -1 another's or none) */
         mem_w8(&M.cpu, a_local + (uint32_t)h, (uint8_t)(h < n && humans_slot(h) >= 0 ? 1 + humans_slot(h) : 0xFF));
+    if (!bare_ok) { /* the one table every human plays with: the Standard layout alone */
+        bare_table(bare);
+        bare_used = buttons_used(bare);
+        bare_ok = 1;
+    }
+    for (int L = 0; L < 4; L++) /* this PC's players' own tables (to turn their buttons into actions); again after a
+                                 * change in Controls (humans_controls_changed: at once, the next step) */
+        if (!own_ok[L] && humans_of_slot(L) >= 0 && humans_of_slot(L) < n) {
+            humans_local_table(L, own[L]);
+            own_used[L] = buttons_used(own[L]);
+            own_ok[L] = 1;
+        }
     if (tables_n < n) { /* the button tables, once a battle (after sessionRun built them from the layouts); a player
-                         * dropping in, theirs when their record is there */
+                         * dropping in, theirs when their record is there: every human the bare Standard table, on every
+                         * machine (each player's own buttons are turned into it on their own machine, below) */
         int from = tables_n;
         tables_n = n;
         for (int h = from; h < n; h++) {
-            if (humans_slot(h) >= 0) {
-                uint8_t mine[128];
-                humans_local_table(humans_slot(h), mine);
-                if (map_set && table_given[h]) { /* (online: the lobby's copy, as the others have it) */
-                    int k = 0;
-                    while (k < 128 && mine[k] == table[h][k]) k++;
-                    if (k < 128)
-                        fprintf(stderr, "controls: human %d's buttons built here differ from the lobby's (action %02X: button %d "
-                                "here, %d sent): the lobby's kept\n", h + 1, k, mine[k], table[h][k]);
-                } else {
-                    memcpy(table[h], mine, 128);
-                    table_given[h] = 1;
-                }
-            }
-            else if (!table_given[h]) continue; /* (another machine's not sent: the layout's, as the C built it) */
+            memcpy(table[h], bare, 128);
+            table_given[h] = 1;
             for (uint32_t i = 0; i < 128; i++) mem_w8(&M.cpu, a_bindings + (uint32_t)h * 128 + i, table[h][i]);
         }
     }
@@ -187,18 +239,23 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
     }
     for (int h = 0; h < n; h++) {
         int L = humans_slot(h);
-        uint16_t raw = (uint16_t)killcam_input(0, h, L >= 0 ? local_pad(L) : 0xFFFFu); /* (active low) */
+        uint16_t mine = L >= 0 ? (uint16_t)~local_pad(L) : 0; /* (this PC's player: their buttons, set = held) */
+        uint16_t raw = (uint16_t)killcam_input(0, h, L >= 0 ? (uint16_t)~as_standard(L, mine) : 0xFFFFu); /* (active low) */
         uint16_t held = (uint16_t)~raw;
         mem_w16(&M.cpu, a_pad + 2u * (uint32_t)h, (uint16_t)((held >> 8) | (held << 8))); /* padButtonsDecoded's half layout */
         uint32_t steer = killcam_input(1, h, L >= 0 ? (uint32_t)input_steer_amount(L) : 4096u);
         if (a_steer) mem_w16(&M.cpu, a_steer + 2u * (uint32_t)h, (uint16_t)steer);
         /* the easy energy buttons, and bit 0 the player's L1 + R1 jump, bit 1 their steering in reverse "like the screen",
-         * bits 2-3 their jump's weapon switch safety (0 off, 1-3 steps) (their controls' choices, in the input: every
-         * machine and every re-run the same) */
+         * bits 2-3 their jump's weapon switch safety (0 off, 1-3 steps), and the controller's own Select, L1 and R1 held
+         * (EASY_SELECT, EASY_L1, EASY_R1: the jump and Select's buttons are those, whatever actions they have) (their
+         * controls' choices, in the input: every machine and every re-run the same) */
         int bind_jump_safety(int player);
         easy[h] = (uint16_t)killcam_input(2, h, L >= 0 ? (uint32_t)(input_easy_buttons(L) | (bind_jump_combo(L) ? 1 : 0) |
                                                                     (bind_steer_keep(L) ? 2 : 0) |
-                                                                    (uint32_t)(bind_jump_safety(L) & 3) << 2) : 0);
+                                                                    (uint32_t)(bind_jump_safety(L) & 3) << 2 |
+                                                                    (mine & 0x0001 ? EASY_SELECT : 0) |
+                                                                    (mine & 0x0400 ? EASY_L1 : 0) |
+                                                                    (mine & 0x0800 ? EASY_R1 : 0)) : 0);
         if (a_control) mem_w8(&M.cpu, a_control + (uint32_t)h, (uint8_t)((mem_r8(&M.cpu, a_control + (uint32_t)h) & ~1u) | ((easy[h] >> 1) & 1)));
     }
 }

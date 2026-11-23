@@ -116,3 +116,7 @@ void vp_ini_begin(void);
 void vp_ini_key(const char *key, const char *val);
 void vp_ini_end(void);
 void vp_ini_write(FILE *f);
+
+/* vplus/humans.c: a human's easy-energy input word, besides the energy buttons (0x10-0x80, 0x100) and the choices in
+ * bits 0-3: the controller's own Select, L1 and R1 held (the input word has each action's Standard button instead) */
+enum { EASY_SELECT = 0x200, EASY_L1 = 0x400, EASY_R1 = 0x800 };
