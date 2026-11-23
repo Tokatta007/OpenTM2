@@ -1621,16 +1621,22 @@ void vp_HumanCarNearest(CPU *c)
         for (int i = 0; i < humans && i < CARS_HUMANS_MAX && mine < 0; i++)
             if (pos == HUMAN_REC(i) + 0x6FC) mine = team_of_human(i);
         if (mine >= 0) {
-            int best = -1;
-            int32_t bd = 0;
-            for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++) {
-                if (i == exclude || team_of_human(i) == mine || mem_r8(c, HUMAN_REC(i) + 0x9C)) continue;
-                int32_t dx = (int32_t)mem_r32(c, pos) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x6FC);
-                int32_t dy = (int32_t)mem_r32(c, pos + 4) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x700);
-                int32_t d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
-                if (best < 0 || d < bd) { best = i; bd = d; }
+            /* an enemy player alive first; else any enemy player (a wreck, one out: harmless, never a teammate: the
+             * game's answer, the nearest player of any team, sent teammates' missiles at the player while every enemy
+             * computer car was down, KinggzZ's 2026-11-23 report) */
+            for (int any = 0; any < 2; any++) {
+                int best = -1;
+                int32_t bd = 0;
+                for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++) {
+                    if (i == exclude || team_of_human(i) == mine) continue;
+                    if (!any && (mem_r8(c, HUMAN_REC(i) + 0x9C) || (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0)) continue;
+                    int32_t dx = (int32_t)mem_r32(c, pos) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x6FC);
+                    int32_t dy = (int32_t)mem_r32(c, pos + 4) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x700);
+                    int32_t d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+                    if (best < 0 || d < bd) { best = i; bd = d; }
+                }
+                if (best >= 0) { c->r[2] = (uint32_t)best; return; }
             }
-            if (best >= 0) { c->r[2] = (uint32_t)best; return; }
         }
     }
     F_8011C8E4_orig(c);
@@ -1745,6 +1751,31 @@ static int gu_skip(int k, int j, double dist2) /* car k may not take j now (j -1
 {
     return k >= 0 && k < CARS_MAX && gu_until[k] > vp_gv() && gu_banned[k] == j && dist2 > (double)GU_NEAR * GU_NEAR;
 }
+static int enemy_player_alive(int k) /* a player of another team than computer car k's, alive */
+{
+    int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++)
+        if (team_of_human(i) != team_of_ai(k) && !mem_r8(&M.cpu, HUMAN_REC(i) + 0x9C) && (int32_t)mem_r32(&M.cpu, HUMAN_REC(i) + 0x1F0) > 0)
+            return 1;
+    return 0;
+}
+/* a computer car whose target is no good now (gone, a teammate, or the nearest player with no enemy player alive): the
+ * targets again at once, not at the next second (the game sets -1 itself when a target dies) */
+static int teams_targets_bad(void)
+{
+    int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int k = 0; k < n && k < cars_ai_max(); k++) {
+        if (!ai_alive(k)) continue;
+        int t = (int32_t)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k);
+        if (t == -1 ? !enemy_player_alive(k) : t < 0 || t >= n || t == k || team_of_ai(t) == team_of_ai(k)) return 1;
+        if (t >= 0 && !ai_alive(t)) {
+            for (int j = 0; j < n && j < cars_ai_max(); j++) /* (dead, with an enemy alive to take instead) */
+                if (j != k && ai_alive(j) && team_of_ai(j) != team_of_ai(k)) return 1;
+            if (enemy_player_alive(k)) return 1;
+        }
+    }
+    return 0;
+}
 static void teams_retarget(void) /* each computer car: the nearest car of another team */
 {
     int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
@@ -1762,13 +1793,19 @@ static void teams_retarget(void) /* each computer car: the nearest car of anothe
         }
         /* (a computer car of another team; with no player of another team, one given up on too: -1 would be "the
          * nearest player", a teammate then, the user's 2026-10-29) */
-        for (int pass = 0; pass < 2 && best < 0 && (pass == 0 || human < 0); pass++)
+        /* (pass 2: none alive, every enemy computer car down (respawning): one of them all the same, its record; -1
+         * would be the nearest player, a teammate when no enemy player is in: KinggzZ's 2026-11-23 report) */
+        for (int pass = 0; pass < 3 && best < 0 && (pass == 0 || human < 0); pass++)
             for (int j = 0; j < n && j < cars_ai_max(); j++) {
-                if (j == k || !ai_alive(j) || team_of_ai(j) == team_of_ai(k)) continue;
+                if (j == k || (pass < 2 && !ai_alive(j)) || team_of_ai(j) == team_of_ai(k)) continue;
                 double dx = (int32_t)mem_r32(&M.cpu, AI_REC(j) + 0x73C) - kx, dy = (int32_t)mem_r32(&M.cpu, AI_REC(j) + 0x740) - ky;
                 if (!pass && gu_skip(k, j, dx * dx + dy * dy)) continue;
                 if (dx * dx + dy * dy < best_d) { best_d = dx * dx + dy * dy; best = j; }
             }
+        static int dbg = -1; /* tests: TM2PC_TARGET_DEBUG, each computer car's new target */
+        if (dbg < 0) dbg = getenv("TM2PC_TARGET_DEBUG") != NULL;
+        if (dbg && (int32_t)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k) != best)
+            fprintf(stderr, "teams: computer car %d's target %d (frame %d)\n", k + 1, best, (int)(vp_gv() / 3));
         mem_w32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k, (uint32_t)best);
     }
 }
@@ -2633,7 +2670,8 @@ void vp_ai_frame(void)
                             (int)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k), (int)mem_r32(&M.cpu, AI_REC(k) + 0x28),
                             mem_r8(&M.cpu, AI_REC(k) + 0x34), mem_r8(&M.cpu, AI_REC(k) + 1));
             }
-        }
+        } else if (teams_targets_bad())
+            teams_retarget();
         return;
     }
     if (t->ai_targets == AI_TARGETS_GAME) return;
@@ -3617,18 +3655,19 @@ static int ai_aim(CPU *c) /* weaponFindTarget*(owner, out, mode): 1 when done he
  * at +0x80, 4.12); ahead: y >= 12, y >= |x|, y < 8001 (computer cars also z < 401); behind: -y > 11,
  * -y >= |x|, -y < 8001; the nearest; the computer cars first, the players only when none qualifies. */
 static int mode_side(int slot); /* (below: Juggernaut, Hunted without teams: 1 the special cars, 0 the others; -1 no sides) */
-static int team_aim(CPU *c, int behind)
+static int team_aim(CPU *c, int behind, int ffa_dead) /* (ffa_dead: free for all, the game's pick was a dead player: again
+                                                    * without the dead, no teams) */
 {
     int owner = (int)c->r[4];
     int sides = !teams_on() && mode_side(-1) >= 0; /* Juggernaut, Hunted: the others lock only onto the special car (the user's) */
     /* co-op (the tournament's, Survival's with 2 or more): the players one side, the computer cars the other: a player's
      * homing never on another player (the user's online take: missiles, napalm on the teammates; their hits still hurt) */
     int coop = !teams_on() && !sides && (mem_r8(c, GA(0x8016475Cu)) == 2 || (ui_survival() && (int)mem_r32(c, GA(0x80181014u)) >= 2));
-    if (!(c->r[6] & 0xFF) || (!teams_on() && !sides && !coop) || owner < 0 || owner >= CARS_HUMANS_MAX) return 0; /* a player's shot in a team game */
+    if (!(c->r[6] & 0xFF) || (!ffa_dead && !teams_on() && !sides && !coop) || owner < 0 || owner >= CARS_HUMANS_MAX) return 0; /* a player's shot in a team game */
     uint32_t me = guest_call(GA(0x8011CB50u), (uint32_t)owner, 0, 0, 0); /* humanCarObject */
     if (!me) return 0;
     int humans = (int)mem_r32(c, GA(0x80181014u)), ais = (int)mem_r32(c, GA(0x8018101Cu));
-    int mine = coop ? 0 : sides ? mode_side((int16_t)mem_r16(c, HUMAN_REC(owner) + 4)) : team_of_human(owner);
+    int mine = ffa_dead ? -1 : coop ? 0 : sides ? mode_side((int16_t)mem_r16(c, HUMAN_REC(owner) + 4)) : team_of_human(owner); /* (-1: no one's) */
     if (sides && mine == 1) return 0; /* (the Juggernaut, a target: any car, as the game's) */
     int16_t m[9];
     for (int i = 0; i < 9; i++) m[i] = (int16_t)mem_r16(c, me + 0x80 + 2u * (uint32_t)i);
@@ -3639,7 +3678,7 @@ static int team_aim(CPU *c, int behind)
         for (int i = 0; i < n && i < (pass ? CARS_HUMANS_MAX : cars_ai_max()); i++) { /* (past the 9th computer car too: the user's) */
             uint32_t o;
             if (pass) {
-                if (coop || i == owner || mem_r8(c, HUMAN_REC(i) + 0x9C) ||
+                if (coop || i == owner || mem_r8(c, HUMAN_REC(i) + 0x9C) || (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0 || /* (dead: no) */
                     (sides ? mode_side((int16_t)mem_r16(c, HUMAN_REC(i) + 4)) : team_of_human(i)) == mine) continue;
                 o = guest_call(GA(0x8011CB50u), (uint32_t)i, 0, 0, 0);
             } else {
@@ -3659,10 +3698,32 @@ static int team_aim(CPU *c, int behind)
     mem_w32(c, c->r[5], best ? best + 0xA8 : 0);
     return 1;
 }
+/* the game's own pick for a player's shot (free for all) a dead or out player: weaponFindTarget* scans the players with
+ * no health test (a wreck, a player out of lives: Phoenix's, KinggzZ's reports); then the search again without them */
+static int aim_at_dead(CPU *c, uint32_t pos)
+{
+    int humans = (int)mem_r32(c, GA(0x80181014u));
+    for (int i = 0; pos && i < humans && i < CARS_HUMANS_MAX; i++) {
+        uint32_t o = guest_call(GA(0x8011CB50u), (uint32_t)i, 0, 0, 0); /* humanCarObject */
+        if (o && o + 0xA8 == pos) return (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0 || mem_r8(c, HUMAN_REC(i) + 0x9C);
+    }
+    return 0;
+}
+static void find_target(CPU *c, int behind, void (*orig)(CPU *))
+{
+    if (ai_aim(c) || team_aim(c, behind, 0)) return;
+    uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6];
+    orig(c);
+    if (!(a2 & 0xFF) || !aim_at_dead(c, mem_r32(c, a1))) return;
+    uint32_t v0 = c->r[2];
+    c->r[4] = a0, c->r[5] = a1, c->r[6] = a2;
+    team_aim(c, behind, 1);
+    c->r[2] = v0; /* (the callers ignore it) */
+}
 void F_80109F94_orig(CPU *c);
-void vp_FindTargetAhead(CPU *c) { if (!ai_aim(c) && !team_aim(c, 0)) F_80109F94_orig(c); }
+void vp_FindTargetAhead(CPU *c) { find_target(c, 0, F_80109F94_orig); }
 void F_8010A2AC_orig(CPU *c);
-void vp_FindTargetBehind(CPU *c) { if (!ai_aim(c) && !team_aim(c, 1)) F_8010A2AC_orig(c); }
+void vp_FindTargetBehind(CPU *c) { find_target(c, 1, F_8010A2AC_orig); }
 void F_8011B7D8_orig(CPU *c);
 void vp_AiCarShouldUpdate(CPU *c)
 {
