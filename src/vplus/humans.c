@@ -155,7 +155,20 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
         int from = tables_n;
         tables_n = n;
         for (int h = from; h < n; h++) {
-            if (humans_slot(h) >= 0) { humans_local_table(humans_slot(h), table[h]); table_given[h] = 1; }
+            if (humans_slot(h) >= 0) {
+                uint8_t mine[128];
+                humans_local_table(humans_slot(h), mine);
+                if (map_set && table_given[h]) { /* (online: the lobby's copy, as the others have it) */
+                    int k = 0;
+                    while (k < 128 && mine[k] == table[h][k]) k++;
+                    if (k < 128)
+                        fprintf(stderr, "controls: human %d's buttons built here differ from the lobby's (action %02X: button %d "
+                                "here, %d sent): the lobby's kept\n", h + 1, k, mine[k], table[h][k]);
+                } else {
+                    memcpy(table[h], mine, 128);
+                    table_given[h] = 1;
+                }
+            }
             else if (!table_given[h]) continue; /* (another machine's not sent: the layout's, as the C built it) */
             for (uint32_t i = 0; i < 128; i++) mem_w8(&M.cpu, a_bindings + (uint32_t)h * 128 + i, table[h][i]);
         }

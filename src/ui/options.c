@@ -3143,7 +3143,13 @@ static int net_launch(void)
             for (int i = 0; s->first[n] != 0xFF && i < v->m[n].count && s->first[n] + i < SES_MAX_NODES; i++) {
                 int h = s->first[n] + i;
                 if (n == me) slots[h] = (int8_t)i;
-                else humans_set_table(h, v->m[n].p[i].table);
+                /* every player's table as the lobby has it, this machine's own too: the one every other machine plays
+                 * them with (built again here at the battle's start, the host's own came out as the bare layout on
+                 * Roof Tops and Cyburbia: a re-sync every 8 steps, Enough Boxes / Tegu 2026-11-23); none sent yet
+                 * (all zero): built here, vplus/humans.c */
+                int sent = 0;
+                for (int k = 0; k < 128 && !sent; k++) sent = v->m[n].p[i].table[k] != 0;
+                if (sent) humans_set_table(h, v->m[n].p[i].table);
             }
         humans_set_map(s->humans, slots);
     }
