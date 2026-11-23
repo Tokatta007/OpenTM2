@@ -4982,10 +4982,13 @@ static void build(PageId page)
                    get_steer_keep, set_steer_keep, p, onoff_values, 2)->small = 1;
         add_choice("Jump on L1 + R1", "Press L1 and R1 together to jump, as well as with its button code.", get_jump_combo,
                    set_jump_combo, p, onoff_values, 2)->small = 1;
-        if (bind_jump_combo(p)) /* (only with the jump on: it is its safety) */
-            add_choice("Jump-Weapon Switch Safety", "A lone L1 or R1 waits this long for the other before switching weapons. "
-                       "Both in time: a jump, no switch. Off: switches at once.", get_jump_safety, set_jump_safety, p,
-                       jump_safety_values, 4)->small = 1;
+        { /* (right under the jump, grayed while it is off: it is its safety) */
+            Row *js = add_choice("Jump-Weapon Switch Safety", "Pressing L1 or R1 alone waits this long before switching weapons. "
+                                 "If the other is pressed in time, you jump instead. Off: switches at once.", get_jump_safety,
+                                 set_jump_safety, p, jump_safety_values, 4);
+            js->small = 1;
+            js->locked = !bind_jump_combo(p);
+        }
         add_choice("Easy Energy Attacks", "Up freeze, Down rear fire, Left mines, Right shield. Steer with the stick.",
                    get_easy_energy, set_easy_energy, p, onoff_values, 2)->small = 1;
         add_choice("Layout", "The game's button layout. Changing it resets this player's controller buttons.",
@@ -9230,6 +9233,12 @@ static int run(PageId start)
                                                                                        * looks, as BMPs (the newest 8) */
                 char path[512];
                 snprintf(path, sizeof path, "%s/lobby_%d.bmp", getenv("TM2PC_NET_MENU_SHOT"), lobby_shot++ % 8);
+                image_save_bmp(&canvas, path);
+            }
+            static int page_shot;
+            if (getenv("TM2PC_PAGE_SHOT")) { /* tests: any page's looks as it is drawn, as BMPs (the newest 8) */
+                char path[512];
+                snprintf(path, sizeof path, "%s/page_%d.bmp", getenv("TM2PC_PAGE_SHOT"), page_shot++ % 8);
                 image_save_bmp(&canvas, path);
             }
             Psyz_VideoSetDisplayRGB24(canvas.px, canvas.w, canvas.h);
