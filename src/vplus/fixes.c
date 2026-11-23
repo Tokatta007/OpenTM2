@@ -6488,8 +6488,42 @@ static void hud_snap_out(int n)
     memcpy(hud_players, hud_live_set, sizeof hud_live_set);
     for (int k = 0; k < 8; k++) mem_w8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k, hud_live_vis[k]);
 }
+/* The weapon the HUD shows when the selected one is used up: the game moves on to the next one only once the shot's
+ * cooldown is over (weaponFireSelected: weaponCycleSelection(-1) then), so for that moment every style showed no
+ * weapon at all, as if none were left; the TM2 list showed them all (Brimstone's report, 2026-11-23). Here, for the
+ * HUD's drawing only, an empty selection reads as the one the game will pick (its own rule: the slots after it in
+ * turn, wrapping, the first with ammo); the record's byte back right after (the step, firing's timing untouched) */
+static int8_t hud_sel_was[CARS_HUMANS_MAX];
+static int hud_sel_n;
+static void hud_next_weapon_in(void)
+{
+    int n = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    hud_sel_n = n < 0 ? 0 : n > CARS_HUMANS_MAX ? CARS_HUMANS_MAX : n;
+    for (int h = 0; h < hud_sel_n; h++) {
+        uint32_t rec = HUMAN_REC(h);
+        int8_t s = (int8_t)mem_r8(&M.cpu, rec + 0x7D5);
+        hud_sel_was[h] = s;
+        if (s >= 0 && s < 8 && (int16_t)mem_r16(&M.cpu, rec + 0x7D6 + 2u * (uint32_t)s) > 0) continue; /* (one with ammo) */
+        int at = s >= 0 && s < 8 ? s : 0, start = at;
+        do at = (at + 1) % 8;
+        while (at != start && (int16_t)mem_r16(&M.cpu, rec + 0x7D6 + 2u * (uint32_t)at) <= 0);
+        if ((int16_t)mem_r16(&M.cpu, rec + 0x7D6 + 2u * (uint32_t)at) > 0) {
+            mem_w8(&M.cpu, rec + 0x7D5, (uint8_t)at);
+            static int debug = -1; /* (tests: TM2PC_MOVE_DEBUG) */
+            if (debug < 0) debug = getenv("TM2PC_MOVE_DEBUG") != NULL;
+            if (debug) fprintf(stderr, "hud: human %d's weapon %d used up: weapon %d shown (frame %d, VBlank %llu)\n", h + 1, s, at, vp_round_frames(),
+                           (unsigned long long)M.vblanks);
+        }
+    }
+}
+static void hud_next_weapon_out(void)
+{
+    for (int h = 0; h < hud_sel_n; h++) mem_w8(&M.cpu, HUMAN_REC(h) + 0x7D5, (uint8_t)hud_sel_was[h]);
+    hud_sel_n = 0;
+}
 static int hud_snap_depth; /* (one swap, the outermost: a HUD drawer calling another must not take the snapshot as live) */
-#define HUD_SNAPPED(body) { int n = hud_snap_depth++ ? 0 : hud_snap_in(); body(c); hud_snap_out(n); hud_snap_depth--; }
+#define HUD_SNAPPED(body) { int outer = !hud_snap_depth++, n = outer ? hud_snap_in() : 0; if (outer) hud_next_weapon_in(); \
+                            body(c); if (outer) hud_next_weapon_out(); hud_snap_out(n); hud_snap_depth--; }
 void vp_HudDraw(CPU *c) HUD_SNAPPED(vp_HudDraw_body)
 void vp_HudDrawSplitVertical(CPU *c) HUD_SNAPPED(vp_HudDrawSplitVertical_body)
 void vp_HudDrawSplitHorizontal(CPU *c) HUD_SNAPPED(vp_HudDrawSplitHorizontal_body)
