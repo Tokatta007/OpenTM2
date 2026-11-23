@@ -104,6 +104,7 @@
   "8012201C": "wrap:ui_SceneBackground",
   "80121C8C": "wrap:ui_DisplayImage",
   "8015659C": "wrap:vp_ViewSetBgColor",
+  "8014C19C": "wrap:vp_FxDebrisDraw",
   "801372C4": "wrap:ui_TextDraw",
   "80155E80": "wrap:ui_ViewProc",
   "801291CC": "wrap:ui_ScreenWait",

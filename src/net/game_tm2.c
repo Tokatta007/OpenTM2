@@ -610,7 +610,19 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
         }
     }
     uint32_t rear = mem_r32(&M.cpu, GA(0x801809DCu)), rear_ok = mem_r32(&M.cpu, GA(0x801809E0u)); /* (this machine's mirror) */
+    /* this machine's drawing kept (request 57: neither snapshot nor hash, the drawing's only): the frame records (views
+     * 0, 1, the mirror: OT, packet cursor, environments), which one is drawn into (D_80180EE4, renderBufferView1,
+     * renderBufferRearView) and libgpu's control shadow. The host's, taken in mid-battle (a boss phase, a Survival
+     * round, a resync), could pair the frame drawn with the one being built here: garbage packets, the arena's colors
+     * wrong for the rest of the round (DaToasty's, the user's), an order table that looped and a crash (Phoenix's) */
+    static const struct { uint32_t at, n; } draw_keep[] = {{0x8018118Cu, 0x300}, {0x80180EE4u, 12}, {0x80193950u, 256}};
+    static uint8_t draw_mine[0x300 + 12 + 256];
+    for (size_t r = 0, o = 0; r < sizeof draw_keep / sizeof draw_keep[0]; o += draw_keep[r].n, r++)
+        for (uint32_t i = 0; i < draw_keep[r].n; i++) draw_mine[o + i] = mem_r8(&M.cpu, GA(draw_keep[r].at) + i);
     ng.loaded = n > ks && killcam_state_load(ng.raw, ks) && devices_load(ng.raw + ks, n - ks);
+    if (ng.loaded && feats_in_battle())
+        for (size_t r = 0, o = 0; r < sizeof draw_keep / sizeof draw_keep[0]; o += draw_keep[r].n, r++)
+            for (uint32_t i = 0; i < draw_keep[r].n; i++) mem_w8(&M.cpu, GA(draw_keep[r].at) + i, draw_mine[o + i]);
     if (ng.loaded && feats_in_battle()) { /* the mirror stays this machine's (rtRearViewActive, rtRearViewAllowed: the host's
                                            * came with its state); its record: mirrors_rear_pair */
         mem_w32(&M.cpu, GA(0x801809DCu), rear);

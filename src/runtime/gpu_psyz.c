@@ -138,8 +138,28 @@ void gpu_escape_frame(void) /* (each VBlank, and each frame of the port's own me
     }
 }
 
+/* A graphics card (or driver) with neither Direct3D 12 nor Vulkan: the game ran with sound and a black window
+ * (Inford's and Wilyami's, 2026-11-22). Said so in a box instead, and the game ends. The same backends and shader
+ * kinds PSY-Z asks for (DXIL or SPIR-V on Windows). */
+static void gpu_checked(void)
+{
+#ifdef _WIN32
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return; /* (no video at all: PSY-Z says so) */
+    int ok = SDL_GPUSupportsShaderFormats(SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_SPIRV, NULL);
+    if (ok) return;
+    fprintf(stderr, "renderer: no Direct3D 12 or Vulkan on this graphics card or driver (%s)\n", SDL_GetError());
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenTM2",
+                             "Your graphics card or its driver doesn't support Direct3D 12 or Vulkan, which OpenTM2 needs "
+                             "to draw the game.\n\nTry updating the graphics driver (from NVIDIA, AMD or Intel's website). "
+                             "If that doesn't help, the graphics card is too old for OpenTM2.",
+                             NULL);
+    exit(1);
+#endif
+}
+
 static int init(void)
 {
+    gpu_checked();
     Psyz_EscapeQuits(0);
     Psyz_OverlayEvent_SDL3(escape_seen);
     Psyz_OverlayInit_SDL3GPU(device_logged);

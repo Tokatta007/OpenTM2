@@ -6312,17 +6312,6 @@ void vp_keep_register(void)
 #undef KEEP
 }
 
-/* TM:Black and TM:2012 show the weapons left to right in the TM2 list's order (top to bottom); the game's R1
- * takes the one before (up the list): with those styles L1 and R1 trade places, so R1 goes right (either
- * polarity: the two bits swapped) */
-int feats_in_battle(void);
-uint16_t vp_weapon_buttons(int p, uint16_t bits)
-{
-    if (p < 0 || p > 3 || !feats_in_battle() || !(hud_of(p)->style % 3)) return bits;
-    uint16_t l1 = bits & 0x0400, r1 = bits & 0x0800;
-    return (uint16_t)((bits & ~0x0C00) | (l1 << 1) | (r1 >> 1));
-}
-
 /* Amazonia's lava (decomp RENDER_ANSWERS R6.2): its tiles of 3,200 down to 200 meet at T-junctions at every band
  * boundary, and nothing is under them; retail's whole-pixel corners keep the cracks under half a pixel, the port's far
  * meshes (each rounded on its own) open thin slivers, and through them the view's clear showed: the arena's brown
@@ -6336,6 +6325,33 @@ void vp_ViewSetBgColor(CPU *c)
         fprintf(stderr, "amazonia: the clear in the lava's color\n");
     }
     F_8015659C_orig(c);
+}
+
+/* A debris burst whose pieces' models are not in RAM (or not models): not drawn. fxDebrisDraw (8014C19C) walks each
+ * piece's model's primitives; a model pointer gone bad (a co-op tournament's next level, Phoenix's 2026-11-22: reads at
+ * FFFFFF0D, FFFFFF02 for ever) gave it billions of them and the game froze. Drawing only: the burst's record is left
+ * as it is. Burst +4 the pieces' count, +0xE8 the pieces (20 bytes: model, x, y, z, shift); a model +4 vertices,
+ * +8 normals, +12 primitives, +16 their count. */
+void F_8014C19C_orig(CPU *c);
+static int debris_ram(uint32_t p) { return p >= 0x80000000u && p < 0x80000000u + GUEST_RAM_BYTES; }
+void vp_FxDebrisDraw(CPU *c)
+{
+    uint32_t obj = c->r[5];
+    int ok = debris_ram(obj);
+    int32_t n = ok ? (int32_t)mem_r32(c, obj + 4) : 0;
+    if (n < 0 || n > 256) ok = 0;
+    for (int32_t i = 0; ok && i < n; i++) {
+        uint32_t model = mem_r32(c, obj + 0xE8 + 20u * (uint32_t)i);
+        if (!debris_ram(model) || !debris_ram(model + 16) || !debris_ram(mem_r32(c, model + 4)) ||
+            !debris_ram(mem_r32(c, model + 8)) || !debris_ram(mem_r32(c, model + 12)) || mem_r32(c, model + 16) > 4096)
+            ok = 0;
+    }
+    if (!ok) {
+        static int told;
+        if (told++ < 3) fprintf(stderr, "debris: a burst at %08x with a bad model (%d pieces): not drawn\n", obj, (int)n);
+        return;
+    }
+    F_8014C19C_orig(c);
 }
 
 /* ---- Burning wrecks: kept as the original keeps them ----
@@ -6368,6 +6384,8 @@ void vp_CarWreckUpdate(CPU *c)
  * only, the live ones back right after (the game's state, the step, untouched). */
 static uint8_t hud_snap_recs[CARS_HUMANS_MAX * HUMAN_REC_SIZE], hud_live_recs[CARS_HUMANS_MAX * HUMAN_REC_SIZE];
 static int hud_snap_n;
+static HudSettings hud_snap_set[4], hud_live_set[4];   /* each player's HUD settings as the step frame drew them */
+static uint8_t hud_snap_vis[8], hud_live_vis[8];       /* hudRadarVisible (80180A6C), hudWeaponListVisible (80180A70) */
 static int hud_snap_in(void)
 {
     int interp_redrawing(void);
@@ -6375,8 +6393,12 @@ static int hud_snap_in(void)
     if (n < 1) return 0;
     if (n > CARS_HUMANS_MAX) n = CARS_HUMANS_MAX;
     size_t bytes = (size_t)n * HUMAN_REC_SIZE;
+    /* the HUD's style and radar too (Select + Down / Left in a battle, four.c): changed in a step, the frames in
+     * between showed the new style, then the step frame the old one again, then the new (Sage's flicker, 2026-11-22) */
     if (!interp_redrawing()) { /* a step frame: its HUD's records, kept */
         memcpy(hud_snap_recs, mem_direct(&M.cpu, HUMAN_REC(0), (int)bytes), bytes);
+        memcpy(hud_snap_set, hud_players, sizeof hud_snap_set);
+        for (int k = 0; k < 8; k++) hud_snap_vis[k] = mem_r8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k);
         hud_snap_n = n;
         return 0;
     }
@@ -6384,11 +6406,20 @@ static int hud_snap_in(void)
     uint8_t *live = mem_direct(&M.cpu, HUMAN_REC(0), (int)bytes);
     memcpy(hud_live_recs, live, bytes);
     memcpy(live, hud_snap_recs, bytes);
+    memcpy(hud_live_set, hud_players, sizeof hud_live_set);
+    memcpy(hud_players, hud_snap_set, sizeof hud_snap_set);
+    for (int k = 0; k < 8; k++) {
+        hud_live_vis[k] = mem_r8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k);
+        mem_w8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k, hud_snap_vis[k]);
+    }
     return n;
 }
 static void hud_snap_out(int n)
 {
-    if (n > 0) memcpy(mem_direct(&M.cpu, HUMAN_REC(0), (int)((size_t)n * HUMAN_REC_SIZE)), hud_live_recs, (size_t)n * HUMAN_REC_SIZE);
+    if (n <= 0) return;
+    memcpy(mem_direct(&M.cpu, HUMAN_REC(0), (int)((size_t)n * HUMAN_REC_SIZE)), hud_live_recs, (size_t)n * HUMAN_REC_SIZE);
+    memcpy(hud_players, hud_live_set, sizeof hud_live_set);
+    for (int k = 0; k < 8; k++) mem_w8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k, hud_live_vis[k]);
 }
 static int hud_snap_depth; /* (one swap, the outermost: a HUD drawer calling another must not take the snapshot as live) */
 #define HUD_SNAPPED(body) { int n = hud_snap_depth++ ? 0 : hud_snap_in(); body(c); hud_snap_out(n); hud_snap_depth--; }

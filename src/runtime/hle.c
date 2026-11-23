@@ -161,8 +161,6 @@ static void update_pads(void)
     if (rt_pad_filter)
         for (int p = 0; p < 2; p++) M.pad_buttons[p] = rt_pad_filter(p, M.pad_buttons[p]);
     for (int p = 0; p < 2; p++) M.pad_buttons[p] &= (uint16_t)~(pad_script_bits(p) | rt_pad_tool[p]); /* tests (active-low) */
-    uint16_t vp_weapon_buttons(int p, uint16_t bits); /* vplus/fixes.c: L1 / R1 by the HUD style */
-    for (int p = 0; p < 2; p++) M.pad_buttons[p] = vp_weapon_buttons(p, M.pad_buttons[p]);
     int humans_on(void), feats_in_battle(void), netplay_in_match(void);
     if (!humans_on() || !feats_in_battle()) /* (in a battle every human's input goes through vplus/humans.c) */
         for (int p = 0; p < 2; p++) M.pad_buttons[p] = (uint16_t)killcam_input(0, p, M.pad_buttons[p]); /* the kill cam's replay */

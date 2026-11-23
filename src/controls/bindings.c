@@ -48,9 +48,14 @@ static const struct {
     {0x1D, "turbo", {11, 3, 11, 11}},
     {0x1F, "fire_weapon", {4, 12, 14, 13}},   /* the special weapon (L2 in Standard) */
     {0x1E, "machine_gun", {10, 13, 13, 14}},  /* R2 in Standard: checked in a race */
-    {0x20, "previous_weapon", {3, 14, 3, 3}},
-    {0x21, "next_weapon", {9, 11, 9, 9}},
+    /* the game's 0x21 ("cycle next", +1) goes up the TM2 list, 0x20 down it: named for what the player sees, the
+     * next weapon the one below (on TM:Black and TM:2012 the one on the right). The game's layouts put 0x21 on R1
+     * (up); the port's defaults trade them: L1 up / left, R1 down / right in every HUD style (the user's,
+     * 2026-11-22; TooMuchCheez's report). Bound so after the game's layout (bind_LayoutApply). */
+    {0x21, "previous_weapon", {3, 14, 3, 3}},
+    {0x20, "next_weapon", {9, 11, 9, 9}},
 };
+enum { A_PREV = 10, A_NEXT = 11 }; /* (the two rows above) */
 
 const char *const bind_action_names[BIND_ACTIONS] = {
     "Accelerate", "Brake", "Steer left", "Steer right", "Forward", "Reverse",
@@ -495,14 +500,10 @@ void bind_LayoutApply(CPU *c)
     if (port > 1)
         return;
     int who = apply_as >= 0 && apply_as <= 3 ? apply_as : (int)port;
-    int any = 0;
+    /* every action the player chose, and the weapon cycling's two always: the port's defaults are not the game's */
     for (int a = 0; a < BIND_ACTIONS; a++)
-        if (chosen[who][a]) {
-            guest_call(BIND_ACTION, actions[a].action, chosen[who][a], port, 0);
-            any = 1;
-        }
-    if (any) {
-        guest_call(BIND_COMMIT, port, 0, 0, 0);
-        if (M.trace) fprintf(stderr, "controls: player %u's own buttons applied\n", port + 1);
-    }
+        if (chosen[who][a] || a == A_PREV || a == A_NEXT)
+            guest_call(BIND_ACTION, actions[a].action, (uint32_t)bind_button(who, a), port, 0);
+    guest_call(BIND_COMMIT, port, 0, 0, 0);
+    if (M.trace) fprintf(stderr, "controls: player %u's buttons applied\n", port + 1);
 }
