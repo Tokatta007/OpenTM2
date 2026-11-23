@@ -3812,7 +3812,7 @@ void vp_PickupRespawnTick(CPU *c)
 /* ---- Controls: jump on L1 + R1, energy attacks on the D-pad ----
  * carReadMoveCodes (800DECA8, decomp car_input.c) turns a human's D-pad
  * presses into the energy attacks: a move code sets the record's special
- * (+0x7D4: 100 freeze, 101 mines, 103 shield, 104 jump) and +0xEC to fire it
+ * (+0x7D4: 100 freeze, 101 mines, 102 napalm, 103 shield, 104 jump, 105 invisibility) and +0xEC to fire it
  * (the rear fire: +0x7CD and +0xEA). Here, after it, a player's shortcut
  * does the same: L1 and R1 together jump; with energy attacks on the D-pad,
  * Up freezes, Down fires behind, Left drops mines, Right shields (the energy
@@ -3894,7 +3894,9 @@ void vp_MoveCodes(CPU *c)
     else if (pressed & 0x0010) special = 100; /* Up: freeze */
     else if (pressed & 0x0080) special = 101; /* Left: mines */
     else if (pressed & 0x0020) special = 103; /* Right: shield */
-    else if (pressed & 0x0100) special = 102; /* its own button (Controls): invisibility */
+    else if (pressed & 0x0100) special = 105; /* its own button (Controls): invisibility (the code Right, Down, Left, Up:
+                                               * 105; 102 is Right, Left, Up, the energy napalm: Phoenix's "invisibility
+                                               * key fires napalm", 2026-11-23) */
     else if (pressed & 0x0040) { /* Down: fire behind (the move code 3-4-2) */
         mem_w8(c, rec + 0x7CD, 1);
         mem_w8(c, rec + 0xEA, 1);
