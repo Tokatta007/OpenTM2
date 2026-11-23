@@ -119,6 +119,7 @@ void rbs_new_round(void) /* (killcam.c: a round starts) the states kept are the 
     dmd_n = -1; /* (the models' list made again: a load) */
 }
 
+
 uint64_t vp_gv(void);
 static void set_gv(uint64_t gv) { M.vblank_offset = M.vblanks - gv; }
 static uint64_t gv_of(int32_t step) { return gv_tag[(uint32_t)step % SLOTS] == step ? gv_at[(uint32_t)step % SLOTS] : vp_gv(); }
@@ -194,6 +195,13 @@ static uint8_t *room(State *s, size_t need)
 }
 
 static void save_to(State *s, int32_t step);
+/* A host's state on its way (a resync): the session restarts at its step and keeps "its" state from this machine's
+ * memory as it is then, steps ahead, until the host's is put in and kept again (state_apply). That overwrote this
+ * machine's own state of the step, the one the resync's log compares with: every player's log said "not compared".
+ * While armed, a kept state about to be overwritten is copied here first. */
+static State bk[SLOTS];
+static int bk_n, bk_armed;
+void rbs_backup_arm(int on) { bk_armed = on; if (on) bk_n = 0; }
 void rbs_save(int32_t step)
 {
     if (!syms()) return;
@@ -205,7 +213,16 @@ void rbs_save(int32_t step)
     static int rebuild8 = -1;
     if (rebuild8 < 0) rebuild8 = getenv("TM2PC_DMD_REBUILD8") != NULL;
     if (rebuild8 && step % 8 == 0) dmd_n = -1;
-    save_to(&st[(uint32_t)step % SLOTS], step);
+    State *slot = &st[(uint32_t)step % SLOTS];
+    if (bk_armed && slot->step >= 0 && bk_n < SLOTS && slot->len) { /* (kept for the resync's log: rbs_diff_end) */
+        State *c = &bk[bk_n];
+        if (c->cap < slot->len) {
+            uint8_t *q = realloc(c->b, slot->len);
+            if (q) c->b = q, c->cap = slot->len;
+        }
+        if (c->cap >= slot->len) { memcpy(c->b, slot->b, slot->len); c->len = slot->len; c->step = slot->step; bk_n++; }
+    }
+    save_to(slot, step);
     if (!rbs_resimulating) { gv_tag[(uint32_t)step % SLOTS] = step; gv_at[(uint32_t)step % SLOTS] = vp_gv(); }
 }
 static void save_to(State *s, int32_t step)
@@ -734,6 +751,7 @@ static int kept_word(const State *s, uint32_t addr, uint32_t *out)
     return 0;
 }
 static int dif_step;
+static const State *dif_src; /* (the kept state compared: its models' fields and the port's own blocks too) */
 void rbs_diff_begin(int32_t step) { dif_on = syms() ? 1 : 0; dif_step = step; } /* (the host's state not in yet: rbs_diff_end) */
 /* this machine's own state at the host's state's step: the kept state whose step counter (timerFrameCount, counted in
  * SetFrameStart) is the host's (the host's state is taken before the count, this machine's kept ones after it: by
@@ -742,9 +760,10 @@ static int dif_mine_build(void)
 {
     uint32_t want = mem_r32(&M.cpu, GA(0x8017EBFCu)), have;
     const State *s = NULL;
-    for (int k = 0; k < SLOTS; k++) {
-        if (st[k].step < 0 || !kept_word(&st[k], GA(0x8017EBFCu), &have) || have != want) continue;
-        if (!s || abs(st[k].step - dif_step) < abs(s->step - dif_step)) s = &st[k];
+    for (int k = 0; k < 2 * SLOTS; k++) {
+        const State *c = k < SLOTS ? &st[k] : &bk[k - SLOTS];
+        if (k >= SLOTS + bk_n || c->step < 0 || !kept_word(c, GA(0x8017EBFCu), &have) || have != want) continue;
+        if (!s || abs(c->step - dif_step) < abs(s->step - dif_step)) s = c;
     }
     if (!s) {
         fprintf(stderr, "network: step %d: no kept state of this machine at the host's step count %u (kept:", dif_step, want);
@@ -779,6 +798,7 @@ static int dif_mine_build(void)
     memcpy(dif_mine + o, &rnd, 4), o += 4;
     dif_len = o;
     dif_step = s->step;
+    dif_src = s;
     return 1;
 }
 void rbs_diff_end(int step)
@@ -875,6 +895,47 @@ void rbs_diff_end(int step)
     if (o + 4 <= dif_len) {
         memcpy(&r_mine, dif_mine + o, 4);
         if (r_mine != mem_r32(&M.cpu, PORT_RAND)) { total++; fprintf(stderr, "network:   the port's random number: this machine %08x, the host %08x\n", r_mine, mem_r32(&M.cpu, PORT_RAND)); }
+    }
+    /* the rest of the kept state (save_to's order): the inputs, the models' node fields (hashed), the port's own blocks
+     * (the kill cam's KEEPs, then rollback's: by their number, the source's registration order; some are each
+     * machine's own, not hashed) */
+    if (dif_src && dif_src->len) {
+        const uint8_t *r = dif_src->b, *end = dif_src->b + dif_src->len;
+        for (unsigned i = 0; i < rc_rb_snap_count; i++) r += rc_rb_snap[i].size;
+        r += 4 + humans_inputs_size();
+        int nd = 0;
+        if (r + 4 <= end) memcpy(&nd, r, 4), r += 4;
+        int dmd_bad = 0;
+        for (int i = 0; i < nd && r + 8 <= end; i++) {
+            uint32_t a, len;
+            memcpy(&a, r, 4), memcpy(&len, r + 4, 4), r += 8;
+            if (r + len > end) break;
+            const uint8_t *now = mem_direct(&M.cpu, a, (int)len);
+            for (uint32_t k = 0; k < len; k++)
+                if (r[k] != now[k]) {
+                    total++;
+                    if (dmd_bad++ < 6) {
+                        dif_name(a + k, name, sizeof name);
+                        fprintf(stderr, "network:   a model's field at %s (%08X): this machine %02x, the host %02x\n", name, a + k, r[k], now[k]);
+                    }
+                    break;
+                }
+            r += len;
+        }
+        void *p;
+        size_t k;
+        int kb_bad = 0;
+        for (int i = 0; keep_block(i, &p, &k) && r + k <= end; i++) {
+            if (memcmp(r, p, k)) {
+                size_t o = 0;
+                while (o < k && r[o] == ((const uint8_t *)p)[o]) o++;
+                if (kb_bad++ < 12)
+                    fprintf(stderr, "network:   the port's kept block %d (%u bytes) at +%u: this machine %02x, the host %02x\n", i,
+                            (unsigned)k, (unsigned)o, r[o], ((const uint8_t *)p)[o]);
+            }
+            r += k;
+        }
+        if (kb_bad) fprintf(stderr, "network:   %d of the port's kept blocks differed (some are each machine's own)\n", kb_bad);
     }
     if (total) { told++; fprintf(stderr, "network: step %d: %d words differed\n", step, total); }
     else fprintf(stderr, "network: step %d: the host's state the same as this machine's here (what differed was before, or outside the step)\n", step);

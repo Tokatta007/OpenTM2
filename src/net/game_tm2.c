@@ -625,6 +625,8 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
     if (resync) rbs_diff_begin(at_step);
     ng.loaded = n > ks && killcam_state_load(ng.raw, ks) && devices_load(ng.raw + ks, n - ks);
     if (resync && ng.loaded) rbs_diff_end(at_step);
+    void rbs_backup_arm(int on);
+    rbs_backup_arm(0);
     if (ng.loaded && feats_in_battle())
         for (size_t r = 0, o = 0; r < sizeof draw_keep / sizeof draw_keep[0]; o += draw_keep[r].n, r++)
             for (uint32_t i = 0; i < draw_keep[r].n; i++) mem_w8(&M.cpu, GA(draw_keep[r].at) + i, draw_mine[o + i]);
@@ -665,6 +667,9 @@ static void cb_deserialize(void *ctx, const uint8_t *in, int len)
     ng.pend = p;
     memcpy(ng.pend, in, (size_t)len);
     ng.pend_len = len;
+    void rbs_backup_arm(int on); /* net/rb_state.c: a resync's: this machine's own kept states copied before the session's
+                                  * restart overwrites them (the resync's log compares with them) */
+    if (ng.loaded && ng.rollback && feats_in_battle()) rbs_backup_arm(1);
 }
 
 static void neutral_all(void)
@@ -732,6 +737,16 @@ static int match_open(const NetTransport *net, const uint32_t slots[SES_MAX_NODE
     neutral_all();
     fprintf(stderr, "network: the match: machine %d, players %d-%d of %d, input delay %d (%s)\n", ng.node, ng.first + 1,
             ng.first + ng.count, ng.humans, delay, ng.rollback ? "rollback" : "lockstep");
+    { /* this machine's players' control choices that reach the game's steps (sent with their inputs, every machine
+       * alike; in the log so a report shows them, 2026-11-23) */
+        int bind_layout(int player), bind_analog_steer(int player), bind_steer_keep(int player), bind_easy_energy(int player),
+            bind_jump_combo(int player), bind_is_custom(int player);
+        for (int p = 0; p < ng.count && p < 4; p++)
+            fprintf(stderr, "network: player %d's controls: layout %d%s, analog steering %s, reverse like the screen %s, easy energy "
+                    "%s, L1+R1 jump %s\n", ng.first + p + 1, bind_layout(p), bind_is_custom(p) ? " (own buttons)" : "",
+                    bind_analog_steer(p) ? "on" : "off", bind_steer_keep(p) ? "on" : "off", bind_easy_energy(p) ? "on" : "off",
+                    bind_jump_combo(p) ? "on" : "off");
+    }
     return 1;
 }
 static void start(void)
