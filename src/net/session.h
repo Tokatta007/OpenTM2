@@ -134,7 +134,9 @@ typedef struct {
 void ses_on_events(Session *s, const SesEvents *ev);
 /* what a machine is doing while it does not step (sent with the inputs; the host passes everyone's on), so a wait can
  * say why: SES_AWAY_NONE stepping, SES_AWAY_REPLAY a kill cam's replay, SES_AWAY_BETWEEN its results, a load */
-enum { SES_AWAY_NONE, SES_AWAY_REPLAY, SES_AWAY_BETWEEN };
+enum { SES_AWAY_NONE, SES_AWAY_REPLAY, SES_AWAY_BETWEEN, SES_AWAY_RESYNC }; /* (RESYNC: the host, holding the match while
+                                                                            * a machine takes its state again) */
+int ses_resync_node(const Session *s); /* (host) a machine the match is held for, its state on the way again; -1 none */
 void ses_set_away(Session *s, int away);
 int ses_away(const Session *s, int node);
 void ses_chat(Session *s, const char *text);

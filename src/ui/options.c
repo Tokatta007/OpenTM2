@@ -16669,16 +16669,20 @@ void ui_net_wait_notice(const char *title, const char *line)
     }
     View v = view_fit(&canvas);
     int ts = S(&v, 18), ls = S(&v, 11), bw = S(&v, 300), bh = S(&v, 64);
+    plain_text(); /* (the line's font, measured) */
+    if (line && line[0] && text_width(line, ls) + S(&v, 24) > bw) bw = text_width(line, ls) + S(&v, 24); /* (a long name in it) */
     draw_fill(&canvas, X(&v, 320) - bw / 2, Y(&v, 240) - bh / 2, bw, bh, black, 200);
     lettering();
     text_draw(&canvas, title, X(&v, 320) - text_width(title, ts) / 2, text_top_for_center(Y(&v, 226), ts), ts, TITLE);
     plain_text();
     if (line && line[0]) text_draw(&canvas, line, X(&v, 320) - text_width(line, ls) / 2, text_top_for_center(Y(&v, 254), ls), ls, TITLE);
     Psyz_VideoSetDisplayRGB24(canvas.px, canvas.w, canvas.h);
-    static char shot_title[32]; /* (tests: TM2PC_NET_NOTICE_SHOT, each notice's first frame as a BMP there) */
-    if (getenv("TM2PC_NET_NOTICE_SHOT") && strcmp(shot_title, title)) {
+    static char shot_title[32], shot_line[96]; /* (tests: TM2PC_NET_NOTICE_SHOT, each notice's first frame as a BMP
+                                                * there; again when its line changes, the same file) */
+    if (getenv("TM2PC_NET_NOTICE_SHOT") && (strcmp(shot_title, title) || strcmp(shot_line, line ? line : ""))) {
         char path[512];
         snprintf(shot_title, sizeof shot_title, "%s", title);
+        snprintf(shot_line, sizeof shot_line, "%s", line ? line : "");
         char tag[24];
         int t = 0;
         for (const char *q = title; *q && t < 23; q++) if ((*q >= 'A' && *q <= 'Z') || (*q >= '0' && *q <= '9')) tag[t++] = *q;

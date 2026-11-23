@@ -908,6 +908,13 @@ void ses_send(Session *s, uint32_t now_ms)
 
 void ses_on_events(Session *s, const SesEvents *ev) { s->ev = *ev; }
 void ses_set_away(Session *s, int away) { s->away_self = away & 3; }
+int ses_resync_node(const Session *s)
+{
+    if (s->host != s->node) return -1;
+    for (int n = 0; n < SES_MAX_NODES; n++)
+        if (n != s->node && s->peer[n].present && s->peer[n].resync_wait) return n;
+    return -1;
+}
 int ses_away(const Session *s, int node)
 {
     if (node < 0 || node >= SES_MAX_NODES) return 0;

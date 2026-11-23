@@ -1033,7 +1033,7 @@ static void frame_body(void)
                                                        * machine still loading, else a frozen picture with no word) */
             drawn = now_ms();
             noticed = 1;
-            char line[64] = "";
+            char line[96] = "";
             int h = ses_host(ng.ses);
             const LobbyView *v = lob ? lobby_view(lob) : NULL;
             if (h != ng.node && ses_quiet_ms(ng.ses, h, now_ms()) >= 2500) { /* the host quiet a while (it may be a moment's stall: a new
@@ -1046,21 +1046,32 @@ static void frame_body(void)
             } else { /* why: the machines whose inputs are missing, each heard lately and saying it is in a replay or
                       * between screens (the user's 2026-11-07: "Connection trouble" when someone was only still
                       * watching the kill cam), else the connection */
-                int why = -1, who = -1, many = 0;
+                int why = -1, who = -1, many = 0, others = 0, lost = -1, lost_n = 0;
                 int32_t at = rb_now(ses_rollback(ng.ses));
                 for (int n = 0; v && n < SES_MAX_NODES; n++) {
                     if (n == ng.node || !v->m[n].present || v->start.first[n] == 0xFF) continue;
+                    others++;
                     int behind = 0;
                     for (int j = 0; j < v->m[n].count && v->start.first[n] + j < RB_MAX_SLOTS; j++)
                         behind |= rb_known_through(ses_rollback(ng.ses), v->start.first[n] + j) < at;
                     if (!behind) continue;
                     int aw = ses_away(ng.ses, n), heard = ses_quiet_ms(ng.ses, n == h || h == ng.node ? n : h, now_ms()) < 1000;
-                    if (!aw || !heard) { why = 0; break; } /* (one machine with no reason: the connection) */
+                    if (!aw || !heard) { /* (no reason given: the connection; named, the players' 2026-11-23: who it is) */
+                        if (lost < 0) lost = n;
+                        lost_n++;
+                        continue;
+                    }
                     if (who >= 0) many = 1;
                     who = n;
-                    why = why == SES_AWAY_REPLAY || aw == SES_AWAY_REPLAY ? SES_AWAY_REPLAY : aw;
+                    why = why == SES_AWAY_RESYNC || aw == SES_AWAY_RESYNC ? SES_AWAY_RESYNC
+                        : why == SES_AWAY_REPLAY || aw == SES_AWAY_REPLAY ? SES_AWAY_REPLAY : aw;
                 }
-                if (ng.battle_steps < 8) { /* (the battle's start: the machines behind are still loading it; the host drops
+                int got = -1, rs = ng.node == h ? ses_resync_node(ng.ses) : -1;
+                if (ng.node != h) ses_rel_pending(ng.ses, h, &got); /* (a state arriving: the host re-syncs this machine) */
+#define NAME_OF(n) (v && v->m[n].count ? v->m[n].p[0].name : "a player")
+                if (ng.battle_steps >= 8 && got >= 0) snprintf(line, sizeof line, "Re-syncing with the host...");
+                else if (ng.battle_steps >= 8 && rs >= 0) snprintf(line, sizeof line, "Re-syncing %s's game...", NAME_OF(rs));
+                else if (ng.battle_steps < 8) { /* (the battle's start: the machines behind are still loading it; the host drops
                                             * one that never comes in, session.c SES_LOAD_MS) */
                     who = -1, many = 0;
                     for (int n = 0; v && n < SES_MAX_NODES; n++) {
@@ -1074,16 +1085,21 @@ static void frame_body(void)
                     }
                     if (who >= 0 && !many) snprintf(line, sizeof line, "Waiting for %s to load the match.", v->m[who].count ? v->m[who].p[0].name : "a player");
                     else snprintf(line, sizeof line, "Waiting for the others to load the match.");
-                } else if (why > 0 && who >= 0) {
-                    const char *name = v->m[who].count ? v->m[who].p[0].name : "a player";
-                    if (why == SES_AWAY_REPLAY) {
+                } else if (lost_n == 1) snprintf(line, sizeof line, "Connection trouble: waiting for %s.", NAME_OF(lost));
+                else if (lost_n > 1 && lost_n == others) snprintf(line, sizeof line, "Connection trouble: waiting for everyone.");
+                else if (lost_n > 1) snprintf(line, sizeof line, "Connection trouble: waiting for %s and %d more.", NAME_OF(lost), lost_n - 1);
+                else if (why > 0 && who >= 0) {
+                    const char *name = NAME_OF(who);
+                    if (why == SES_AWAY_RESYNC) snprintf(line, sizeof line, "Re-syncing a player's game...");
+                    else if (why == SES_AWAY_REPLAY) {
                         if (many) snprintf(line, sizeof line, "Waiting for the others to finish the replay.");
                         else snprintf(line, sizeof line, "Waiting for %s to finish the replay.", name);
                     } else if (many) snprintf(line, sizeof line, "Waiting for the others to catch up.");
                     else snprintf(line, sizeof line, "Waiting for %s to catch up.", name);
                 } else snprintf(line, sizeof line, "Connection trouble. Match will resume in a moment.");
+#undef NAME_OF
                 ui_net_wait_notice("WAITING FOR PLAYERS", line);
-                static char told_line[64];
+                static char told_line[96];
                 if (strcmp(told_line, line)) { snprintf(told_line, sizeof told_line, "%s", line); fprintf(stderr, "network: wait notice: %s\n", line); }
             }
         }
@@ -1111,6 +1127,8 @@ static void frame_body(void)
                           * before it still a prediction (every machine ends it at the same step: decomp 15.4)) */
             rb_set_window(ses_rollback(ng.ses), ses_state_owed(ng.ses) || end_due_predicted() ? 0 : ng.window);
         ses_step(ng.ses, local, now_ms());
+        if (ng.node == ses_host(ng.ses)) /* (the others' notice: the host holds the match for a machine's re-sync, not its link) */
+            ses_set_away(ng.ses, ses_resync_node(ng.ses) >= 0 ? SES_AWAY_RESYNC : SES_AWAY_NONE);
         resim_close();
         state_apply(); /* (the host's state, come while waiting: before the step runs, and before its hash goes out) */
         if (ng.advanced || now_ms() - ng.sent_ms >= SEND_EVERY_MS) { /* (a step out: its input now; waiting: now and then) */
