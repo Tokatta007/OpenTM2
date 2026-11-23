@@ -6384,6 +6384,8 @@ void vp_CarWreckUpdate(CPU *c)
  * only, the live ones back right after (the game's state, the step, untouched). */
 static uint8_t hud_snap_recs[CARS_HUMANS_MAX * HUMAN_REC_SIZE], hud_live_recs[CARS_HUMANS_MAX * HUMAN_REC_SIZE];
 static int hud_snap_n;
+static HudSettings hud_snap_set[4], hud_live_set[4];   /* each player's HUD settings as the step frame drew them */
+static uint8_t hud_snap_vis[8], hud_live_vis[8];       /* hudRadarVisible (80180A6C), hudWeaponListVisible (80180A70) */
 static int hud_snap_in(void)
 {
     int interp_redrawing(void);
@@ -6391,8 +6393,12 @@ static int hud_snap_in(void)
     if (n < 1) return 0;
     if (n > CARS_HUMANS_MAX) n = CARS_HUMANS_MAX;
     size_t bytes = (size_t)n * HUMAN_REC_SIZE;
+    /* the HUD's style and radar too (Select + Down / Left in a battle, four.c): changed in a step, the frames in
+     * between showed the new style, then the step frame the old one again, then the new (Sage's flicker, 2026-11-22) */
     if (!interp_redrawing()) { /* a step frame: its HUD's records, kept */
         memcpy(hud_snap_recs, mem_direct(&M.cpu, HUMAN_REC(0), (int)bytes), bytes);
+        memcpy(hud_snap_set, hud_players, sizeof hud_snap_set);
+        for (int k = 0; k < 8; k++) hud_snap_vis[k] = mem_r8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k);
         hud_snap_n = n;
         return 0;
     }
@@ -6400,11 +6406,20 @@ static int hud_snap_in(void)
     uint8_t *live = mem_direct(&M.cpu, HUMAN_REC(0), (int)bytes);
     memcpy(hud_live_recs, live, bytes);
     memcpy(live, hud_snap_recs, bytes);
+    memcpy(hud_live_set, hud_players, sizeof hud_live_set);
+    memcpy(hud_players, hud_snap_set, sizeof hud_snap_set);
+    for (int k = 0; k < 8; k++) {
+        hud_live_vis[k] = mem_r8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k);
+        mem_w8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k, hud_snap_vis[k]);
+    }
     return n;
 }
 static void hud_snap_out(int n)
 {
-    if (n > 0) memcpy(mem_direct(&M.cpu, HUMAN_REC(0), (int)((size_t)n * HUMAN_REC_SIZE)), hud_live_recs, (size_t)n * HUMAN_REC_SIZE);
+    if (n <= 0) return;
+    memcpy(mem_direct(&M.cpu, HUMAN_REC(0), (int)((size_t)n * HUMAN_REC_SIZE)), hud_live_recs, (size_t)n * HUMAN_REC_SIZE);
+    memcpy(hud_players, hud_live_set, sizeof hud_live_set);
+    for (int k = 0; k < 8; k++) mem_w8(&M.cpu, GA(0x80180A6Cu) + (uint32_t)k, hud_live_vis[k]);
 }
 static int hud_snap_depth; /* (one swap, the outermost: a HUD drawer calling another must not take the snapshot as live) */
 #define HUD_SNAPPED(body) { int n = hud_snap_depth++ ? 0 : hud_snap_in(); body(c); hud_snap_out(n); hud_snap_depth--; }
