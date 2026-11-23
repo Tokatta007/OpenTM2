@@ -521,7 +521,8 @@ static void redraw(const Poses *ea, const Poses *eb, const Poses *la, const Pose
         if (la->valid && lb->valid) apply(la, lb, t);
         uint32_t prev = r0;
         for (int k = 1; k < n; k++) {
-            uint32_t twin = k == 1 ? VIEW0_FRAMES + 0x100u + 0x80u * (uint32_t)(1 - b) /* (the game's view 2 records) */
+            uint32_t v1 = mem_r32(c, SLOT_VIEW1); /* (the game's view 2 records: the other of the pair it draws into) */
+            uint32_t twin = k == 1 ? (v1 == VIEW0_FRAMES + 0x100u ? VIEW0_FRAMES + 0x180u : VIEW0_FRAMES + 0x100u)
                                    : PORT_FRAMES_BASE + 0x100u * (uint32_t)(k - 1) + 0x80u * (uint32_t)(1 - b);
             uint32_t rec = take_rec(k == 1 ? mem_r32(c, SLOT_VIEW1) : PORT_FRAMES_BASE + 0x100u * (uint32_t)(k - 1) + 0x80u * (uint32_t)b,
                                     twin);
@@ -546,7 +547,12 @@ static void redraw(const Poses *ea, const Poses *eb, const Poses *la, const Pose
                 mem_w32(c, r + 0x34, (uint32_t)(int32_t)blend_angle((int16_t)(a->yaw & 4095), (int16_t)(bb->yaw & 4095), t) & 4095u);
                 for (int k = 0; k < 9; k++) mem_w16(c, r + 0x50 + 2u * (uint32_t)k, (uint16_t)m[k]);
             }
-            draw_view(take_rec(mem_r32(c, SLOT_MIRROR), VIEW0_FRAMES + 0x200u + 0x80u * (uint32_t)(1 - b)), 1, r0);
+            /* the twin: the other mirror record than the one it draws into (as view 1's own), not the one by view 1's
+             * parity: online its pairing is the game's (mirrors_rear_pair: view 1's first record, the mirror's second),
+             * and by view 1's parity the twin was the mirror's own record: each frame in between wrote over the packets
+             * it was to show (garbage, slower and slower, then a crash at 60 FPS and uncapped: Slick's, 2026-11-22) */
+            uint32_t mslot = mem_r32(c, SLOT_MIRROR);
+            draw_view(take_rec(mslot, mslot == VIEW0_FRAMES + 0x200u ? VIEW0_FRAMES + 0x280u : VIEW0_FRAMES + 0x200u), 1, r0);
             for (int h = 0; blend && h < humans && h < MOTION_HUMANS; h++) {
                 uint32_t r = HUMAN_REC(h) + 0x6DC;
                 for (int k = 0; k < 3; k++) mem_w32(c, r + 0x20 + 4u * (uint32_t)k, (uint32_t)kept[h].pos[k]);
