@@ -116,6 +116,17 @@ int vp_dt_player_offered(void) /* a player may pick Dark Tooth (decomp request 3
     if (test < 0) test = getenv("TM2PC_DT_PLAYER") != NULL;
     return test || profile_dark_tooth_unlocked();
 }
+/* portCarOptions bit 8, a player may pick Dark Tooth: set both ways (a profile signed in without him takes him out
+ * again; the user's 2026-11-18, a new profile made after one with every ending had him). Each VBlank out of an online
+ * match, and once at its start (net/game_tm2.c, every machine: Network Play offers him to everyone) */
+void vp_dt_offer_apply(void)
+{
+    static uint32_t opt = 1;
+    if (opt == 1) opt = port_sym("portCarOptions");
+    if (!opt) return;
+    uint32_t o = mem_r32(&M.cpu, opt), want = vp_dt_player_offered() ? (o | 0x100u) : (o & ~0x100u);
+    if (want != o) mem_w32(&M.cpu, opt, want);
+}
 void ui_menu_music_vblank(void); /* ui/options.c: the menus' song on, if something silenced it */
 void vp_watch_out_of_battle(void); /* (below: the spectators' watch ended between matches) */
 void vp_vblank(void)
@@ -124,16 +135,10 @@ void vp_vblank(void)
     hudlay_vblank();
     ui_menu_music_vblank();
     wide_vblank();
-    static uint32_t opt = 1;
-    if (opt == 1) opt = port_sym("portCarOptions");
     int netplay_in_match(void); /* net/game_tm2.c */
-    if (opt && !netplay_in_match()) { /* (both ways: a profile signed in without him takes him out again; the user's
-                * 2026-11-18, a new profile made after one with every ending had him. Not during an online match: the
-                * word is in the match's state, the host's on every machine, and a joiner with every ending made it
-                * differ each step, as profile_hooks.c's unlock flags did: car select is before the match) */
-        uint32_t o = mem_r32(&M.cpu, opt), want = vp_dt_player_offered() ? (o | 0x100u) : (o & ~0x100u);
-        if (want != o) mem_w32(&M.cpu, opt, want);
-    }
+    if (!netplay_in_match()) vp_dt_offer_apply(); /* (not during an online match: the word is in the match's state, the
+                * host's on every machine, and a joiner with every ending made it differ each step, as profile_hooks.c's
+                * unlock flags did; vp_dt_offer_apply at the match's start instead) */
     /* portVisual bit 6 (decomp request 72, HIDDEN_AREAS.md): the hidden areas (Paris's church) drawn from anywhere, only while the depth
      * buffer is on (it hides what is behind walls; the PS1's order would paint the inside over them). Each machine's
      * own drawing (not in the online hash), read at every renderScene. */

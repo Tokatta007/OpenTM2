@@ -734,6 +734,12 @@ static int match_open(const NetTransport *net, const uint32_t slots[SES_MAX_NODE
     ng.steps = 0;
     ng.desyncs_seen = 0;
     ng.on = 1;
+    { /* Network Play's unlocks (every character, every machine) in place before the state is taken: the same on all of
+       * them, never written again during the match (profile_hooks.c, vplus/fixes.c) */
+        void profile_unlocks_match_start(void), vp_dt_offer_apply(void);
+        profile_unlocks_match_start();
+        vp_dt_offer_apply();
+    }
     neutral_all();
     fprintf(stderr, "network: the match: machine %d, players %d-%d of %d, input delay %d (%s)\n", ng.node, ng.first + 1,
             ng.first + ng.count, ng.humans, delay, ng.rollback ? "rollback" : "lockstep");

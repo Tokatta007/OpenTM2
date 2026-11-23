@@ -79,6 +79,10 @@ fills the browser with sample servers for tests; `TM2PC_NET_LOCAL=1` keeps a tes
    - The host: Select edits the game (the playlist when it's on), Start starts it (no ready check). O leaves.
 6. After a game: back to the lobby (to come with the network).
 
+Unlocks: in Network Play (a server's game pages, a server, its matches) Sweet Tooth, Minion, Dark Tooth and the three
+secret arenas are open for everyone, whatever their profiles have earned, so every machine holds the same; Local Play
+keeps each profile's own. They are set once at a match's start and never written during it.
+
 ## To come with the network
 
 - The server list, joining and hosting for real (`docs/HARDENING.md` 3-4: one ruleset and seed from the host).

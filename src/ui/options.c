@@ -2407,6 +2407,9 @@ static int net_voice_mode = 1;      /* this player's voice chat: off, push to ta
 static int net_car[4] = {-1, -1, -1, -1}; /* the local players' cars on the server (the game's numbers; -1 random) */
 static int net_carsel;              /* the game's car select opened from the lobby: back to it after */
 int ui_net_carsel(void) { return net_carsel; } /* (vplus/mod_cars.c: no skins online) */
+/* Network Play: making a server's game, in a server, or a match from one (profile.c: every character and secret arena
+ * unlocked there, the same for everyone; the title's Network Play exit clears both flags) */
+int ui_online(void) { return net_hosting || net_in_server || netplay_lobby() != NULL; }
 static int net_carsel_host_game;    /* (a joiner) car select under the host's game */
 static int net_return;              /* the title: straight back to the lobby (after car select) */
 static int net_ready[4];            /* the local players who chose their car (their cells solid) */

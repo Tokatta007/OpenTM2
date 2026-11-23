@@ -38,10 +38,15 @@ void profile_WinnerMovies(CPU *c)
 #define SWEET_TOOTH_UNLOCKED GA(0x80180D04u)
 #define MINION_UNLOCKED GA(0x80180D05u)
 
-static int seen = -1, seen_guests = -1;
+static int seen = -1, seen_guests = -1, seen_online = -1;
 /* an online match over: the flags this PC's players' own again (a joiner took the host's whole memory, its players'
  * unlocks with it: the user's online playtest 2026-11-01, a new profile with Sweet Tooth and Minion) */
 void profile_unlocks_mine(void) { seen = -1; }
+
+static void unlocks_now(CPU *c);
+/* an online match's start (net/game_tm2.c, every machine, before its state is taken): Network Play's flags (all
+ * set) in place even when no game frame ran since the menus (a scripted car, no car select) */
+void profile_unlocks_match_start(void) { unlocks_now(&M.cpu); }
 
 void profile_apply_unlocks(CPU *c)
 {
@@ -51,12 +56,24 @@ void profile_apply_unlocks(CPU *c)
      * Car select is before the match and still offers this PC's own; after it, profile_unlocks_mine sets them back. */
     int netplay_in_match(void); /* net/game_tm2.c */
     if (netplay_in_match()) return;
+    unlocks_now(c);
+}
+static void unlocks_now(CPU *c)
+{
     /* another profile signed in: the flags are its own (a code entered
      * before is forgotten with the profile that entered it) */
-    if (seen != profile_generation() || seen_guests != profile_guests_generation()) { /* (or who plays with them: the
-                                                                                          * unlocks are everyone's) */
+    int ui_online(void); /* ui/options.c: Network Play, everything unlocked (profile.c) */
+    int online = ui_online();
+    if (seen != profile_generation() || seen_guests != profile_guests_generation() || seen_online != online) { /* (or who
+                                                              * plays with them: the unlocks are everyone's; in or out of Network Play) */
         seen = profile_generation();
         seen_guests = profile_guests_generation();
+        seen_online = online;
+        int profile_dark_tooth_unlocked(void), profile_secret_levels_unlocked(void);
+        fprintf(stderr, "unlocks: Sweet Tooth %s, Minion %s, Dark Tooth %s, secret arenas %d%s\n",
+                profile_sweet_tooth_unlocked() ? "on" : "off", profile_minion_unlocked() ? "on" : "off",
+                profile_dark_tooth_unlocked() ? "on" : "off", profile_secret_levels_unlocked(),
+                online ? " (Network Play: everything for everyone)" : "");
         mem_w8(c, SWEET_TOOTH_UNLOCKED, (uint8_t)profile_sweet_tooth_unlocked());
         mem_w8(c, MINION_UNLOCKED, (uint8_t)profile_minion_unlocked());
         return;
