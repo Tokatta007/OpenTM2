@@ -126,8 +126,11 @@ void vp_vblank(void)
     wide_vblank();
     static uint32_t opt = 1;
     if (opt == 1) opt = port_sym("portCarOptions");
-    if (opt) { /* (both ways: a profile signed in without him takes him out again; the user's 2026-11-18, a new profile
-                * made after one with every ending had him) */
+    int netplay_in_match(void); /* net/game_tm2.c */
+    if (opt && !netplay_in_match()) { /* (both ways: a profile signed in without him takes him out again; the user's
+                * 2026-11-18, a new profile made after one with every ending had him. Not during an online match: the
+                * word is in the match's state, the host's on every machine, and a joiner with every ending made it
+                * differ each step, as profile_hooks.c's unlock flags did: car select is before the match) */
         uint32_t o = mem_r32(&M.cpu, opt), want = vp_dt_player_offered() ? (o | 0x100u) : (o & ~0x100u);
         if (want != o) mem_w32(&M.cpu, opt, want);
     }

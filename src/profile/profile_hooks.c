@@ -45,6 +45,12 @@ void profile_unlocks_mine(void) { seen = -1; }
 
 void profile_apply_unlocks(CPU *c)
 {
+    /* online, the flags are part of the match's state, the same on every machine: a joiner whose players have Sweet
+     * Tooth or Minion and a host whose players don't made them differ every step, and the host's state was sent again
+     * every 8 steps all match long (the players' v1.0.11 logs: "1 words from 80184CFC", the relocated D_80180D04).
+     * Car select is before the match and still offers this PC's own; after it, profile_unlocks_mine sets them back. */
+    int netplay_in_match(void); /* net/game_tm2.c */
+    if (netplay_in_match()) return;
     /* another profile signed in: the flags are its own (a code entered
      * before is forgotten with the profile that entered it) */
     if (seen != profile_generation() || seen_guests != profile_guests_generation()) { /* (or who plays with them: the
