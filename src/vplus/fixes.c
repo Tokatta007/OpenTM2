@@ -3849,9 +3849,41 @@ static int aim_at_dead(CPU *c, uint32_t pos)
     }
     return 0;
 }
+/* With teams a computer car's aimed shot (mode 0) never locks onto a teammate: its own target record (any of the 15,
+ * the decomp's portAiAim only the first 9: past them its retail fallback, the nearest player, a teammate: KinggzZ's
+ * 2026-11-24 King of the Hill, his red team and Dark Tooth alone on blue, teammates' missiles and specials on him;
+ * decomp request 123), else the nearest living player of another team, else no lock at all. State only: the same on
+ * every machine. */
+static int team_ai_aim(CPU *c)
+{
+    if ((c->r[6] & 0xFF) || !teams_on()) return 0;
+    int owner = (int)c->r[4], n = (int)mem_r32(c, GA(0x8018101Cu));
+    if (owner < 0 || owner >= n || owner >= cars_ai_max() || !ai_alive(owner)) return 0;
+    int mine = team_of_ai(owner), t = (int32_t)mem_r32(c, GA(0x801879FCu) + 4u * (uint32_t)owner);
+    uint32_t obj = 0;
+    if (t >= 0 && t < n && t < cars_ai_max() && t != owner && ai_alive(t) && team_of_ai(t) != mine)
+        obj = mem_r32(c, GA(0x80188B38u) + 4u * (uint32_t)t);
+    if (!obj) {
+        int humans = (int)mem_r32(c, GA(0x80181014u)), best = -1;
+        uint32_t best_d = 0; /* (each axis / 16, squared in 32 bits: as portAiAim) */
+        for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++) {
+            if (mem_r8(c, HUMAN_REC(i) + 0x9C) || (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0 || team_of_human(i) == mine) continue;
+            int32_t dx = (int32_t)(mem_r32(c, HUMAN_REC(i) + 0x6FC) - mem_r32(c, AI_REC(owner) + 0x73C)) / 16;
+            int32_t dy = (int32_t)(mem_r32(c, HUMAN_REC(i) + 0x700) - mem_r32(c, AI_REC(owner) + 0x740)) / 16;
+            uint32_t d = (uint32_t)dx * (uint32_t)dx + (uint32_t)dy * (uint32_t)dy;
+            if (best < 0 || d < best_d) { best_d = d; best = i; }
+        }
+        if (best >= 0) obj = guest_call(GA(0x8011CB50u), (uint32_t)best, 0, 0, 0); /* humanCarObject */
+    }
+    static int dbg = -1; /* tests: TM2PC_TEAM_AIM_DEBUG, each aimed shot whose target the decomp's portAiAim left out */
+    if (dbg < 0) dbg = getenv("TM2PC_TEAM_AIM_DEBUG") != NULL;
+    if (dbg && t >= 9) fprintf(stderr, "team aim: computer car %d, target record %d: %s\n", owner + 1, t, obj ? "aimed at it" : "no lock");
+    mem_w32(c, c->r[5], obj ? obj + 0xA8 : 0);
+    return 1;
+}
 static void find_target(CPU *c, int behind, void (*orig)(CPU *))
 {
-    if (ai_aim(c) || team_aim(c, behind, 0)) return;
+    if (team_ai_aim(c) || ai_aim(c) || team_aim(c, behind, 0)) return;
     uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6];
     orig(c);
     if (!(a2 & 0xFF) || !aim_at_dead(c, mem_r32(c, a1))) return;
@@ -4304,6 +4336,7 @@ static uint64_t hunted_tick, mode_retarget;
 #define JUGG_SLOTS 32
 static int slot_alive(int slot);
 static int32_t jugg_damage[JUGG_SLOTS];
+static int32_t jugg_frac; /* the Juggernaut's toughness: the part of a point of damage carried to its next hit */
 static int jugg_top_damager(void)
 {
     int best = -1;
@@ -4532,6 +4565,7 @@ static void mode_round_start(void)
     hunted_tick = vp_gv();
     mode_retarget = 0;
     memset(jugg_damage, 0, sizeof jugg_damage);
+    jugg_frac = 0;
     gun_round_start();
     hill_round_start();
     if (mode_is(MODE_JUGGERNAUT) || mode_is(MODE_ODDBALL)) special_fill();
@@ -4582,9 +4616,18 @@ int vp_mode_damage(int victim_slot, int attacker_slot, int ram, int amount)
 {
     if (!mode_is(MODE_JUGGERNAUT) || special_slot < 0) return amount;
     const GameType *t = battle_rules();
-    if (victim_slot == special_slot && amount > 1) amount = amount * 100 / (t->jugg_health > 0 ? t->jugg_health : 100);
-    else if (attacker_slot == special_slot && attacker_slot != victim_slot) amount = amount * (ram ? t->jugg_ram : t->jugg_weapon) / 100;
-    if (amount < 1) amount = 1;
+    if (victim_slot == special_slot && amount > 0) {
+        /* the toughness on every hit, the fraction carried to the next: a 1-point hit (the machine gun's) was left whole, so
+         * at 400% the gun still did its full damage (KinggzZ's, 2026-11-24); now each 4th bullet counts. (In the state:
+         * the same on every machine, and again in a replay) */
+        int h = t->jugg_health > 0 ? t->jugg_health : 100;
+        int total = amount * 100 + jugg_frac;
+        amount = total / h;
+        jugg_frac = total % h;
+    } else if (attacker_slot == special_slot && attacker_slot != victim_slot) {
+        amount = amount * (ram ? t->jugg_ram : t->jugg_weapon) / 100;
+        if (amount < 1) amount = 1;
+    }
     if (victim_slot == special_slot && attacker_slot >= 0 && attacker_slot < JUGG_SLOTS && attacker_slot != victim_slot)
         jugg_damage[attacker_slot] += amount;
     return amount;
@@ -4624,6 +4667,7 @@ static void hunted_team_became(int team, int killer) /* Swap team: this team has
 static void special_became(int slot)
 {
     memset(jugg_damage, 0, sizeof jugg_damage);
+    jugg_frac = 0;
     if (mode_is(MODE_JUGGERNAUT)) jc_pending = 1; /* into the Juggernaut's car (the next battle frame) */
     int h = slot_human(slot), k = slot_ai(slot);
     if (mode_is(MODE_JUGGERNAUT) && battle_rules()->jugg_full_heal) {
@@ -6587,7 +6631,7 @@ void vp_keep_register(void)
     KEEP(gun_seq); KEEP(gun_count); KEEP(specials); KEEP(special_n); KEEP(hunted_team); KEEP(hunted_tick); KEEP(mode_retarget);
     KEEP(watch_at); KEEP(spectate_at); KEEP(gun_level_given); KEEP(hill_x); KEEP(hill_y); KEEP(hill_z); KEEP(hill_holder); KEEP(hill_contested);
     KEEP(hill_moved); KEEP(hill_tick); KEEP(hill_count); KEEP(hill_spot_of); KEEP(duo_ended); KEEP(duo_win_human); KEEP(duo_win_ai);
-    KEEP(duo_win_team); KEEP(prev_easy); KEEP(prev_pad); KEEP(hill_goal); KEEP(jugg_damage); KEEP(jc_pending); KEEP(jc_driver);
+    KEEP(duo_win_team); KEEP(prev_easy); KEEP(prev_pad); KEEP(hill_goal); KEEP(jugg_damage); KEEP(jugg_frac); KEEP(jc_pending); KEEP(jc_driver);
     void feats_keep_register(void); /* profile/feat_hooks.c: the last hits */
     feats_keep_register();
     void ui_keep_register(void); /* ui/options.c: a Versus Tournament's totals (the honorable mentions), its computer cars */
