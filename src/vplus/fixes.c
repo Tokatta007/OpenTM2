@@ -2474,7 +2474,7 @@ void vp_lives_frame(void)
  * (aiCarsCountRemaining, aiCarsCountAlive), and after 7 seconds it alone
  * comes back (2.6: aiCarStart at the start point farthest from the other
  * cars, its damage model and body object, the object shown, 2 seconds of
- * shield). Dark Tooth has one life (his two-stage fight).
+ * shield). Dark Tooth as a boss has one life (his two-stage fight).
  * Whom they hunt (the game type's Computer cars): the game's (every one the
  * nearest human: aiCarTargets -1; a computer car is hurt only while in range
  * of its own target, +0x034); Everyone equal (the nearest car of any kind,
@@ -2487,8 +2487,13 @@ int vp_ai_ignore_ai(void) { return 0; } /* accidental hits between computer cars
 static void ai_lives_start(void)
 {
     int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu)), lives = battle_rules() ? battle_lives() : 1;
+    /* Dark Tooth: one life as a boss (his two-stage fight: Survival's, a tournament's level 8); an ordinary computer Dark
+     * Tooth (a Challenge Match's or a custom tournament's: portCarOptions bit 10) the game type's lives as any car (decomp
+     * request 121, PLAYTEST_ANSWERS.md 35.2; KinggzZ's report) */
+    uint32_t opt = port_sym("portCarOptions");
+    int dt_ordinary = opt && (mem_r32(&M.cpu, opt) & 0x400u);
     for (int k = 0; k < cars_ai_max(); k++) {
-        ai_life[k].left = k < n && mem_r32(&M.cpu, AI_REC(k) + 0x30) != 0xF0u ? lives - 1 : 0;
+        ai_life[k].left = k < n && (mem_r32(&M.cpu, AI_REC(k) + 0x30) != 0xF0u || dt_ordinary) ? lives - 1 : 0;
         ai_life[k].at = ai_life[k].shield_off = 0;
     }
 }
@@ -2572,6 +2577,12 @@ static void ai_respawn(int k)
     uint32_t key = car_key_of((int16_t)mem_r16(&M.cpu, rec + 0x006), t);
     if (mem_r8(&M.cpu, rec + 0x518)) { guest_call(GA(0x80124C00u), key, 0, 0, 0); mem_w8(&M.cpu, rec + 0x518, 0); } /* the ice look */
     if (mem_r8(&M.cpu, rec + 0x088)) guest_call(GA(0x80124384u), key + 6, 0, 0, 0);                              /* the turbo flame */
+    if (t == 0xF0u) { /* Dark Tooth back: his shot and swoop timers, his swoop and stage flag reset, so he does not swoop the moment he
+                       * is back (decomp request 121, PLAYTEST_ANSWERS.md 35.2) */
+        static uint32_t reset = 1;
+        if (reset == 1) reset = port_sym("portCarResetSpecials");
+        if (reset) guest_call(reset, (uint32_t)(int16_t)mem_r16(&M.cpu, rec + 0x006), 0, 0, 0);
+    }
     const uint32_t list = GA(0x801B2B28u), taken = GA(0x801B2B46u), nodes = GA(0x801B1DE8u);
     int count = mem_r8(&M.cpu, GA(0x801B2B55u)), humans = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
     if (count > 15) count = 15;

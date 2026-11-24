@@ -345,6 +345,19 @@ int input_steer_amount(int p)
     int a = (int)((x - STICK_DEADZONE) * 4096L / (32767 - STICK_DEADZONE));
     return a < 400 ? 400 : a > 4096 ? 4096 : a;
 }
+/* How far a trigger is pressed, for the analog throttle (decomp request 121, ANALOG_STEERING.md 6.4): b a button's number
+ * (Controls': 4 L2, 10 R2); 1024..4096 past the trigger's press threshold (a light press still well above the game's
+ * "moving at all"), full near the end. -1: not a trigger, not this controller's, or not pressed past the threshold (a
+ * key or another button holds the action: full speed). */
+int input_trigger_amount(int p, int b)
+{
+    if (p < 0 || p > 3 || !pads[p] || input_pads_off || (b != 4 && b != 10)) return -1;
+    int v = SDL_GetGamepadAxis(pads[p], b == 4 ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    if (v <= TRIGGER_THRESHOLD) return -1;
+    const int full = 31000;
+    if (v >= full) return 4096;
+    return 1024 + (int)((v - TRIGGER_THRESHOLD) * 3072L / (full - TRIGGER_THRESHOLD));
+}
 uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump) */
 {
     if (p < 0 || p > 3 || !bind_easy_energy(p) || input_pads_off) return 0;

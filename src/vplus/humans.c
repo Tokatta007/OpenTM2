@@ -9,6 +9,7 @@
  * human local, slot = human). Each human's button table: a local player's from their layout and own buttons (as the
  * game builds a pad's), another machine's as that machine sent it (humans_set_table). */
 #include "../runtime/runtime.h"
+#include "../runtime/rebase_table.h"
 #include "vplus.h"
 #include "cars.h"
 #include "../controls/bindings.h"
@@ -29,7 +30,7 @@ int bind_jump_combo(int player), bind_steer_keep(int player); /* controls/bindin
 void bind_apply_as(int player);
 int feats_in_battle(void);
 
-static uint32_t a_local, a_pad, a_steer, a_options, a_layout, a_bindings, a_control;
+static uint32_t a_local, a_pad, a_steer, a_throttle, a_options, a_layout, a_bindings, a_control;
 static int8_t slot_of[HUMANS_MAX];      /* this machine's slot of each human (-1: another machine's) */
 static int map_set, map_n;              /* (a match's map given; else every human local) */
 static uint8_t table[HUMANS_MAX][128];  /* each human's button table for the match */
@@ -45,6 +46,7 @@ static int syms(void)
         a_local = port_sym("portHumanLocal");
         a_pad = port_sym("portHumanPad");
         a_steer = port_sym("portHumanSteer");
+        a_throttle = port_sym("portHumanThrottle"); /* (decomp request 121: the analog throttle) */
         a_options = port_sym("portHumanOptions");
         a_layout = port_sym("portHumanLayout");
         a_bindings = port_sym("portHumanBindings");
@@ -190,6 +192,24 @@ static uint16_t as_standard(int L, uint32_t mine) /* (mine: bits 16-19 the right
     }
     return out;
 }
+/* local player L's analog throttle (decomp request 121, ANALOG_STEERING.md 6.4): accelerate (0x18) or brake / reverse
+ * (0x19) held on a trigger, the trigger's amount; else (a button, a key, nothing, the option off) 4096, the game's */
+static uint32_t throttle_of(int L, uint32_t mine)
+{
+    int input_trigger_amount(int p, int b); /* runtime/input.c */
+    static int test = -1; /* tests: TM2PC_TEST_THROTTLE=N, every local player's accelerate held at N of 4096 */
+    if (test < 0) test = getenv("TM2PC_TEST_THROTTLE") ? atoi(getenv("TM2PC_TEST_THROTTLE")) : 0;
+    if (L < 0 || L > 3 || !own_ok[L] || !bind_analog_throttle(L)) return 4096;
+    if (test > 0 && own[L][0x18] >= 1 && own[L][0x18] <= 14 && (mine & button_bit[own[L][0x18]])) return (uint32_t)test;
+    static const uint8_t drive[2] = {0x18, 0x19};
+    for (int i = 0; i < 2; i++) {
+        int b = own[L][drive[i]];
+        if (b < 1 || b > 14 || !(mine & button_bit[b])) continue;
+        int a = input_trigger_amount(L, b);
+        return a < 0 ? 4096u : (uint32_t)a;
+    }
+    return 4096;
+}
 void humans_controls_changed(void) { memset(own_ok, 0, sizeof own_ok); } /* (Controls: at once, from the next step) */
 
 void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's frame): every human's word and tilt */
@@ -248,6 +268,13 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
         mem_w16(&M.cpu, a_pad + 2u * (uint32_t)h, (uint16_t)((held >> 8) | (held << 8))); /* padButtonsDecoded's half layout */
         uint32_t steer = killcam_input(1, h, L >= 0 ? (uint32_t)input_steer_amount(L) : 4096u);
         if (a_steer) mem_w16(&M.cpu, a_steer + 2u * (uint32_t)h, (uint16_t)steer);
+        uint32_t thr = killcam_input(3, h, L >= 0 ? throttle_of(L, mine_all) : 4096u); /* (0 from a machine without it: the game's) */
+        if (a_throttle) mem_w16(&M.cpu, a_throttle + 2u * (uint32_t)h, (uint16_t)thr);
+        static int thr_log = -1; /* tests: TM2PC_THROTTLE_LOG, human 1's throttle and place each second */
+        if (thr_log < 0) thr_log = getenv("TM2PC_THROTTLE_LOG") != NULL;
+        if (thr_log && h == 0 && M.vblanks % 60 == 0)
+            fprintf(stderr, "throttle: %u at %d,%d\n", (unsigned)thr, (int)mem_r32(&M.cpu, HUMAN_REC(0) + 0x6FC),
+                    (int)mem_r32(&M.cpu, HUMAN_REC(0) + 0x700));
         /* the easy energy buttons, and bit 0 the player's L1 + R1 jump, bit 1 their steering in reverse "like the screen",
          * bits 2-3 their jump's weapon switch safety (0 off, 1-3 steps), and the controller's own Select, L1 and R1 held
          * (EASY_SELECT, EASY_L1, EASY_R1: the jump and Select's buttons are those, whatever actions they have) (their

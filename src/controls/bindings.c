@@ -97,12 +97,15 @@ static int energy_key[2][BIND_ENERGY];
 static int pad_type[4];                          /* 0 auto, 1 PlayStation, 2 Xbox */
 static int jump_combo[4], easy_energy[4];         /* L1 + R1 jumps; the D-pad's energy attacks (steering on the stick) */
 static int analog_steer[4] = {1, 1, 1, 1};        /* the stick turns as far as it is tilted */
+static int analog_throttle[4] = {1, 1, 1, 1};     /* a trigger on accelerate or reverse: as fast as it is pressed */
 static int steer_keep[4] = {1, 1, 1, 1};          /* in reverse, Left still turns the nose left (decomp request 66, ANALOG_STEERING.md) */
 static int keypad34[2];                           /* players 3-4's layouts (1-2's: settings_game.keypad) */
 static int layout_of(int p) { return p < 2 ? settings_game.keypad[p] : keypad34[(p - 2) & 1]; }
 int bind_layout(int player) { return player >= 0 && player <= 3 ? layout_of(player) : 0; }
 int bind_analog_steer(int player) { return player >= 0 && player <= 3 && analog_steer[player]; }
 void bind_set_analog_steer(int player, int on) { if (player >= 0 && player <= 3) analog_steer[player] = on != 0; }
+int bind_analog_throttle(int player) { return player >= 0 && player <= 3 && analog_throttle[player]; }
+void bind_set_analog_throttle(int player, int on) { if (player >= 0 && player <= 3) analog_throttle[player] = on != 0; }
 int bind_steer_keep(int player) { return player >= 0 && player <= 3 && steer_keep[player]; }
 void bind_set_steer_keep(int player, int on) { if (player >= 0 && player <= 3) steer_keep[player] = on != 0; }
 int bind_jump_combo(int player) { return player >= 0 && player <= 3 && jump_combo[player]; }
@@ -272,6 +275,7 @@ int bind_ini_key(const char *key, const char *val)
         }
         if (!strcmp(key + 3, "energy_dpad")) { easy_energy[p] = on; return 1; }
         if (!strcmp(key + 3, "analog_steering")) { analog_steer[p] = on; return 1; }
+        if (!strcmp(key + 3, "analog_throttle")) { analog_throttle[p] = on; return 1; }
         if (!strcmp(key + 3, "no_backwards_steering")) { steer_keep[p] = on; return 1; }
     }
     if (!strncmp(key, "player", 6) && key[6] >= '1' && key[6] <= '4' && !strcmp(key + 7, "_controller")) {
@@ -362,6 +366,7 @@ void bind_ini_write(FILE *f)
     write_actions(f, 1, "p2_");
     fprintf(f, "p2_jump_l1_r1 = %s\np2_energy_dpad = %s\np2_analog_steering = %s\n", jump_combo[1] ? "yes" : "no",
             easy_energy[1] ? "yes" : "no", analog_steer[1] ? "yes" : "no");
+    fprintf(f, "p2_analog_throttle = %s\n", analog_throttle[1] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "p2_no_backwards_steering = %s\n", steer_keep[1] ? "yes" : "no");
     fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
@@ -386,6 +391,7 @@ void bind_player1_defaults(void)
     jump_combo[0] = easy_energy[0] = 0;
     jump_safety[0] = 1;
     analog_steer[0] = 1;
+    analog_throttle[0] = 1;
     steer_keep[0] = 1;
     extra_key[0] = SDL_SCANCODE_PAGEDOWN;
     extra_key[1] = SDL_SCANCODE_PAGEUP;
@@ -407,6 +413,7 @@ void bind_player2_defaults(void)
     jump_combo[1] = easy_energy[1] = 0;
     jump_safety[1] = 1;
     analog_steer[1] = 1;
+    analog_throttle[1] = 1;
     steer_keep[1] = 1;
 }
 
@@ -423,6 +430,7 @@ void bind_profile_write_p2(FILE *f)
     fprintf(f, "; L1 + R1 jumps; energy attacks on the D-pad (steering on the stick): yes or no\n");
     fprintf(f, "jump_l1_r1 = %s\nenergy_dpad = %s\nanalog_steering = %s\n", jump_combo[1] ? "yes" : "no",
             easy_energy[1] ? "yes" : "no", analog_steer[1] ? "yes" : "no");
+    fprintf(f, "analog_throttle = %s\n", analog_throttle[1] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "no_backwards_steering = %s\n", steer_keep[1] ? "yes" : "no");
     fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"
@@ -455,6 +463,7 @@ void bind_player_defaults(int p)
     jump_combo[p] = easy_energy[p] = 0;
     jump_safety[p] = 1;
     analog_steer[p] = 1;
+    analog_throttle[p] = 1;
     steer_keep[p] = 1;
 }
 int bind_profile_key_p(int p, const char *key, const char *val)
@@ -505,6 +514,7 @@ void bind_profile_write(FILE *f)
     fprintf(f, "; L1 + R1 jumps; energy attacks on the D-pad (steering on the stick): yes or no\n");
     fprintf(f, "jump_l1_r1 = %s\nenergy_dpad = %s\nanalog_steering = %s\n", jump_combo[0] ? "yes" : "no",
             easy_energy[0] ? "yes" : "no", analog_steer[0] ? "yes" : "no");
+    fprintf(f, "analog_throttle = %s\n", analog_throttle[0] ? "yes" : "no");
     fprintf(f, "; in reverse, Left still turns the car's nose left on screen (no: backwards, as the original)\n"
                "no_backwards_steering = %s\n", steer_keep[0] ? "yes" : "no");
     fprintf(f, "; with L1 + R1 jump, a lone L1 / R1 waits this long (ms) for the other before switching weapons: off, 50, 100, 150\n"

@@ -882,6 +882,8 @@ static int get_analog_steer(int p) { return bind_analog_steer(p); }
 static int get_steer_keep(int p) { return bind_steer_keep(p); }
 static void set_steer_keep(int p, int v) { bind_set_steer_keep(p, v); changed |= SAVE_CONTROLS; }
 static void set_analog_steer(int p, int v) { bind_set_analog_steer(p, v); changed |= SAVE_CONTROLS; }
+static int get_analog_throttle(int p) { return bind_analog_throttle(p); }
+static void set_analog_throttle(int p, int v) { bind_set_analog_throttle(p, v); changed |= SAVE_CONTROLS; }
 static void set_jump_combo(int p, int v) { bind_set_jump_combo(p, v); changed |= SAVE_CONTROLS; rebuild_page = 1; } /* (its safety row) */
 static const char *const jump_safety_values[] = {"OFF", "50 MS", "100 MS", "150 MS"};
 static int get_jump_safety(int p) { return bind_jump_safety(p); }
@@ -2531,6 +2533,12 @@ static void set_net_server(int a, int v)
         rebuild_page = 1;
         break;
     case NS_TOUR_MODE: /* NEW / LOAD / CUSTOM (LOAD: on the first slot that loads) */
+        if (v == 1) { /* LOAD with no online save that loads: passed over (Mohamed Eissa's lobby, 2026-11-23: LOAD on an empty
+                       * slot, each countdown ended in a chat line he could not read and no match) */
+            int any = 0;
+            for (int k = 0; k < PROFILE_SAVES; k++) any |= !net_tour_slot_why(k);
+            if (!any) v = net_tour_custom ? 0 : 2; /* (from CUSTOM going left: NEW; from NEW going right: CUSTOM) */
+        }
         net_tour_custom = v == 2;
         net_tour_loading = v == 1;
         if (v && net_tour_slot_why(net_tour_slot))
@@ -4463,7 +4471,7 @@ static void build(PageId page)
             net_tour_load_values[k] = net_tour_load_text[k];
         }
         static const char *const new_load[3] = {"NEW", "LOAD", "CUSTOM"};
-        add_choice("Tournament", "NEW: from level 1. LOAD: one saved online, same players and cars. CUSTOM: your own stages.",
+        add_choice("Tournament", "NEW: from level 1. LOAD: one saved online, same players and cars (only with such a save). CUSTOM: your own stages.",
                    get_net_server, set_net_server, NS_TOUR_MODE, new_load, 3);
         static char slot_desc[240];
         if (net_tour_custom) { /* a custom co-op tournament: the Custom Tournament page's stages, the co-op tournament's lives */
@@ -4978,6 +4986,8 @@ static void build(PageId page)
                    get_pad_type, set_pad_type, p, pad_type_values, 3)->small = 1;
         add_choice("Analog steering", "The stick turns as far as it is tilted. Off: any tilt turns fully, as the D-pad.",
                    get_analog_steer, set_analog_steer, p, onoff_values, 2)->small = 1;
+        add_choice("Analog throttle", "With accelerate or reverse on a trigger, the car goes as fast as the trigger is pressed. "
+                   "Off: any press is full speed.", get_analog_throttle, set_analog_throttle, p, onoff_values, 2)->small = 1;
         add_choice("Disable backwards steering", "On: backing up, Left still turns the nose left. Off (the original): backing up, "
                    "Left swings the nose right, switching as the car starts rolling back.",
                    get_steer_keep, set_steer_keep, p, onoff_values, 2)->small = 1;

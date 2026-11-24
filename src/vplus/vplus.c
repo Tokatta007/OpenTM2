@@ -30,7 +30,7 @@ const VpChangeId vp_menu_order[VP_COUNT] = {
     VP_PAUSE_QUIT_BOOM, VP_AXEL_EYES, VP_LA_QUAKE_FINALE, VP_TASER_LOW, VP_CAMERA_WALLS,
     VP_STEADY_SHADOW, VP_GLACIER_FIRE,
     VP_LIVES_PER_LEVEL, VP_COOP_SPECTATE, VP_NO_ROUND_RESTARTS, VP_SPAWN_SPACING, VP_AI_UNJAM, VP_BAL_PICKUPS, VP_BAL_MISSILES,
-    VP_BAL_GUNS, VP_BAL_SHIELD, VP_BAL_MINES, VP_BAL_FREEZE, VP_BAL_RICOCHET,
+    VP_BAL_GUNS, VP_BAL_GUN_RANGE, VP_BAL_SHIELD, VP_BAL_MINES, VP_BAL_FREEZE, VP_BAL_RICOCHET,
     VP_BAL_ROADKILL, VP_BAL_TWISTER, VP_BAL_AXEL, VP_BAL_SHADOW, VP_BAL_HAMMERHEAD, VP_BAL_OUTLAW2, VP_BAL_GRIMM, VP_BAL_GRASSHOPPER,
     VP_BAL_THUMPER, VP_BAL_SLAM, VP_BAL_MINION,
 };
@@ -102,13 +102,13 @@ const VpChange vp_changes[VP_COUNT] = {
     [VP_BAL_TWISTER] = { "bal_twister", "Twister balancing", VP_CAT_CHARACTERS,
         "No weapons while her tornado spins, no ram damage to her during it, recharge 18 to 30 seconds, the last hit throws." },
     [VP_BAL_GRASSHOPPER] = { "bal_grasshopper", "Grasshopper balancing", VP_CAT_CHARACTERS,
-        "Damage 15 to 18. Her special pushes the car it hits. Takes no ram damage while using her special. Lands cleanly. Jumps cost no energy." },
+        "Damage 15 to 20. Her special pushes the car it hits. Takes no ram damage while using her special. Lands cleanly. Jumps cost no energy." },
     [VP_BAL_OUTLAW2] = { "bal_outlaw2", "Outlaw 2 balancing", VP_CAT_CHARACTERS,
         "A taser shot that missed can still connect while it lasts (one hit of 10). Recharge 55 to 45 seconds." },
     [VP_BAL_GRIMM] = { "bal_grimm", "Mr. Grimm balancing", VP_CAT_CHARACTERS,
         "Special recharges in 60 seconds instead of 70." },
     [VP_BAL_THUMPER] = { "bal_thumper", "Thumper balancing", VP_CAT_CHARACTERS,
-        "Special recharges in 75 seconds instead of 80." },
+        "Special recharges in 75 seconds instead of 80. No second special while his flame still burns (it cost energy for nothing)." },
     [VP_BAL_SHADOW] = { "bal_shadow", "Shadow balancing", VP_CAT_CHARACTERS,
         "Fixes Shadow's special doing extra damage on slopes. Damage 25 to 28, the same everywhere." },
     [VP_TASER_LOW] = { "taser_low", "Taser Visual Fix", VP_CAT_BUG_FIX,
@@ -122,6 +122,8 @@ const VpChange vp_changes[VP_COUNT] = {
         "With 2-4 players, each big portrait gets a border and a P1-P4 tag in the player's color." },
     [VP_BAL_ROADKILL] = { "bal_roadkill", "Roadkill balancing", VP_CAT_CHARACTERS,
         "His boomerang always gives its charge back when it returns to his car. The original sometimes let it vanish next to him." },
+    [VP_BAL_GUN_RANGE] = { "bal_gun_range", "Machine gun range", VP_CAT_BALANCING,
+        "Machine-gun bullets fly 25% farther before they fade, as in the PC version." },
     [VP_BAL_SLAM] = { "bal_slam", "Mr. Slam balancing", VP_CAT_CHARACTERS,
         "No pickups or special while his arm swings. His shield and machine guns still work." },
     [VP_AI_UNJAM] = { "ai_unjam", "Computer cars unjam", VP_CAT_BALANCING,
@@ -257,7 +259,7 @@ void vp_ini_write(FILE *f)
         }
 }
 
-/* The decomp's portBalance bits (BALANCE.md 2.1, 12, 13): bits 9 and 14 are reserved (no effect); 11 (a borrowing
+/* The decomp's portBalance bits (BALANCE.md 2.1, 12, 13): bits 9 (the machine guns' range) and 14 (Thumper's flame) since request 121; 11 (a borrowing
  * Hammerhead) goes with Hammerhead, 12 (Twister's throw) and 15 (her weapons locked) with Twister, 13 (Grasshopper's
  * landing) and 19 (her free energy jump) with Grasshopper. Written at each match's load (four.c); the C copies it at the round's start. */
 unsigned vp_balance_word(void)
@@ -266,10 +268,10 @@ unsigned vp_balance_word(void)
         {VP_BAL_MISSILES, 0x0001}, {VP_BAL_SHIELD, 0x0002}, {VP_BAL_MINES, 0x0004}, {VP_BAL_HAMMERHEAD, 0x1000808},
         {VP_BAL_AXEL, 0x0010}, {VP_BAL_MINION, 0x0020}, {VP_BAL_TWISTER, 0x9040}, {VP_BAL_GRASSHOPPER, 0x80082080u}, /* (bit 31, request 103: the leap pushes 300) */
         {VP_BAL_SHADOW, 0x0400}, {VP_BAL_OUTLAW2, 0x10000}, {VP_BAL_FREEZE, 0x20000},
-        {VP_BAL_RICOCHET, 0x40000}, {VP_BAL_GUNS, 0x100000},
+        {VP_BAL_RICOCHET, 0x40000}, {VP_BAL_GUNS, 0x100000}, {VP_BAL_GUN_RANGE, 0x0200}, /* (request 121: bit 9 the range, bit 14 Thumper's flame) */
         /* Hammerhead's brakes 2 and slide speed 60: bit 24 (decomp request 77, BALANCE.md 17) */
         /* the recharges: Outlaw 2 bit 8, Mr. Grimm bit 21, Thumper bit 22 (decomp request 45, PLAYTEST_ANSWERS.md, BALANCE.md 14.1) */
-        {VP_BAL_OUTLAW2, 0x0100}, {VP_BAL_GRIMM, 0x200000}, {VP_BAL_THUMPER, 0x400000},
+        {VP_BAL_OUTLAW2, 0x0100}, {VP_BAL_GRIMM, 0x200000}, {VP_BAL_THUMPER, 0x404000},
         {VP_BAL_PICKUPS, 0x800000}, /* (request 67, BALANCE.md: the respawn's draw among the taken pickups that can show) */
         {VP_BAL_SLAM, 0x4000000}, {VP_AI_UNJAM, 0x28000000}, /* (request 91, BALANCE.md 19-20; bit 29 request 101, 22: the routes on Roof Tops) */
         {VP_BAL_ROADKILL, 0x10000000}, /* (request 95, BALANCE.md 21: the boomerang caught within 20 of its thrower) */

@@ -58,14 +58,15 @@ word, written at each match's load (`vp_balance_word`, four.c; the decomp's `BAL
 | `bal_freeze` | Freeze diminishing returns | 17 | an ice freeze within 1 s of the last (or during it) lasts half the last one (floor 5 frames) |
 | `bal_ricochet` | Safe ricochet launch | 18 | a ricochet bomb cannot hit its owner before it has cleared the car |
 | `bal_guns` | No chance machine guns | 20 | every connecting bullet does half damage (no 50 % coin flip; the same on average) |
+| `bal_gun_range` | Machine gun range | 9 | bullets fly 25 % farther (a player's 12 frames -> 15, a computer car's 15 -> 19; decomp request 121) |
 | `bal_hammerhead` | Hammerhead balancing | 3, 11, 24 | rams x1.2, crush 15 + 5 on top, recharge 35 s; a borrowed special stays the lender's; brakes 2 and slide speed 60 (were 1 and 25: request 77) |
 | `bal_axel` | Axel balancing | 4 | no crush, rams x1.1 |
 | `bal_minion` | Minion balancing | 5 | no crush, rams x1.1, recharge 30 s |
 | `bal_twister` | Twister balancing | 6, 12, 15 | no weapon at all during the tornado (refused, nothing spent), no ram damage then, recharge 30 s, the last hit throws every caught car |
-| `bal_grasshopper` | Grasshopper balancing | 7, 13, 19 | leap 18, touching counts, no ram damage while leaping, a clean landing; her energy jump free |
+| `bal_grasshopper` | Grasshopper balancing | 7, 13, 19 | leap 20 (18 until request 121), touching counts, no ram damage while leaping, a clean landing; her energy jump free |
 | `bal_outlaw2` | Outlaw 2 balancing | 16, 8 | a taser shot that connected to no one may connect later in its time (one hit of 10 and the lift); recharge 45 s |
 | `bal_grimm` | Mr. Grimm balancing | 21 | recharge 60 s |
-| `bal_thumper` | Thumper balancing | 22 | recharge 75 s |
+| `bal_thumper` | Thumper balancing | 22, 14 | recharge 75 s; no special while his own flame burns (denied, no cost: request 121) |
 | `bal_shadow` | Shadow balancing | 10 | the slope splash bug fixed: 28 at most |
 
 Each car's recharge has its own bit since decomp request 45 (PLAYTEST_ANSWERS.md; `BALANCE.md` 14.1: Outlaw 2 8, Mr. Grimm 21, Thumper

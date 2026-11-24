@@ -35,7 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { NG_KINDS = 3, NG_PLAYERS = 16, NG_LOCAL = 4 };
+enum { NG_KINDS = 4, NG_PLAYERS = 16, NG_LOCAL = 4 };
 enum { SEND_EVERY_MS = 4,             /* while a step waits: a send this often at most (plenty at 20 steps a second) */
        RELAY_RATE = 600000 };           /* the reliable bytes a second to the relayed machines, all of them together (the
                                          * master relays 1 MB/s a sender: the rest for the inputs, voice and resends) */
@@ -231,6 +231,7 @@ static void cb_advance(void *ctx, const RbInput *inputs)
             ng.cur[p][0] = 0xFFFF;
             ng.cur[p][1] = 4096;
             ng.cur[p][2] = 0;
+            ng.cur[p][3] = 4096;
         }
         ng.cur[p][0] |= 0x0008;                                         /* (no Start online: nobody pauses everyone) */
     }
@@ -678,11 +679,13 @@ static void neutral_all(void)
         ng.cur[p][0] = 0xFFFF;
         ng.cur[p][1] = 4096;
         ng.cur[p][2] = 0;
+        ng.cur[p][3] = 4096;
     }
     for (int p = 0; p < NG_LOCAL; p++) {
         ng.live[p][0] = 0xFFFF;
         ng.live[p][1] = 4096;
         ng.live[p][2] = 0;
+        ng.live[p][3] = 4096;
     }
 }
 /* The netcode: rollback (the user's, 2026-10-22: it replaces lockstep, no option) whenever the build has the decomp's
@@ -1271,7 +1274,7 @@ uint32_t netplay_input(int kind, int human, uint32_t live)
 {
     if (!netplay_on() || kind < 0 || kind >= NG_KINDS || human < 0 || human >= NG_PLAYERS) return live;
     if (human >= ng.first && human < ng.first + ng.count && human - ng.first < NG_LOCAL) /* (in the Players menu: still) */
-        ng.live[human - ng.first][kind] = ui_net_menu_holds(human - ng.first) ? (kind == 0 ? 0xFFFFu : kind == 1 ? 4096u : 0u) : live;
+        ng.live[human - ng.first][kind] = ui_net_menu_holds(human - ng.first) ? (kind == 0 ? 0xFFFFu : kind == 1 || kind == 3 ? 4096u : 0u) : live;
     return human < ng.humans ? ng.cur[human][kind] : live;
 }
 
