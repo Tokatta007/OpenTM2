@@ -3076,17 +3076,21 @@ static void watch_frame_one(int p)
         }
         pressed = 0;
     }
-    if ((wv[p].cinema && (pressed & (0x4000 | 0x2000))) || (!wv[p].cinema && !wv[p].free && (pressed & 0x8000))) {
+    /* Square: the chase camera to cinematic, and (split screen, no free camera) cinematic back to the chase camera. X the next
+     * driver, O the one before, in both (cinematic: X / O only went back to the chase camera, nothing switched the car: "can't
+     * switch characters while spectating", Ryupichu's, 2026-11-24) */
+    if ((wv[p].cinema && !one_view() && (pressed & 0x8000)) || (!wv[p].cinema && !wv[p].free && (pressed & 0x8000))) {
         wv[p].cinema = !wv[p].cinema; /* (the view stays the chase view 7: killcam_camera puts the shots over it) */
         wv[p].switch_at = vp_gv() + 480;
         pressed = 0;
     }
     if (wv[p].free) return; /* (the free camera: the car watched stays as it was) */
-    if (lost || (!wv[p].cinema && (pressed & 0x4000)) || (wv[p].cinema && ((pressed & 0x8000) || vp_gv() >= wv[p].switch_at))) {
+    if (lost || (pressed & 0x4000) || (wv[p].cinema && vp_gv() >= wv[p].switch_at)) {
         watch_step(p, 1);
         wv[p].switch_at = vp_gv() + 480;
-    } else if (!wv[p].cinema && (pressed & 0x2000)) {
+    } else if (pressed & 0x2000) {
         watch_step(p, -1);
+        wv[p].switch_at = vp_gv() + 480;
     }
 }
 static void watch_end_one(int p) /* view p's player back: their own view (view_last) */

@@ -16467,9 +16467,9 @@ static void scoreboard_frame(void)
             draw_fill(&sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
             lettering();
             const char *legend[5] = {mode == 4 ? "FREECAM" : mode == 3 ? "CINEMATIC" : "SPECTATING",
-                                     mode == 4 ? SQUARE " = CINEMATIC" : mode == 3 && wp < 0 ? SQUARE " = FREECAM" : mode == 3 ? SQUARE " = NEW CAR"
-                                               : CROSS " = NEXT",
-                                     mode >= 3 ? CROSS " = CHASE CAM" : CIRCLE " = BACK", mode >= 3 ? "" : SQUARE " = CINEMATIC",
+                                     mode == 4 ? SQUARE " = CINEMATIC" : CROSS " = NEXT",
+                                     mode == 4 ? CROSS " = CHASE CAM" : CIRCLE " = BACK",
+                                     mode == 4 ? "" : mode == 3 ? (wp < 0 ? SQUARE " = FREECAM" : SQUARE " = CHASE CAM") : SQUARE " = CINEMATIC",
                                      TRIANGLE " = HIDE"};
             int ls = S(&v, 13 * s), ty = text_top_for_center(Y(&v, by + bh / 2), ls);
             /* the title at the left, then the buttons spread evenly over the rest (each measured: equal gaps) */
