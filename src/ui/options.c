@@ -433,7 +433,7 @@ enum { ACT_NONE, ACT_NEW, ACT_DONE, ACT_PICTURE, ACT_RENAME, ACT_DELETE,
        ACT_GT_DESC, ACT_SURVIVAL_START, ACT_RECHECK_PADS, ACT_LOBBY_CAR, ACT_LOBBY_EDIT, ACT_LOBBY_QUIT, ACT_TOUR_START,
        ACT_NET_MODE, ACT_NET_REFRESH, ACT_NET_JOIN, ACT_NET_NAME, ACT_NET_GAME, ACT_NET_CREATE, ACT_NET_SAY, ACT_NET_START,
        ACT_NET_LEAVE, ACT_NET_PL_ADD, ACT_NET_PL_REMOVE, ACT_NET_PLAYER, ACT_NET_CAR, ACT_NET_KICK, ACT_NET_VOTEKICK,
-       ACT_NET_ADDRESS, ACT_NET_READY, ACT_NET_PL_EDIT, ACT_NET_VOTE, ACT_LOBBY_CPU_REMOVE, ACT_LOBBY_RANDOM, ACT_NET_BACK, ACT_UPDATE, ACT_SETUP,
+       ACT_NET_ADDRESS, ACT_NET_READY, ACT_NET_PL_EDIT, ACT_NET_VOTE, ACT_LOBBY_CPU_REMOVE, ACT_LOBBY_RANDOM, ACT_NET_BACK, ACT_UPDATE, ACT_SETUP, ACT_QUIT_GAME,
        ACT_FRIEND_ADD, ACT_FRIEND_ACCEPT, ACT_FRIEND_DECLINE, ACT_FRIEND_JOIN, ACT_FRIEND_REMOVE, ACT_FRIEND_ASK,
        ACT_ONLINE_COPY_ID, ACT_ONLINE_MASTERS, ACT_ONLINE_MASTERS_DEFAULT, ACT_NET_MODS_GET, ACT_NET_PASSWORD }; /* (the local lobby's Remove: dispatched with Network Play's, its way back) */
 static void lobby_cpu_remove(void);
@@ -4311,6 +4311,8 @@ static void build(PageId page)
         else add_page("Game discs", PAGE_DISCS, "Recommended: add the 1997 PC version (its disc image or folder) for menu pictures twice as sharp. The game restarts into its setup.");
         rows[row_count - 1].text = *settings_pc_version() ? "PS1 + PC" : "PS1 ONLY";
         add_page("Mods", PAGE_MODS, "Skins, cars, arenas and tournaments from your mods folder: turn each on or off.");
+        add_page("Quit Game", PAGE_ACTION, "Close OpenTM2 (it asks first). Works without a keyboard.");
+        rows[row_count - 1].act = ACT_QUIT_GAME;
         break;
     case PAGE_DISCS: /* the setup closes this game: asked first (the user's, 2026-10-28) */
         add_page("Go back", PAGE_MAIN, "Keep playing: nothing changes.");
@@ -8934,7 +8936,10 @@ static int run(PageId start)
                 pressed = 0;
             } else if (r->act >= ACT_BATTLE_START && (pressed & (B_CROSS | B_START))) {
                 menu_sound(1);
-                if (r->act == ACT_SETUP) { /* (this game ends: the new one opens the setup window) */
+                if (r->act == ACT_QUIT_GAME) { /* the quit question over the menu (Escape's: YES closes, NO stays here) */
+                    void ui_quit_ask(void);
+                    ui_quit_ask();
+                } else if (r->act == ACT_SETUP) { /* (this game ends: the new one opens the setup window) */
                     setup_restart();
                 } else if (r->act == ACT_UPDATE) { /* the update: download it, or (in place) restart */
                     if (update_state() == UPDATE_READY) update_restart();
