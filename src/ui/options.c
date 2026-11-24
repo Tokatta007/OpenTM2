@@ -14616,6 +14616,7 @@ void ui_MessageLines(CPU *c)
  * goes on; the others show WAITING FOR <host> there and go on with them (the host's count in its settings). draw(mode):
  * 0 the screen, 1 with the prompt, 2 with the waiting */
 enum { STORY_MIN = 120 };
+static uint16_t pm_prev[4]; /* (the online menu's held buttons, below) */
 static void story_wait(void (*draw)(int mode))
 {
     int online = net_tour_on && netplay_in_match();
@@ -14649,6 +14650,8 @@ static void story_wait(void (*draw)(int mode))
         prev = b;
         if (host && (pr & (B_CROSS | B_START | B_CIRCLE))) {
             fprintf(stderr, "story: screen %d: on (pressed)\n", story_idx);
+            for (int p = 0; p < 4; p++) pm_prev[p] = 0xFFFF; /* (the press that went on, still held, does not open the
+                                                              * online menu in the next battle: Mohamed's Start, 2026-11-24) */
             if (online && l) {
                 net_story_n = story_idx;
                 net_send_settings();
