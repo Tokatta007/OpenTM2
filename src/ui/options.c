@@ -121,6 +121,7 @@ static const TextColor SILVER = {{222, 230, 244}, {124, 136, 160}}; /* (its seco
 static const TextColor BRONZE = {{240, 178, 120}, {164, 92, 40}};  /* (its third) */
 static const TextColor CUSTOM = {{150, 214, 255}, {84, 150, 214}}; /* the player's own game types */
 static const TextColor BAD = {{255, 96, 86}, {200, 40, 32}}; /* (a slow connection's ping) */
+static const TextColor READY_GREEN = {{120, 255, 120}, {40, 180, 60}}; /* (the lobby: a player ready) */
 
 /* ---- the game's settings ---- */
 
@@ -7694,6 +7695,13 @@ static void draw_lobby_screen(const View *v, int sel, int online)
         if (c->host) {
             text_draw(v->c, "HOST", ux, uy + S(v, 3), S(v, 7), COPPER);
             ux += text_width("HOST", S(v, 7)) + S(v, 5);
+        }
+        if (c->ready) { /* ready: a green word and a green stripe on the card's right edge (the solid card alone was hard to
+                         * see: players' wish, 2026-11-23) */
+            static const uint8_t green[3] = {70, 220, 90};
+            text_draw(v->c, "READY", ux, uy + S(v, 3), S(v, 7), READY_GREEN);
+            ux += text_width("READY", S(v, 7)) + S(v, 5);
+            draw_fill(v->c, X(v, x + cellw) - S(v, 3), Y(v, y), S(v, 3), S(v, cellh), green, 255);
         }
         if (c->friend) { /* (this profile's friend: the person, sky blue) */
             draw_person(v, ux, uy + S(v, 6), S(v, 10), CUSTOM);
