@@ -2366,7 +2366,19 @@ static const ProfileSave *net_tour_save_loaded(void) /* (host) the save being co
     if (!test_load && getenv("TM2PC_TEST_TOUR_LOAD")) test_load = 1, net_tour_loading = 1, net_tour_slot = atoi(getenv("TM2PC_TEST_TOUR_LOAD")) - 1;
     net_tour_load = net_tour_loading && net_tour_slot >= 0 && net_tour_slot < PROFILE_SAVES && !net_tour_slot_why(net_tour_slot)
                         ? net_tour_slot : -1;
-    return net_tour_load >= 0 ? profile_tournament_save(net_tour_load) : NULL;
+    const ProfileSave *sv = net_tour_load >= 0 ? profile_tournament_save(net_tour_load) : NULL;
+    const char *test_cars = sv ? getenv("TM2PC_TEST_TOUR_CARS") : NULL; /* tests: the save's drivers ("14,13") */
+    if (test_cars) {
+        static ProfileSave copy;
+        copy = *sv;
+        for (int p = 0; p < copy.players && p < PROFILE_SAVE_PLAYERS && *test_cars; p++) {
+            copy.cars[p] = atoi(test_cars);
+            test_cars += strcspn(test_cars, ",");
+            if (*test_cars) test_cars++;
+        }
+        return &copy;
+    }
+    return sv;
 }
 static int net_tour_load_level(void) { return net_tour_save_loaded() ? net_tour_save_loaded()->level : 1; }
 static struct { int game, room, mods, ping, hide_private, sort; } net_filter = {0, 0, 0, 0, 0, 0}; /* game: the mode filter's */
