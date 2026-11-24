@@ -456,6 +456,7 @@ static void start_pass(void)
     /* (the views stay the battle's: split screen and the mirror are read by the game's own logic, mines and flames tick
      * per view; the shots are drawn full screen over each frame from the host, interp.c's killcam_present) */
 }
+int killcam_busy(void) { return state == 1 || state == 2 || rw == 2; } /* (ui/options.c: the winner's moment after it) */
 int killcam_showing(void) { return state == 2 || rw == 2; } /* interp.c: the kill cam's or rewind's playback, its own view */
 
 /* ---- Photo mode rewind (VP_PHOTO_REWIND) ----

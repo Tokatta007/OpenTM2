@@ -10526,6 +10526,7 @@ static uint32_t battle_start(int survival)
 }
 
 static int battle_results(int result, int mode);
+void vp_win_reset(void); /* vplus/fixes.c */
 /* ---- Custom Tournament: its stages played one after another as Challenge Matches (Last Car Standing), the cars
  * chosen once; each stage's arena and enemies from the setup (random ones rolled at the start), lives carried from
  * stage to stage (Vanilla Plus "lives per level": the setup's at each stage). A won stage: its results with NEXT
@@ -16433,12 +16434,68 @@ int ui_quit_frame(void) /* 1: quit now */
     return 0;
 }
 
+/* The winner's moment (the user's 2026-11-24): after the final kill cam, back on the cars, "<NAME> WINS" in the middle
+ * of the screen with the winner's picture above it (a team's win: its players' pictures side by side; a computer car:
+ * the words alone) until the results (vplus/fixes.c win_hold: the round's end that much later) */
+static int match_winner(int result, int mode, char *title, size_t n);
+static int win_frame(Image *sb, int *shown)
+{
+    int vp_win_value(void), killcam_busy(void);
+    int r = vp_win_value();
+    if (r < 0 || !battle_live || killcam_busy() || in_pause || !text_ready() || !(M.live_input || script)) return 0;
+    if (*shown == 4) return 1;
+    PsyzSize size = Psyz_VideoGetDisplaySize();
+    if (size.w <= 0 || size.h <= 0 || !image_resize(sb, size.w, size.h)) return 0;
+    if (*shown) { Psyz_VideoSetOverlay(NULL, 0, 0, NULL, 0); hudlay_overlay_ui(0); }
+    char title[64];
+    int team = match_winner(r, mem_r8(&M.cpu, SETTINGS_BLOCK), title, sizeof title), pics[16], np = 0;
+    for (int i = 0; i < match_cars() && np < 16; i++) {
+        const MatchCar *m = match_car(i);
+        if (m->human < 0 || (team >= 0 ? vp_team_of_human(m->human) != team : m != results_winner)) continue;
+        int pic = match_human_picture(m->human);
+        if (pic >= 0) pics[np++] = pic;
+    }
+    memset(sb->px, 0, (size_t)sb->w * sb->h * 3);
+    View v = view_fit(sb);
+    static const uint8_t panel[3] = {10, 10, 14}, frame[3] = {188, 188, 196};
+    lettering();
+    int ts = S(&v, 34);
+    float ph = np ? (np > 6 ? 84.0f : 120.0f) : 0, pw = ph / 2, gap = 10, row = np ? np * pw + (np - 1) * gap : 0;
+    float tw = text_width(title, ts) / v.s, bw = (tw > row ? tw : row) + 48, bh = (np ? ph + 16 : 0) + 64;
+    if (bw > 620) bw = 620;
+    float bx = 320 - bw / 2, by = 240 - bh / 2;
+    draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 235);
+    float px = 320 - row / 2, py = by + 16;
+    int t = S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1;
+    portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
+    for (int i = 0; i < np; i++, px += pw + gap) {
+        draw_fill(sb, X(&v, px) - t, Y(&v, py) - t, S(&v, pw) + 2 * t, S(&v, ph) + 2 * t, frame, 255);
+        draw_portrait_image(&v, pics[i], X(&v, px), Y(&v, py), S(&v, pw), S(&v, ph));
+    }
+    portrait_any = 0;
+    float ty = by + bh - 32;
+    text_draw(sb, title, X(&v, 320) - text_width(title, ts) / 2, text_top_for_center(Y(&v, ty), ts), ts, TITLE);
+    plain_text();
+    int rect[4] = {X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh)};
+    hudlay_overlay_ui(1);
+    Psyz_VideoSetOverlay(sb->px, sb->w, sb->h, rect, 1); /* (not the split line: the panel whole) */
+    if (getenv("TM2PC_NET_MENU_SHOT")) { /* tests: the winner's moment, as a BMP */
+        char path[512];
+        snprintf(path, sizeof path, "%s/winner.bmp", getenv("TM2PC_NET_MENU_SHOT"));
+        image_save_bmp(sb, path);
+    }
+    fprintf(stderr, "winner: %s (%d picture%s)\n", title, np, np == 1 ? "" : "s");
+    *shown = 4;
+    return 1;
+}
+
 static void scoreboard_frame(void)
 {
     static int shown;
     static Image sb;
     if (qp_open) { shown = 0; return; } /* (Escape's question has the overlay) */
     if (battle_overlay_dropped) { battle_overlay_dropped = 0; shown = 0; }
+    if (win_frame(&sb, &shown)) return; /* (the match won: its winner, until the results) */
     if (pm_frame(&sb, &shown)) return; /* (online: the Players menu, a kick vote's note) */
     if (shown == 2) { Psyz_VideoSetOverlay(NULL, 0, 0, NULL, 0); shown = 0; hudlay_overlay_ui(0); }
     int live = feats_in_battle() && !in_pause && (M.live_input || script) && text_ready();
@@ -16638,18 +16695,10 @@ backdrop_done:;
         }
         card = &champ;
     }
-    int card_pic = card && card->human >= 0 ? match_human_picture(card->human) : -1, picw = ph / 2; /* (the winner's portrait
-                                                       * beside their car's card: players' wish, 2026-11-23) */
-    int total = (card ? pw + gap : 0) + (card_pic >= 0 ? picw + 4 : 0) + (int)(tw / v.s), x = 320 - total / 2;
+    int total = (card ? pw + gap : 0) + (int)(tw / v.s), x = 320 - total / 2;
     int ty = !trun.versus && !scoreboard_allowed() ? 120 : 56; /* (no scoreboard (Survival): lower, off the HUD's top line and
                                                               * clock, the user's 2026-11-01; with one: 56, under the
                                                               * HUD's info line, the user's 2026-11-02) */
-    if (card_pic >= 0) {
-        portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
-        draw_portrait_image(&v, card_pic, X(&v, x), Y(&v, ty - ph / 2), S(&v, picw), S(&v, ph));
-        portrait_any = 0;
-        x += picw + 4;
-    }
     if (card) {
         draw_plate(&v, card, X(&v, x), Y(&v, ty - ph / 2), S(&v, pw), S(&v, ph));
         x += pw + gap;
@@ -17006,13 +17055,11 @@ static void versus_boss_intro(int w, int b, int boss_car)
     image_free(&canvas);
 }
 
-static int battle_results(int result, int mode)
+/* The match's winner (results_winner: a car, NULL for a team's win) and its title ("<NAME> WINS", "<TEAM> TEAM WINS");
+ * the team, -1 none. The results and the winner's moment before them (win_frame). */
+static int match_winner(int result, int mode, char *title, size_t n)
 {
-    static char title[64];
     int order[MATCH_MAX];
-    /* the battle's sounds (engines, flames) stopped as the pause stops them (the sound object at gp+500): only the music
-     * and the menu sounds over the results */
-    port_sounds_stop();
     scoreboard_order(order);
     results_winner = match_car(order[0]); /* the last car in (with several: the most kills) */
     int duo_h = -1, duo_ai = -1;
@@ -17029,12 +17076,23 @@ static int battle_results(int result, int mode)
     }
     char name[48] = "";
     if (results_winner) scoreboard_name(results_winner, name, sizeof name);
-    snprintf(title, sizeof title, "%s WINS", name);
+    snprintf(title, n, "%s WINS", name);
     int team = vp_teams_winner();
     if (team >= 0) { /* teams: the team's win */
-        snprintf(title, sizeof title, "%s TEAM WINS", team_values[team]);
+        snprintf(title, n, "%s TEAM WINS", team_values[team]);
         results_winner = NULL;
     }
+    return team;
+}
+
+static int battle_results(int result, int mode)
+{
+    static char title[64];
+    /* the battle's sounds (engines, flames) stopped as the pause stops them (the sound object at gp+500): only the music
+     * and the menu sounds over the results */
+    port_sounds_stop();
+    vp_win_reset(); /* (the winner's moment over: the results') */
+    int team = match_winner(result, mode, title, sizeof title);
     memset(results_lines, 0, sizeof results_lines);
     if (survival_on) {
         int vp_survival_seconds(void); /* vplus/fixes.c */
@@ -17405,6 +17463,18 @@ void ui_CardScreen(CPU *c)
     if (!M.live_input && !script && !test) { F_8012A910_orig(c); return; } /* (tapes: the game's) */
     (void)opps; /* every line-up the port's, sharp (the game's own was low resolution, the user's) */
     tournament_lineup();
+}
+
+/* rtScheduleEvent's round end (vplus/fixes.c win_hold): the match's last, its results next (as ui_MainLoop decides below;
+ * not a custom tournament's stage, Survival or the co-op duel) */
+int ui_round_ends_match(int r)
+{
+    if (!battle_live || trun.on || survival_on || duel_active || !(M.live_input || script)) return 0;
+    int mode = mem_r8(&M.cpu, SETTINGS_BLOCK);
+    if (!((mode == 3 && (r == 1 || r == 3)) || (mode == 4 && (r == 3 || r == 4)))) return 0;
+    int vp_lives_left(int p), p = mode == 4 ? (r == 3 ? 1 : 0) : 0;
+    if (!vp_deathmatch() && !vp_on(VP_NO_ROUND_RESTARTS) && (mode == 4 || r == 1) && vp_lives_left(p) > 1) return 0; /* (this life and more) */
+    return 1;
 }
 
 void ui_MainLoop(CPU *c) /* rtMainLoop: one round, its result */

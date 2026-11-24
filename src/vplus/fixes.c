@@ -1162,8 +1162,10 @@ int vp_draw_distance(void)
     if (test >= 0) return test;
     return netplay_in_match() ? 2 : settings_video.draw_distance % 3;
 }
+void vp_win_reset(void);
 void vp_battle_round(void)
 {
+    vp_win_reset(); /* (the winner's moment: the match's last round only) */
     render_stats_round();
     interp_snap(); /* a round's start: nothing to blend from */
     void interp_round_start(void);
@@ -1981,14 +1983,30 @@ int vp_survival_player_down(void);
 static int coop_player_out(int i, uint32_t delay);
 
 void F_800D181C_orig(CPU *c);
+/* The winner's moment (the user's 2026-11-24): the match's last round end waits WIN_HOLD VBlanks more, the winner's name
+ * and picture over the cars once the final kill cam is over (ui/options.c win_frame). The replay's end the same wait, so
+ * the kill cam's replay schedules what the battle did. */
+#define WIN_HOLD 120
+int ui_round_ends_match(int value); /* ui/options.c */
+static int win_value = -1;
+static uint64_t win_end; /* (the round's end, VBlanks: the moment's overlay off 4 before it, so the results' picture of
+                          * the last frame is the battle's alone) */
+int vp_win_value(void) { return win_value >= 0 && vp_gv() + 4 < win_end ? win_value : -1; }
+void vp_win_reset(void) { win_value = -1; }
+static void win_hold(CPU *c, int replay)
+{
+    if (!ui_round_ends_match((int)c->r[4])) return;
+    c->r[5] += WIN_HOLD;
+    if (!replay) win_value = (int)c->r[4], win_end = vp_gv() + c->r[5];
+}
 static int duo_player_out(int i);
 static uint32_t burn_wait = 180; /* the game's wait before a destroyed player comes back (VBlanks): a respawn's burning */
 void vp_ScheduleEvent(CPU *c) /* rtScheduleEvent(value, delay) */
 {
     int value = (int)c->r[4], mode = mem_r8(c, GA(0x8016475Cu));
-    if (killcam_replaying) { vp_port_event = 0; F_800D181C_orig(c); return; } /* the kill cam's replay: the battle's end is the
+    if (killcam_replaying) { vp_port_event = 0; win_hold(c, 1); F_800D181C_orig(c); return; } /* the kill cam's replay: the battle's end is the
                                                                                * original's (the port's decision replayed: used up) */
-    if (vp_port_event) { vp_port_event = 0; killcam_round_end(); F_800D181C_orig(c); return; }
+    if (vp_port_event) { vp_port_event = 0; killcam_round_end(); win_hold(c, 0); F_800D181C_orig(c); return; }
     int duo = vp_duo();
     if (duo && value == 3) return; /* 2 players and computer cars: the round's end is the port's (vp_duo_frame) */
     if (value == 3 && ui_survival() && vp_survival_cleared()) { killcam_round_end(); return; } /* a wave cleared (its kill cam): the next one */
@@ -2036,6 +2054,7 @@ void vp_ScheduleEvent(CPU *c) /* rtScheduleEvent(value, delay) */
     }
     if (duo && value == 1) return; /* a player down: the port's rules go on */
     if (!(value == 1 && (mode == 1 || mode == 2))) killcam_round_end(); /* (not a tournament's lost life) */
+    win_hold(c, 0);
     F_800D181C_orig(c);
 }
 
