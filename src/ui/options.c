@@ -4986,7 +4986,7 @@ static void build(PageId page)
                    get_pad_type, set_pad_type, p, pad_type_values, 3)->small = 1;
         add_choice("Analog steering", "The stick turns as far as it is tilted. Off: any tilt turns fully, as the D-pad.",
                    get_analog_steer, set_analog_steer, p, onoff_values, 2)->small = 1;
-        add_choice("Analog throttle", "The car goes as fast as accelerate or reverse is pressed, on a trigger or the right stick. "
+        add_choice("Analog throttle", "The car goes as fast as accelerate or reverse is pressed, on a trigger or a stick. "
                    "Off: any press is full speed.", get_analog_throttle, set_analog_throttle, p, onoff_values, 2)->small = 1;
         add_choice("Disable backwards steering", "On: backing up, Left still turns the nose left. Off (the original): backing up, "
                    "Left swings the nose right, switching as the car starts rolling back.",
@@ -14888,8 +14888,8 @@ static int net_tour_choose(int level, int kind)
                 int pick = tournament_menu(kind ? "GAME OVER" : "", kind ? lost : can_save ? won_save : won, can_save ? 3 : 2);
                 menu_items_y = 140;
                 menu_note_y = 205;
-                static int test_saved; /* tests: TM2PC_TEST_TOUR_SAVE, the first level's SAVE taken by itself */
-                if (can_save && !test_saved && getenv("TM2PC_TEST_TOUR_SAVE")) test_saved = 1, pick = 1;
+                static int test_saved; /* tests: TM2PC_TEST_TOUR_SAVE, each level's SAVE taken by itself (once a level) */
+                if (can_save && test_saved != level && getenv("TM2PC_TEST_TOUR_SAVE")) test_saved = level, pick = 1;
                 if (can_save && pick == 1) { net_tour_save(); menu_keep_frame = 1; continue; }
                 if (can_save && pick == 2) pick = 1;
                 if (pick == 0) { choice = kind ? TOUR_DEC_RESTART : TOUR_DEC_CONTINUE; break; }
