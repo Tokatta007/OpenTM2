@@ -16457,14 +16457,13 @@ static int win_frame(Image *sb, int *shown)
     }
     memset(sb->px, 0, (size_t)sb->w * sb->h * 3);
     View v = view_fit(sb);
-    static const uint8_t panel[3] = {10, 10, 14}, frame[3] = {188, 188, 196};
+    static const uint8_t frame[3] = {188, 188, 196};
     lettering();
     int ts = S(&v, 34);
     float ph = np ? (np > 6 ? 84.0f : 120.0f) : 0, pw = ph / 2, gap = 10, row = np ? np * pw + (np - 1) * gap : 0;
     float tw = text_width(title, ts) / v.s, bw = (tw > row ? tw : row) + 48, bh = (np ? ph + 16 : 0) + 64;
     if (bw > 620) bw = 620;
     float bx = 320 - bw / 2, by = 240 - bh / 2;
-    draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 235);
     float px = 320 - row / 2, py = by + 16;
     int t = S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1;
     portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
@@ -16474,11 +16473,46 @@ static int win_frame(Image *sb, int *shown)
     }
     portrait_any = 0;
     float ty = by + bh - 32;
-    text_draw(sb, title, X(&v, 320) - text_width(title, ts) / 2, text_top_for_center(Y(&v, ty), ts), ts, TITLE);
+    { /* a dark edge around the words (not pure black: that is see-through), readable over anything: the black pixels
+       * within o of a letter's */
+        int tw_px = text_width(title, ts), tx = X(&v, 320) - tw_px / 2, tt = text_top_for_center(Y(&v, ty), ts);
+        text_draw(sb, title, tx, tt, ts, TITLE);
+        int o = S(&v, 2) > 1 ? S(&v, 2) : 1, x0 = tx - o - 2, x1 = tx + tw_px + o + 2, y0 = Y(&v, ty) - ts - o, y1 = Y(&v, ty) + ts + o;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > sb->w) x1 = sb->w;
+        if (y1 > sb->h) y1 = sb->h;
+        int w = x1 - x0, h = y1 - y0;
+        uint8_t *lit = w > 0 && h > 0 ? calloc((size_t)w * h, 1) : NULL;
+        if (lit) {
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    const uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                    lit[(size_t)y * w + x] = (q[0] | q[1] | q[2]) != 0;
+                }
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    if (lit[(size_t)y * w + x]) continue;
+                    int near = 0;
+                    for (int dy = -o; dy <= o && !near; dy++)
+                        for (int dx = -o; dx <= o && !near; dx++) {
+                            int ax = x + dx, ay = y + dy;
+                            near = ax >= 0 && ay >= 0 && ax < w && ay < h && lit[(size_t)ay * w + ax];
+                        }
+                    if (near) {
+                        uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                        q[0] = 14, q[1] = 14, q[2] = 16;
+                    }
+                }
+            free(lit);
+        }
+    }
     plain_text();
     int rect[4] = {X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh)};
     hudlay_overlay_ui(1);
-    Psyz_VideoSetOverlay(sb->px, sb->w, sb->h, rect, 1); /* (not the split line: the panel whole) */
+    Psyz_VideoSetOverlay(sb->px, sb->w, sb->h, NULL, 0);
+    Psyz_VideoSetOverlayBlend(rect, 1); /* (no box: the pictures and the words straight on the game, black see-through;
+                                         * the user's 2026-11-24) */
     if (getenv("TM2PC_NET_MENU_SHOT")) { /* tests: the winner's moment, as a BMP */
         char path[512];
         snprintf(path, sizeof path, "%s/winner.bmp", getenv("TM2PC_NET_MENU_SHOT"));

@@ -25,6 +25,11 @@ execute_process(COMMAND "${GIT_EXECUTABLE}" checkout HEAD -- . WORKING_DIRECTORY
 if(failed)
     message(FATAL_ERROR "cannot reset third_party/psyz")
 endif()
+# the files a patch adds (psyz-30: the blended overlay's shaders) are untracked: removed too, so it applies again
+execute_process(COMMAND "${GIT_EXECUTABLE}" clean -fq -- psyz/src/platform/shaders WORKING_DIRECTORY "${PSYZ_DIR}" RESULT_VARIABLE failed)
+if(failed)
+    message(FATAL_ERROR "cannot reset third_party/psyz's shaders")
+endif()
 foreach(patch ${PSYZ_PATCHES})
     execute_process(COMMAND "${GIT_EXECUTABLE}" apply "${patch}" WORKING_DIRECTORY "${PSYZ_DIR}" RESULT_VARIABLE failed)
     if(failed)
