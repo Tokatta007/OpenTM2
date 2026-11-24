@@ -351,12 +351,23 @@ int input_steer_amount(int p)
  * key or another button holds the action: full speed). */
 int input_trigger_amount(int p, int b)
 {
-    if (p < 0 || p > 3 || !pads[p] || input_pads_off || (b != 4 && b != 10)) return -1;
-    int v = SDL_GetGamepadAxis(pads[p], b == 4 ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
-    if (v <= TRIGGER_THRESHOLD) return -1;
+    if (p < 0 || p > 3 || !pads[p] || input_pads_off) return -1;
+    int v, from;
+    if (b == 4 || b == 10) { /* L2, R2 */
+        v = SDL_GetGamepadAxis(pads[p], b == 4 ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+        from = TRIGGER_THRESHOLD;
+    } else if (b >= BIND_STICK && b <= BIND_STICK + 3) { /* a right stick direction: how far it is tilted that way */
+        int d = b - BIND_STICK;
+        v = SDL_GetGamepadAxis(pads[p], d < 2 ? SDL_GAMEPAD_AXIS_RIGHTY : SDL_GAMEPAD_AXIS_RIGHTX);
+        v = d == 0 || d == 2 ? -v : v;
+        from = STICK_DEADZONE;
+    } else {
+        return -1;
+    }
+    if (v <= from) return -1;
     const int full = 31000;
     if (v >= full) return 4096;
-    return 1024 + (int)((v - TRIGGER_THRESHOLD) * 3072L / (full - TRIGGER_THRESHOLD));
+    return 1024 + (int)((v - from) * 3072L / (full - from));
 }
 uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump) */
 {

@@ -4986,7 +4986,7 @@ static void build(PageId page)
                    get_pad_type, set_pad_type, p, pad_type_values, 3)->small = 1;
         add_choice("Analog steering", "The stick turns as far as it is tilted. Off: any tilt turns fully, as the D-pad.",
                    get_analog_steer, set_analog_steer, p, onoff_values, 2)->small = 1;
-        add_choice("Analog throttle", "With accelerate or reverse on a trigger, the car goes as fast as the trigger is pressed. "
+        add_choice("Analog throttle", "The car goes as fast as accelerate or reverse is pressed, on a trigger or the right stick. "
                    "Off: any press is full speed.", get_analog_throttle, set_analog_throttle, p, onoff_values, 2)->small = 1;
         add_choice("Disable backwards steering", "On: backing up, Left still turns the nose left. Off (the original): backing up, "
                    "Left swings the nose right, switching as the car starts rolling back.",

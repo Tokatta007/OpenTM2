@@ -193,7 +193,7 @@ static uint16_t as_standard(int L, uint32_t mine) /* (mine: bits 16-19 the right
     return out;
 }
 /* local player L's analog throttle (decomp request 121, ANALOG_STEERING.md 6.4): accelerate (0x18) or brake / reverse
- * (0x19) held on a trigger, the trigger's amount; else (a button, a key, nothing, the option off) 4096, the game's */
+ * (0x19) held on a trigger or a right stick direction, how far it is pressed or tilted; else (a button, a key, nothing, the option off) 4096, the game's */
 static uint32_t throttle_of(int L, uint32_t mine)
 {
     int input_trigger_amount(int p, int b); /* runtime/input.c */
@@ -204,7 +204,7 @@ static uint32_t throttle_of(int L, uint32_t mine)
     static const uint8_t drive[2] = {0x18, 0x19};
     for (int i = 0; i < 2; i++) {
         int b = own[L][drive[i]];
-        if (b < 1 || b > 14 || !(mine & button_bit[b])) continue;
+        if (b < 1 || b > BIND_BUTTONS_ALL || !(mine & button_bit[b])) continue; /* (a trigger, a right stick direction: its amount) */
         int a = input_trigger_amount(L, b);
         return a < 0 ? 4096u : (uint32_t)a;
     }
