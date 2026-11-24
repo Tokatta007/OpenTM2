@@ -4968,6 +4968,9 @@ static void build(PageId page)
             Row *r = add_choice(music_page_name(i), music_page_has_off(i)
                                 ? "Final showdown: a battle's last moments switch to this. Off, or Default (the Dark Tooth "
                                   "track), Random, In order, a song."
+                                : !strcmp(music_page_name(i), "Menu loop")
+                                ? "The menus' music after the title song. Default: the game's own loop; or Random, In order, "
+                                  "a song."
                                 : !strcmp(music_page_name(i), "Versus podium")
                                 ? "A Versus Tournament's podium and final standings. Default: the menus' music; or Random, "
                                   "In order, a song."
@@ -9544,9 +9547,19 @@ int ui_menu_music_keeps(int code, int start) /* fixes.c: the game's soundPlay (s
     if (start && !menu_music) { menu_music = 1; return 0; } /* (the game's way into a menu the port does not see: its copy is the one) */
     return menu_music;
 }
+static int menu_music_custom; /* the menus' loop is Custom Music's "Menu loop" song (the CD music's player), not sound 27 */
 static void menu_loop_start(void)
 {
     if (menu_music) return; /* (one copy: already on) */
+    int music_menuloop_slot(void);    /* music/music.c: Custom Music's "Menu loop", -1 the game's */
+    int cd_audio_play_slot(int slot); /* runtime/cd_audio.c */
+    int own = music_menuloop_slot();
+    if (own >= 0 && cd_audio_play_slot(own)) { /* (its own song, looping; else the game's loop) */
+        cd_audio_hold(0); /* (the title's song held in the menus: this one plays) */
+        menu_music = menu_music_custom = 1;
+        fprintf(stderr, "menu music: Custom Music's menu loop\n");
+        return;
+    }
     menu_music_own = 1;
     uint32_t saved = mem_r32(&M.cpu, VOL_SFX);
     guest_call(GA(0x800D3464u), 27, 0, 0, 0); /* one loop only: a copy still playing would play out of step (louder or quieter) */
@@ -9574,7 +9587,7 @@ static void menu_loop_start(void)
 void ui_menu_music_vblank(void)
 {
     static int quiet;
-    if (!menu_music || menu_music_own || !menu_music_samples) { quiet = 0; return; }
+    if (!menu_music || menu_music_own || menu_music_custom || !menu_music_samples) { quiet = 0; return; }
     for (int v = 0; v < 48; v++) {
         uint16_t sm = (uint16_t)rc_io_read(&M.cpu, music_voice_reg(v) + 6, 2);
         for (int i = 0; i < menu_music_samples; i++)
@@ -9589,6 +9602,7 @@ void ui_menu_music_vblank(void)
 
 static void menu_loop_stop_all(int wait) /* every copy of the menus' loop: a match, a movie, the title */
 {
+    if (menu_music_custom) { cd_audio_stop_music(); menu_music_custom = 0; }
     menu_music_own = 1;
     for (int i = 0; i < 4; i++) {
         guest_call(GA(0x800D3464u), 27, 0, 0, 0);
