@@ -7699,6 +7699,16 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             text_draw(v->c, "HOST", ux, uy + S(v, 3), S(v, 7), COPPER);
             ux += text_width("HOST", S(v, 7)) + S(v, 5);
         }
+        if (online && c->kind == LC_REMOTE && !c->host && c->mach1 > 0 && netplay_lobby()) { /* another machine's player: its ping
+                                                            * to the host (white, orange past 100 ms, red past 150) */
+            int ms = lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].ping;
+            if (ms > 0) {
+                char pt[16];
+                snprintf(pt, sizeof pt, "%dMS", ms);
+                text_draw(v->c, pt, ux, uy + S(v, 3), S(v, 7), ms < 100 ? PALE : ms <= 150 ? ORANGE : BAD);
+                ux += text_width(pt, S(v, 7)) + S(v, 5);
+            }
+        }
         if (c->ready) { /* ready: a green word and a green stripe on the card's right edge (the solid card alone was hard to
                          * see: players' wish, 2026-11-23) */
             static const uint8_t green[3] = {70, 220, 90};
