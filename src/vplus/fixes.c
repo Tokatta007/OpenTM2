@@ -2479,8 +2479,45 @@ static void showdown_frame(void);
 static void watch_frame(void); /* (below, with the watching) */
 static void survival_watch_frame(void);
 static void versus_frame(void);
+/* Dark Tooth's ricochet look (decomp request 122, PLAYTEST_ANSWERS.md 36): in his BB.DMD, 15 animation frames whose
+ * primitive pointer (+0x0C) something overwrites with an absolute value (FDA1F14C: Supr's and Mohamed Eissa's co-op Dark
+ * Tooth phase, 2026-11-23; request 110 before): the emitter then drew garbage (missing textures, broken pictures, a
+ * freeze). Each step, every loaded BB.DMD (known by its frame 5's vertex pointer, base + 0x1DD0): each frame's pointer
+ * back to its own primitives (header + 0x2C) if it is not, the first time logged (the step says load or play: 36.4).
+ * Every machine the same (the same files at the same places), so the same online. */
+static void dt_ricochet_check(void)
+{
+    static uint32_t a_images = 1;
+    if (a_images == 1) a_images = port_sym("portDmdImages");
+    if (!a_images) return;
+    static const uint32_t frames[15] = {0xE8DC, 0xE950, 0xE9C4, 0xEA38, 0xEAAC, 0xEB20, 0xEB94, 0xEC08,
+                                        0xEC7C, 0xECF4, 0xED68, 0xEDDC, 0xEE50, 0xEEC4, 0xEF38};
+    static int told;
+    for (uint32_t g = 1; g < 64; g++) {
+        uint32_t base = mem_r32(&M.cpu, a_images + 4u * g);
+        if (!base || (base & 0x1FFFFFFFu) + 0xF0B8u >= GUEST_RAM_BYTES) continue;
+        if (mem_r32(&M.cpu, base + 0xEB20u + 4) != base + 0x1DD0u) continue; /* (not a BB.DMD) */
+        static uint32_t seen[8];
+        int known = 0;
+        for (int k = 0; k < 8; k++) known |= seen[k] == base;
+        if (!known) { /* (once per file loaded: the check is on) */
+            for (int k = 7; k > 0; k--) seen[k] = seen[k - 1];
+            seen[0] = base;
+            fprintf(stderr, "dark tooth: his model file (group %u at %08X) watched\n", g, base);
+        }
+        for (int f = 0; f < 15; f++) {
+            uint32_t h = base + frames[f], want = h + 0x2C, got = mem_r32(&M.cpu, h + 0x0C);
+            if (got == want) continue;
+            if (told++ < 20)
+                fprintf(stderr, "dark tooth: ricochet frame %d's primitives %08X (should be %08X): put back (group %u at %08X, "
+                        "step %llu, frame %d of the round)\n", f, got, want, g, base, (unsigned long long)vp_gv(), vp_round_frames());
+            mem_w32(&M.cpu, h + 0x0C, want);
+        }
+    }
+}
 void vp_lives_frame(void)
 {
+    dt_ricochet_check();
     spawn_check_frame();
     versus_frame();
     test_kills();
