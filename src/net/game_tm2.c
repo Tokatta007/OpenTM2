@@ -87,6 +87,8 @@ static struct {
     uint32_t last_ms;                    /* the last step's end (a gap: a kill cam's replay) */
     uint32_t gone;                       /* the humans whose machine left (bits): their cars out */
     uint32_t back;                       /* the humans whose machine came back (bits; leaving again clears it) */
+    uint32_t told_gone;                  /* the leaves told (log, notice): once, a step run again too (not rollback's state:
+                                          * a leave learned while steps ran again was never told) */
     int quiet_gone;                      /* (a machine coming back) the players gone already: known, not told again */
     uint32_t join_ask;                   /* (a machine coming back) its slots, asked for once its battle has begun */
     int join_wait;                       /* (its battle's own start first: the frames before the ask) */
@@ -736,7 +738,7 @@ static int match_open(const NetTransport *net, const uint32_t slots[SES_MAX_NODE
     ng.pend_len = 0;
     ng.migrations_seen = ses_stats(ng.ses)->migrations;
     ng.migrated_ms = ng.last_ms = 0;
-    ng.gone = ng.back = ng.offered = 0;
+    ng.gone = ng.back = ng.offered = ng.told_gone = 0;
     memset(ng.watch_id, 0, sizeof ng.watch_id); /* (host: a new match, every machine asked again) */
     ng.quiet_gone = rejoin;
     ng.join_ask = ng.watch ? SES_WATCH : rejoin ? slots[ng.node] : 0;
@@ -912,6 +914,7 @@ static void slot_events(int32_t f)
         if (a > 0 && b == RB_NEVER && f >= a && !((ng.back >> h) & 1)) { /* back: from its step on, its car in again */
             ng.back |= 1u << h;
             ng.gone &= ~(1u << h);
+            ng.told_gone &= ~(1u << h); /* (a leave again: told again) */
             ng.offered &= ~(1u << h);
             if (lob) { /* (its button table as the lobby has it now: one copied as it was told of may be older) */
                 const LobbyView *lv = lobby_view(lob);
@@ -938,14 +941,16 @@ static void slot_events(int32_t f)
         ng.gone |= 1u << h;
         ng.back &= ~(1u << h);
         if (ng.quiet_gone) continue; /* (a machine coming back: gone before it came, its state has it so) */
-        if (!rbs_resimulating) fprintf(stderr, "network: player %d (%s) left the match at step %d\n", h + 1, ng.names[h], (int)f);
+        int tell = !((ng.told_gone >> h) & 1); /* (the first time it runs, live or again) */
+        ng.told_gone |= 1u << h;
+        if (tell) fprintf(stderr, "network: player %d (%s) left the match at step %d\n", h + 1, ng.names[h], (int)f);
         int in = 0;
         for (int o = 0; o < ng.humans; o++) in += !((ng.gone >> o) & 1);
         int cpu = ui_net_spot_cpu(in) && vp_human_handover(h); /* (the user's rule: a CPU / OPEN spot a computer car takes over) */
         if (!cpu)
             vp_human_left(h);
         rbs_dmd_again();
-        if (rbs_resimulating) continue; /* (a step run again: told the first time) */
+        if (!tell) continue; /* (told once) */
         if (cpu) fprintf(stderr, "network: player %d's spot was CPU / OPEN: a computer car drives on\n", h + 1);
         char t[40];
         notice_fit(t, sizeof t, ng.names[h][0] ? ng.names[h] : "A PLAYER", cpu ? " LEFT: CPU DRIVES ON" : " LEFT THE MATCH", cpu ? ": CPU" : " LEFT");

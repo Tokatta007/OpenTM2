@@ -85,6 +85,11 @@ void rb_slot_interval(Rollback *rb, int i, int32_t start, int32_t end)
 {
     if (i < 0 || i >= RB_MAX_SLOTS) return;
     Slot *s = &rb->slot[i];
+    /* the steps confirmed as they ran, before the change: with the new interval in place a slot ended at step e counts
+     * every step from e as known (neutral), so the confirmed step leapt past e and the rollback to e was refused (a
+     * player leaving at a match's first steps: the host ended the slot at 1, a machine at step 3 kept the car in for
+     * steps 1-2, and the next hash differed) */
+    int32_t c = rb_confirmed(rb) + 1;
     int32_t from = RB_NEVER;
     if (start != s->start) from = start < s->start ? start : s->start;
     if (end != s->end) {
@@ -96,7 +101,6 @@ void rb_slot_interval(Rollback *rb, int i, int32_t start, int32_t end)
     if (from == RB_NEVER) return;
     /* (no rollback into confirmed steps: their inputs were every slot's as they stood; a slot given again to a player
      * coming back moves its start from the old one, whose steps stay as they ran) */
-    int32_t c = rb_confirmed(rb) + 1;
     if (from < c) from = c;
     forget_from(rb, i, from);
     if (from < rb->now && from < rb->rollback_to) rb->rollback_to = from < rb->floor ? rb->floor : from;
