@@ -7,7 +7,7 @@ The newest update is at the top.
 
 ---
 
-## v1.0.14 (not yet released)
+## v1.0.14 (November 24, 2026)
 
 ### General (V1.0.14)
 
