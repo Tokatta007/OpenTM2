@@ -440,7 +440,12 @@ static short *decode(int slot, const char *path, size_t *frames)
     Uint32 len = 0;
     int out_len = 0, ch = 0, rate = 0;
     size_t n = 0;
-    short *decoded = music_decode(path, &ch, &rate, &n);
+    const char *why = NULL;
+    short *decoded = music_decode(path, &ch, &rate, &n, &why);
+    if (!decoded && why) {
+        fprintf(stderr, "music %s: cannot load %s: %s\n", slots[slot].da, path, why);
+        return NULL;
+    }
     if (decoded) { /* MP3, FLAC, Ogg Vorbis */
         spec = (SDL_AudioSpec){SDL_AUDIO_S16, ch, rate};
         data = (Uint8 *)decoded;

@@ -882,6 +882,8 @@ static int get_analog_steer(int p) { return bind_analog_steer(p); }
 static int get_steer_keep(int p) { return bind_steer_keep(p); }
 static void set_steer_keep(int p, int v) { bind_set_steer_keep(p, v); changed |= SAVE_CONTROLS; }
 static void set_analog_steer(int p, int v) { bind_set_analog_steer(p, v); changed |= SAVE_CONTROLS; }
+static int get_analog_throttle(int p) { return bind_analog_throttle(p); }
+static void set_analog_throttle(int p, int v) { bind_set_analog_throttle(p, v); changed |= SAVE_CONTROLS; }
 static void set_jump_combo(int p, int v) { bind_set_jump_combo(p, v); changed |= SAVE_CONTROLS; rebuild_page = 1; } /* (its safety row) */
 static const char *const jump_safety_values[] = {"OFF", "50 MS", "100 MS", "150 MS"};
 static int get_jump_safety(int p) { return bind_jump_safety(p); }
@@ -2531,6 +2533,12 @@ static void set_net_server(int a, int v)
         rebuild_page = 1;
         break;
     case NS_TOUR_MODE: /* NEW / LOAD / CUSTOM (LOAD: on the first slot that loads) */
+        if (v == 1) { /* LOAD with no online save that loads: passed over (Mohamed Eissa's lobby, 2026-11-23: LOAD on an empty
+                       * slot, each countdown ended in a chat line he could not read and no match) */
+            int any = 0;
+            for (int k = 0; k < PROFILE_SAVES; k++) any |= !net_tour_slot_why(k);
+            if (!any) v = net_tour_custom ? 0 : 2; /* (from CUSTOM going left: NEW; from NEW going right: CUSTOM) */
+        }
         net_tour_custom = v == 2;
         net_tour_loading = v == 1;
         if (v && net_tour_slot_why(net_tour_slot))
@@ -3001,6 +3009,7 @@ static int net_sync(void)
         }
     }
     if (lobby_is_host(l)) net_send_settings();
+    if (net_chat_seen < lobby_chat_first(l)) net_chat_seen = lobby_chat_first(l); /* (older ones gone) */
     for (int sp, k = net_chat_seen; ; k++) { /* the chat's new lines */
         const char *t;
         if (!lobby_chat_lines(l, k, &sp, &t)) break;
@@ -4462,7 +4471,7 @@ static void build(PageId page)
             net_tour_load_values[k] = net_tour_load_text[k];
         }
         static const char *const new_load[3] = {"NEW", "LOAD", "CUSTOM"};
-        add_choice("Tournament", "NEW: from level 1. LOAD: one saved online, same players and cars. CUSTOM: your own stages.",
+        add_choice("Tournament", "NEW: from level 1. LOAD: one saved online, same players and cars (only with such a save). CUSTOM: your own stages.",
                    get_net_server, set_net_server, NS_TOUR_MODE, new_load, 3);
         static char slot_desc[240];
         if (net_tour_custom) { /* a custom co-op tournament: the Custom Tournament page's stages, the co-op tournament's lives */
@@ -4977,6 +4986,8 @@ static void build(PageId page)
                    get_pad_type, set_pad_type, p, pad_type_values, 3)->small = 1;
         add_choice("Analog steering", "The stick turns as far as it is tilted. Off: any tilt turns fully, as the D-pad.",
                    get_analog_steer, set_analog_steer, p, onoff_values, 2)->small = 1;
+        add_choice("Analog throttle", "The car goes as fast as accelerate or reverse is pressed, on a trigger or a stick. "
+                   "Off: any press is full speed.", get_analog_throttle, set_analog_throttle, p, onoff_values, 2)->small = 1;
         add_choice("Disable backwards steering", "On: backing up, Left still turns the nose left. Off (the original): backing up, "
                    "Left swings the nose right, switching as the car starts rolling back.",
                    get_steer_keep, set_steer_keep, p, onoff_values, 2)->small = 1;
@@ -5570,6 +5581,7 @@ enum { TITLE_DIM = 110 }; /* the title picture under the profile screen, darkene
 /* A car's car-select portrait n (0 first, 1 second): the 14 drivers' from the sheets (picture car * 3 + n), the cars
  * after them from ui/cars/<car>_<n+1>.bmp (64x128 like the sheets' frames), or, until one is made, their name on black */
 static void draw_portrait_image(const View *v, int pic, int x, int y, int w, int h);
+static int portrait_any; /* (another player's picture: shown though this profile has not earned it) */
 static int skin_portrait(Image *c, int number, int n, int x, int y, int w, int h);
 static const char *car_label(int number);
 static void draw_car_portrait(const View *v, int car, int n, int x, int y, int w, int h)
@@ -5604,7 +5616,7 @@ static void draw_portrait_image(const View *v, int pic, int x, int y, int w, int
 {
     static const uint8_t black[3] = {0, 0, 0};
     draw_fill(v->c, x, y, w, h, black, 255);
-    if (profile_picture_hidden(pic)) { /* a secret, or an ending's still not earned: the ending stays a surprise */
+    if (!portrait_any && profile_picture_hidden(pic)) { /* a secret, or an ending's still not earned: the ending stays a surprise */
         int qs = h / 3;
         text_draw(v->c, "?", x + w / 2 - text_width("?", qs) / 2, text_top_for_center(y + h / 2, qs), qs, GRAY);
         return;
@@ -7515,8 +7527,7 @@ static void draw_lobby_screen(const View *v, int sel, int online)
         if (first < 0) first = 0;
         for (int k = 0; k < shown && first + k < net_chat_n; k++) {
             char up[64], fit[64];
-            snprintf(up, sizeof up, "%s", net_chat[first + k]);
-            upper(up);
+            snprintf(up, sizeof up, "%s", net_chat[first + k]); /* (as typed: small letters, punctuation; the user's) */
             fit_text(fit, sizeof fit, up, S(v, gw - 20), S(v, 9));
             int server = !strncmp(up, "SERVER:", 7), count = up[0] == NET_CHAT_COUNTDOWN[0];
             if (count) fit_text(fit, sizeof fit, up + 3, S(v, gw - 20), S(v, 9)); /* ("\x01: ": no name) */
@@ -7629,8 +7640,12 @@ static void draw_lobby_screen(const View *v, int sel, int online)
          * host and the microphone under it */
         int ph = cellh - 4, pw = ph / 2;
         if (c->kind == LC_CPU && c->car >= 0x20) draw_car_portrait(v, c->car, 0, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph));
-        else if (c->pic >= 0) draw_portrait_image(v, c->pic, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph));
-        else draw_plate_car(v, -1, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph)); /* (a random driver: "?") */
+        else if (c->pic >= 0) { /* (another player's: their own picture, whatever this profile has earned: Z3NR's showed
+                                 * as "?" on Tegu's lobby, 2026-11-23) */
+            portrait_any = c->kind == LC_REMOTE;
+            draw_portrait_image(v, c->pic, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph));
+            portrait_any = 0;
+        } else draw_plate_car(v, -1, X(v, x + 6), Y(v, y + 2), S(v, pw), S(v, ph)); /* (a random driver: "?") */
         int plh = cellh - 8, plw = plh * 2, plx = x + cellw - plw - 4, ply = y + 4;
         int car = c->car;
         if (c->local >= 1 && c->local <= 4 && c->team < 0) { /* this PC's players, no teams: their player's color around the
@@ -8297,6 +8312,17 @@ static int naming_input(uint16_t script_buttons)
         if (shift) naming.caps = 1; /* a capital (then small letters again) */
         name_type((char)('a' + key - SDL_SCANCODE_A));
         menu_sound(0);
+    } else if (naming.game_type == 4 && shift && key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) { /* chat: !@#$%^&*() */
+        name_type("!@#$%^&*()"[key - SDL_SCANCODE_1]);
+        menu_sound(0);
+    } else if (naming.game_type == 4 && (key == SDL_SCANCODE_COMMA || key == SDL_SCANCODE_SLASH || key == SDL_SCANCODE_SEMICOLON ||
+                                         key == SDL_SCANCODE_APOSTROPHE || key == SDL_SCANCODE_EQUALS ||
+                                         (shift && key == SDL_SCANCODE_PERIOD))) { /* chat: the rest of the punctuation */
+        char ch = key == SDL_SCANCODE_COMMA ? (shift ? '<' : ',') : key == SDL_SCANCODE_SLASH ? (shift ? '?' : '/')
+                : key == SDL_SCANCODE_SEMICOLON ? (shift ? ':' : ';') : key == SDL_SCANCODE_APOSTROPHE ? (shift ? '"' : '\'')
+                : key == SDL_SCANCODE_EQUALS ? (shift ? '+' : '=') : '>';
+        name_type(ch);
+        menu_sound(0);
     } else if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_0) {
         name_type(key == SDL_SCANCODE_0 ? '0' : (char)('1' + key - SDL_SCANCODE_1));
         menu_sound(0);
@@ -8553,6 +8579,20 @@ static int run(PageId start)
             for (int d = 0; d < 4 && capturing >= 0; d++)
                 if (stick_new & (1 << d)) { /* the right stick flicked one way: that direction, as a button (Sage's) */
                     cr->set(cr->arg, cr->extra || cr->energy ? BIND_STICK + d : BIND_STICK + d - 1);
+                    key = 0;
+                    capturing = -1;
+                }
+            int input_pad_lstick_any(void);  /* runtime/input.c: any controller's left stick (bit d: BIND_LSTICK + d) */
+            static int lstick_before = 0xF, lstick_row = -1; /* (tilted when the capture started: not a press; the stick also
+                                                               * moves through the menus, so each capture starts from it) */
+            int lstick = script ? 0 : input_pad_lstick_any();
+            if (lstick_row != capturing) lstick_row = capturing, lstick_before = lstick;
+            int lstick_new = lstick & ~lstick_before;
+            lstick_before = lstick;
+            for (int d = 0; d < 4 && capturing >= 0; d++)
+                if (lstick_new & (1 << d)) { /* the left stick flicked one way: that direction (before the D-pad it also
+                                              * counts as in the menus: the user's, any control on the left stick) */
+                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_LSTICK + d : BIND_LSTICK + d - 1);
                     key = 0;
                     capturing = -1;
                 }
@@ -14862,8 +14902,8 @@ static int net_tour_choose(int level, int kind)
                 int pick = tournament_menu(kind ? "GAME OVER" : "", kind ? lost : can_save ? won_save : won, can_save ? 3 : 2);
                 menu_items_y = 140;
                 menu_note_y = 205;
-                static int test_saved; /* tests: TM2PC_TEST_TOUR_SAVE, the first level's SAVE taken by itself */
-                if (can_save && !test_saved && getenv("TM2PC_TEST_TOUR_SAVE")) test_saved = 1, pick = 1;
+                static int test_saved; /* tests: TM2PC_TEST_TOUR_SAVE, each level's SAVE taken by itself (once a level) */
+                if (can_save && test_saved != level && getenv("TM2PC_TEST_TOUR_SAVE")) test_saved = level, pick = 1;
                 if (can_save && pick == 1) { net_tour_save(); menu_keep_frame = 1; continue; }
                 if (can_save && pick == 2) pick = 1;
                 if (pick == 0) { choice = kind ? TOUR_DEC_RESTART : TOUR_DEC_CONTINUE; break; }

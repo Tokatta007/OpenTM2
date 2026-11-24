@@ -9,6 +9,7 @@
  * human local, slot = human). Each human's button table: a local player's from their layout and own buttons (as the
  * game builds a pad's), another machine's as that machine sent it (humans_set_table). */
 #include "../runtime/runtime.h"
+#include "../runtime/rebase_table.h"
 #include "vplus.h"
 #include "cars.h"
 #include "../controls/bindings.h"
@@ -29,7 +30,7 @@ int bind_jump_combo(int player), bind_steer_keep(int player); /* controls/bindin
 void bind_apply_as(int player);
 int feats_in_battle(void);
 
-static uint32_t a_local, a_pad, a_steer, a_options, a_layout, a_bindings, a_control;
+static uint32_t a_local, a_pad, a_steer, a_throttle, a_options, a_layout, a_bindings, a_control;
 static int8_t slot_of[HUMANS_MAX];      /* this machine's slot of each human (-1: another machine's) */
 static int map_set, map_n;              /* (a match's map given; else every human local) */
 static uint8_t table[HUMANS_MAX][128];  /* each human's button table for the match */
@@ -45,6 +46,7 @@ static int syms(void)
         a_local = port_sym("portHumanLocal");
         a_pad = port_sym("portHumanPad");
         a_steer = port_sym("portHumanSteer");
+        a_throttle = port_sym("portHumanThrottle"); /* (decomp request 121: the analog throttle) */
         a_options = port_sym("portHumanOptions");
         a_layout = port_sym("portHumanLayout");
         a_bindings = port_sym("portHumanBindings");
@@ -147,9 +149,10 @@ static uint16_t local_pad(int L)
  * (Enough Boxes and Tegu: a re-sync every 8 steps on Roof Tops and Cyburbia), and a table could not change during a
  * match. A player on Standard with no buttons of their own sends their buttons as they are. */
 static const uint32_t button_bit[BIND_BUTTONS_ALL + 1] = { /* padButtonHeld's buttons 1..14 (and the port's L3, R3
-                                                             * 15-16): PS1 bits; the right stick's 17-20: bits 16-19 */
+                                                             * 15-16): PS1 bits; the right stick's 17-20: bits 16-19,
+                                                             * the left stick's 21-24: bits 20-23 */
     0, 0x0001, 0x0008, 0x0400, 0x0100, 0x0010, 0x0040, 0x0080, 0x0020, 0x0800, 0x0200, 0x1000, 0x4000, 0x8000, 0x2000,
-    0x0002, 0x0004, 1u << 16, 1u << 17, 1u << 18, 1u << 19};
+    0x0002, 0x0004, 1u << 16, 1u << 17, 1u << 18, 1u << 19, 1u << 20, 1u << 21, 1u << 22, 1u << 23};
 static uint8_t bare[128], own[4][128];
 static uint32_t bare_used, own_used[4];
 static int bare_ok, own_ok[4];
@@ -189,6 +192,47 @@ static uint16_t as_standard(int L, uint32_t mine) /* (mine: bits 16-19 the right
         if (b >= 1 && b <= BIND_BUTTONS_ALL && (mine & button_bit[b]) && s >= 1 && s <= 14) out |= (uint16_t)button_bit[s];
     }
     return out;
+}
+/* local player L's analog throttle (decomp request 121, ANALOG_STEERING.md 6.4): accelerate (0x18) or brake / reverse
+ * (0x19) held on a trigger or a right stick direction, how far it is pressed or tilted; else (a button, a key, nothing, the option off) 4096, the game's */
+static uint32_t throttle_of(int L, uint32_t mine)
+{
+    int input_trigger_amount(int p, int b); /* runtime/input.c */
+    static int test = -1; /* tests: TM2PC_TEST_THROTTLE=N, every local player's accelerate held at N of 4096 */
+    if (test < 0) test = getenv("TM2PC_TEST_THROTTLE") ? atoi(getenv("TM2PC_TEST_THROTTLE")) : 0;
+    if (L < 0 || L > 3 || !own_ok[L] || !bind_analog_throttle(L)) return 4096;
+    for (int a = 0x18; test > 0 && a <= 0x1B; a++) /* (any drive action held: accelerate, brake, Forward, Reverse) */
+        if (own[L][a] >= 1 && own[L][a] <= BIND_BUTTONS_ALL && (mine & button_bit[own[L][a]])) return (uint32_t)test;
+    /* accelerate, brake / reverse, and Forward / Reverse (the D-pad's Up / Down by default: full, as the original, the
+     * left stick too while it is the D-pad's) */
+    static const uint8_t drive[4] = {0x18, 0x19, 0x1A, 0x1B};
+    for (int i = 0; i < 4; i++) {
+        int b = own[L][drive[i]];
+        if (b < 1 || b > BIND_BUTTONS_ALL || !(mine & button_bit[b])) continue; /* (a trigger, a stick direction: its amount) */
+        int a = input_trigger_amount(L, b);
+        return a < 0 ? 4096u : (uint32_t)a;
+    }
+    return 4096;
+}
+/* local player L's steering amount (0..4096 of full lock): steer left / right (0x17 / 0x16) on the D-pad (and the left
+ * stick while it is the D-pad's): the stick's tilt as always (input_steer_amount); on a stick direction or a trigger
+ * given them in Controls: how far it is tilted or pressed; a button or a key: full. Analog steering off: full. Each
+ * machine sends the amount, not the buttons: any binding is the same number on every machine (no desync). */
+static uint32_t steer_of(int L, uint32_t mine)
+{
+    int input_steer_amount_of(int p, int b); /* runtime/input.c */
+    if (L < 0 || L > 3 || !own_ok[L]) return (uint32_t)input_steer_amount(L);
+    if (!bind_analog_steer(L)) return 4096;
+    static const uint8_t steer[2] = {0x17, 0x16};
+    for (int i = 0; i < 2; i++) {
+        int b = own[L][steer[i]];
+        if (b < 1 || b > BIND_BUTTONS_ALL || !(mine & button_bit[b])) continue;
+        if (b >= 5 && b <= 8) /* the D-pad, or the left stick as it (not when its Left / Right have actions of their own) */
+            return bind_lstick_mask(L) & 0xC ? 4096u : (uint32_t)input_steer_amount(L);
+        int a = input_steer_amount_of(L, b);
+        return a < 0 ? 4096u : (uint32_t)a;
+    }
+    return (uint32_t)input_steer_amount(L);
 }
 void humans_controls_changed(void) { memset(own_ok, 0, sizeof own_ok); } /* (Controls: at once, from the next step) */
 
@@ -246,8 +290,15 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
         uint16_t raw = (uint16_t)killcam_input(0, h, L >= 0 ? (uint16_t)~as_standard(L, mine_all) : 0xFFFFu); /* (active low) */
         uint16_t held = (uint16_t)~raw;
         mem_w16(&M.cpu, a_pad + 2u * (uint32_t)h, (uint16_t)((held >> 8) | (held << 8))); /* padButtonsDecoded's half layout */
-        uint32_t steer = killcam_input(1, h, L >= 0 ? (uint32_t)input_steer_amount(L) : 4096u);
+        uint32_t steer = killcam_input(1, h, L >= 0 ? steer_of(L, mine_all) : 4096u);
         if (a_steer) mem_w16(&M.cpu, a_steer + 2u * (uint32_t)h, (uint16_t)steer);
+        uint32_t thr = killcam_input(3, h, L >= 0 ? throttle_of(L, mine_all) : 4096u); /* (0 from a machine without it: the game's) */
+        if (a_throttle) mem_w16(&M.cpu, a_throttle + 2u * (uint32_t)h, (uint16_t)thr);
+        static int thr_log = -1; /* tests: TM2PC_THROTTLE_LOG, human 1's throttle and place each second */
+        if (thr_log < 0) thr_log = getenv("TM2PC_THROTTLE_LOG") != NULL;
+        if (thr_log && h == 0 && M.vblanks % 60 == 0)
+            fprintf(stderr, "throttle: %u at %d,%d\n", (unsigned)thr, (int)mem_r32(&M.cpu, HUMAN_REC(0) + 0x6FC),
+                    (int)mem_r32(&M.cpu, HUMAN_REC(0) + 0x700));
         /* the easy energy buttons, and bit 0 the player's L1 + R1 jump, bit 1 their steering in reverse "like the screen",
          * bits 2-3 their jump's weapon switch safety (0 off, 1-3 steps), and the controller's own Select, L1 and R1 held
          * (EASY_SELECT, EASY_L1, EASY_R1: the jump and Select's buttons are those, whatever actions they have) (their

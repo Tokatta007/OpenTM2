@@ -551,8 +551,27 @@ static void redraw(const Poses *ea, const Poses *eb, const Poses *la, const Pose
              * parity: online its pairing is the game's (mirrors_rear_pair: view 1's first record, the mirror's second),
              * and by view 1's parity the twin was the mirror's own record: each frame in between wrote over the packets
              * it was to show (garbage, slower and slower, then a crash at 60 FPS and uncapped: Slick's, 2026-11-22) */
-            uint32_t mslot = mem_r32(c, SLOT_MIRROR);
-            draw_view(take_rec(mslot, mslot == VIEW0_FRAMES + 0x200u ? VIEW0_FRAMES + 0x280u : VIEW0_FRAMES + 0x200u), 1, r0);
+            /* the mirror's record of view 1's own pair (A with A, B with B, as the game's drawing has them offline). Online
+             * mirrors_rear_pair has set the game's pointer for the next step already (the other one): the frames in
+             * between drew the mirror where it was never shown (empty two frames of three at 60 FPS, a strobe: Enough
+             * Boxes, Zen). The game's own mirror drawing (viewProc) takes its record from that pointer, so it is set to
+             * the record drawn here for the drawing and the presenting, and put back after (else the drawing went into
+             * the other record's order table, shared with view 2's: garbage, a freeze uncapped) */
+            /* the mirror's record of view 1's own pair (A with A, B with B, as the game draws them); its packets in view 2's
+             * buffer (one view: view 2 never drawn, so free), not the other mirror record's (online the game's pointer is set
+             * for the next step already: that record's packets are the next step's own) */
+            uint32_t mslot = VIEW0_FRAMES + 0x200u + (slot == VIEW0_FRAMES ? 0u : 0x80u);
+            static int mdbg = -1; /* tests: TM2PC_MIRROR_DEBUG, the records of a frame in between (the first 40) */
+            if (mdbg < 0) mdbg = getenv("TM2PC_MIRROR_DEBUG") ? 40 : 0;
+            if (mdbg > 0) {
+                mdbg--;
+                fprintf(stderr, "mirror debug: vblank %llu slot %08X (clip y %d) mirror %08X (clip y %d), A %d B %d; view1 %08X\n",
+                        (unsigned long long)M.vblanks, slot, (int16_t)mem_r16(c, slot + 0x12), mslot, (int16_t)mem_r16(c, mslot + 0x12),
+                        (int16_t)mem_r16(c, VIEW0_FRAMES + 0x200u + 0x12), (int16_t)mem_r16(c, VIEW0_FRAMES + 0x280u + 0x12),
+                        mem_r32(c, SLOT_VIEW1));
+            }
+            draw_view(take_rec(mslot, VIEW0_FRAMES + 0x100u), 1, r0);
+            if (mdbg > 0) fprintf(stderr, "mirror debug: after its drawing the pointer %08X\n", mem_r32(c, SLOT_MIRROR));
             for (int h = 0; blend && h < humans && h < MOTION_HUMANS; h++) {
                 uint32_t r = HUMAN_REC(h) + 0x6DC;
                 for (int k = 0; k < 3; k++) mem_w32(c, r + 0x20 + 4u * (uint32_t)k, (uint32_t)kept[h].pos[k]);
@@ -572,7 +591,7 @@ static void redraw(const Poses *ea, const Poses *eb, const Poses *la, const Pose
         else guest_call(GA(0x800F8370u), 0, first, 0, 0);        /* hudDrawSingleView */
     }
     if (mirror) {
-        uint32_t rm = mem_r32(c, SLOT_MIRROR);
+        uint32_t rm = VIEW0_FRAMES + 0x200u + (slot == VIEW0_FRAMES ? 0u : 0x80u); /* (the record drawn above) */
         guest_call(GA(0x80141AA4u), rm + 0x10, 0, 0, 0);
         guest_call(GA(0x80141A30u), mem_r32(c, rm) + 4095u * 4, 0, 0, 0);
     }

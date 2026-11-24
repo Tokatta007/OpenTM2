@@ -59,7 +59,7 @@ typedef enum {
     VP_BAL_GRASSHOPPER,     /* leap 18, no ram damage taken, touching counts, clean landing, free energy jump */
     VP_BAL_OUTLAW2,         /* the taser's second chance; recharge 45 s */
     VP_BAL_GRIMM,           /* recharge 60 s */
-    VP_BAL_THUMPER,         /* recharge 75 s */
+    VP_BAL_THUMPER,         /* recharge 75 s; no second special while his flame burns (bits 22, 14) */
     VP_BAL_SHADOW,          /* the slope bug fixed: 28 at most */
     /* the decomp's portVisual word (request 42, CUSTOM_TOURNAMENT_ANSWERS.md): vp_visual_word */
     VP_TASER_LOW,           /* the taser starts at Outlaw 2's muzzle, not above her roof */
@@ -71,6 +71,7 @@ typedef enum {
     VP_STEADY_SHADOW,       /* car shadows tilted with the car only, no suspension rocking (request 92, RENDER_ANSWERS.md, portVisual bit 7) */
     VP_BAL_ROADKILL,        /* Roadkill's boomerang always caught on its way back (decomp request 95, portBalance bit 28) */
     VP_GLACIER_FIRE,        /* Antarctica's fire missile out of the mark that hides it (decomp request 120, RETAIL_BUGS.md); online always */
+    VP_BAL_GUN_RANGE,       /* machine-gun bullets fly 25% farther (decomp request 121, BALANCE.md 25.2, portBalance bit 9) */
     VP_COUNT
 } VpChangeId;
 

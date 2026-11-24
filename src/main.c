@@ -703,6 +703,9 @@ int main(int argc, char **argv)
     snprintf(path, sizeof path, "%sprofiles", base);
     profile_set_folder(path);
     ui_set_folder(base);
+    /* the version first, whether or not the update check answers (Mohamed Eissa's log, 2026-11-23: "no answer", no
+     * version anywhere) */
+    fprintf(stderr, "OpenTM2 %s (built %s)\n", TM2PC_VERSION, __DATE__);
     mods_scan(base); /* (mods/: listed and checked; docs/MODDING.md) */
     /* The settings file is read (and created) in windowed play. Headless
      * runs (tests) use the defaults unless --settings names a file. It

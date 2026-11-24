@@ -51,7 +51,7 @@ struct Lobby {
     char banned[BANNED_MAX][48];                /* (host) addresses kicked: no rejoining */
     int banned_n;
     struct { int speaker; char text[SES_CHAT_MAX + 1]; } chat[LOBBY_CHAT_LINES];
-    int chat_n;
+    int chat_n, chat_total; /* (chat_total: every line ever, the kept ones its last chat_n) */
     void (*match)(void *ctx, int from, const uint8_t *data, int len, uint32_t now_ms);
     void *match_ctx;
     uint32_t now;
@@ -296,6 +296,7 @@ static void on_chat(void *ctx, int speaker, const char *text)
     l->chat[l->chat_n].speaker = speaker;
     snprintf(l->chat[l->chat_n].text, sizeof l->chat[0].text, "%s", text);
     l->chat_n++;
+    l->chat_total++;
 }
 static void on_kicked(void *ctx) { ((Lobby *)ctx)->status = LOBBY_KICKED; }
 static void on_voice(void *ctx, int speaker, uint16_t seq, const uint8_t *data, int len)
@@ -1026,10 +1027,15 @@ int lobby_kick_progress(const Lobby *l, int *target, int *yes, int *needed, int 
     if (at) *at = l->kick.at;
     return 1;
 }
+/* line i of every line ever said (0 the first): kept only the last LOBBY_CHAT_LINES (lobby_chat_first). By position in
+ * the kept ones, a full list gave nothing new: after 32 lines no one's chat showed (Tegu's, 2026-11-23: the countdown
+ * alone says 6 a match) */
 int lobby_chat_lines(const Lobby *l, int i, int *speaker, const char **text)
 {
-    if (i < 0 || i >= l->chat_n) return 0;
-    if (speaker) *speaker = l->chat[i].speaker;
-    if (text) *text = l->chat[i].text;
+    int k = i - (l->chat_total - l->chat_n);
+    if (k < 0 || k >= l->chat_n) return 0;
+    if (speaker) *speaker = l->chat[k].speaker;
+    if (text) *text = l->chat[k].text;
     return 1;
 }
+int lobby_chat_first(const Lobby *l) { return l->chat_total - l->chat_n; } /* (the oldest line kept) */

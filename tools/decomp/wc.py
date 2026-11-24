@@ -190,6 +190,7 @@ PORT_DEFINES = ['--port-define', 'TM2_PORT_CAR_GROUPS', '--port-define', 'TM2_PO
                 '--port-define', 'TM2_PORT_WHOLE_MAPS', '--port-define', 'TM2_PORT_FWY_GROUND',  # (111: Antarctica's floes kept with the whole maps in co-op; 112: LA's corner curves' ground, always)
                 '--port-define', 'TM2_PORT_MOD_ARENA',  # (request 114: a mod arena's health spot and the AI's warp exits, portArenaRules)
                 '--port-define', 'TM2_PORT_WRECK_FALL',  # (request 117: a falling wreck hidden with its splash on Antarctica, or exploding at the floor)
+                '--port-define', 'TM2_PORT_DT_SWOOP',  # (request 121: a computer Dark Tooth swoops at the car he is after, port_dt_swoop.h)
                 '--port-define', 'TM2_PORT_SPECIAL_PROFILE']  # (request 73, SPECIAL_TEMPLATES.md: mod characters' specials, portSpecialProfile)
 
 

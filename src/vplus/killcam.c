@@ -97,8 +97,8 @@ static uint64_t frame_no;            /* frames of this battle */
 uint16_t humans_held(int h);         /* vplus/humans.c */
 int killcam_battle_frame(void) { return frame_no > 0x7FFFFFFF ? 0x7FFFFFFF : (int)frame_no; }
 static int rerun_back = -1;          /* (rollback) a step run again: this many frames before frame_no; -1 live */
-static uint32_t rec[REC][16][3];     /* per frame, per human: pad (active low), steering, easy buttons (vplus/humans.c) */
-static uint8_t rec_set[REC][16][3];
+static uint32_t rec[REC][16][4];     /* per frame, per human: pad (active low), steering, easy buttons, throttle (vplus/humans.c) */
+static uint8_t rec_set[REC][16][4];
 static uint32_t rec_hash[REC];       /* per frame: the cars' state (the replay's check) */
 static uint64_t diverged_at;
 /* TM2PC_KILLCAM_DEBUG: each frame's hashed records kept, the first difference shown field by field */
@@ -334,7 +334,7 @@ uint32_t netplay_input(int kind, int player, uint32_t live); /* net/game_tm2.c *
 uint32_t killcam_input(int kind, int player, uint32_t live)
 {
     live = netplay_input(kind, player, live); /* (online: every machine's agreed input) */
-    if (player < 0 || player > 15 || kind < 0 || kind > 2 || !in_battle_now) return live;
+    if (player < 0 || player > 15 || kind < 0 || kind > 3 || !in_battle_now) return live;
     uint32_t i = (uint32_t)((rw ? rw_frame : state == 2 ? replay_frame : frame_no - (rerun_back > 0 ? (uint64_t)rerun_back : 0)) % REC);
     if (state == 2 || rw) {
         uint32_t v = rec_set[i][player][kind] ? rec[i][player][kind] : live;

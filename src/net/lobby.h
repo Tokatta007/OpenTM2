@@ -116,7 +116,8 @@ void lobby_kick_vote(Lobby *l, int node);
 /* the last kick vote's progress (SES_KICK_RUNNING / PASSED / FAILED, the votes for it and needed; at: when it was
  * last heard of); 0: none yet */
 int lobby_kick_progress(const Lobby *l, int *target, int *yes, int *needed, int *state, uint32_t *at);
-int lobby_chat_lines(const Lobby *l, int i, int *speaker, const char **text); /* i from 0 (the oldest kept); 0: none */
+int lobby_chat_lines(const Lobby *l, int i, int *speaker, const char **text); /* i: of every line said (from 0); 0: not kept */
+int lobby_chat_first(const Lobby *l); /* the oldest line kept (lobby_chat_lines' numbering) */
 /* the match's channel: its transport, and its packets as they arrive */
 NetTransport lobby_match_transport(Lobby *l);
 void lobby_on_match(Lobby *l, void (*fn)(void *ctx, int from, const uint8_t *data, int len, uint32_t now_ms), void *ctx);

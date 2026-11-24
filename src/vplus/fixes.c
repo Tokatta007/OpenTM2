@@ -515,8 +515,9 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
             }
         if (best < 0) return;
     }
-    if (getenv("TM2PC_SPAWN_TRACE"))
-        fprintf(stderr, "spawn: node %d crowded (z %d), node %d instead (z %d, nearest car %.0f)\n", id,
+    /* always logged (rare: a start point crowded), with where it puts the car: SupahFlyKev's and Slick!'s cars under
+     * Amazonia and Antarctica, 2026-11-23, with no log of where they came in */
+    fprintf(stderr, "spawn: node %d crowded (z %d), node %d instead (z %d, nearest car %.0f)\n", id,
                 (int16_t)mem_r16(c, ROUTE_NODES + 24u * (uint32_t)id + 8), best, (int16_t)mem_r16(c, ROUTE_NODES + 24u * (uint32_t)best + 8),
                 sqrt((double)best_d));
     node_xy(best, &x, &y);
@@ -1621,16 +1622,22 @@ void vp_HumanCarNearest(CPU *c)
         for (int i = 0; i < humans && i < CARS_HUMANS_MAX && mine < 0; i++)
             if (pos == HUMAN_REC(i) + 0x6FC) mine = team_of_human(i);
         if (mine >= 0) {
-            int best = -1;
-            int32_t bd = 0;
-            for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++) {
-                if (i == exclude || team_of_human(i) == mine || mem_r8(c, HUMAN_REC(i) + 0x9C)) continue;
-                int32_t dx = (int32_t)mem_r32(c, pos) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x6FC);
-                int32_t dy = (int32_t)mem_r32(c, pos + 4) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x700);
-                int32_t d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
-                if (best < 0 || d < bd) { best = i; bd = d; }
+            /* an enemy player alive first; else any enemy player (a wreck, one out: harmless, never a teammate: the
+             * game's answer, the nearest player of any team, sent teammates' missiles at the player while every enemy
+             * computer car was down, KinggzZ's 2026-11-23 report) */
+            for (int any = 0; any < 2; any++) {
+                int best = -1;
+                int32_t bd = 0;
+                for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++) {
+                    if (i == exclude || team_of_human(i) == mine) continue;
+                    if (!any && (mem_r8(c, HUMAN_REC(i) + 0x9C) || (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0)) continue;
+                    int32_t dx = (int32_t)mem_r32(c, pos) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x6FC);
+                    int32_t dy = (int32_t)mem_r32(c, pos + 4) - (int32_t)mem_r32(c, HUMAN_REC(i) + 0x700);
+                    int32_t d = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+                    if (best < 0 || d < bd) { best = i; bd = d; }
+                }
+                if (best >= 0) { c->r[2] = (uint32_t)best; return; }
             }
-            if (best >= 0) { c->r[2] = (uint32_t)best; return; }
         }
     }
     F_8011C8E4_orig(c);
@@ -1745,6 +1752,31 @@ static int gu_skip(int k, int j, double dist2) /* car k may not take j now (j -1
 {
     return k >= 0 && k < CARS_MAX && gu_until[k] > vp_gv() && gu_banned[k] == j && dist2 > (double)GU_NEAR * GU_NEAR;
 }
+static int enemy_player_alive(int k) /* a player of another team than computer car k's, alive */
+{
+    int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++)
+        if (team_of_human(i) != team_of_ai(k) && !mem_r8(&M.cpu, HUMAN_REC(i) + 0x9C) && (int32_t)mem_r32(&M.cpu, HUMAN_REC(i) + 0x1F0) > 0)
+            return 1;
+    return 0;
+}
+/* a computer car whose target is no good now (gone, a teammate, or the nearest player with no enemy player alive): the
+ * targets again at once, not at the next second (the game sets -1 itself when a target dies) */
+static int teams_targets_bad(void)
+{
+    int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int k = 0; k < n && k < cars_ai_max(); k++) {
+        if (!ai_alive(k)) continue;
+        int t = (int32_t)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k);
+        if (t == -1 ? !enemy_player_alive(k) : t < 0 || t >= n || t == k || team_of_ai(t) == team_of_ai(k)) return 1;
+        if (t >= 0 && !ai_alive(t)) {
+            for (int j = 0; j < n && j < cars_ai_max(); j++) /* (dead, with an enemy alive to take instead) */
+                if (j != k && ai_alive(j) && team_of_ai(j) != team_of_ai(k)) return 1;
+            if (enemy_player_alive(k)) return 1;
+        }
+    }
+    return 0;
+}
 static void teams_retarget(void) /* each computer car: the nearest car of another team */
 {
     int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
@@ -1762,13 +1794,19 @@ static void teams_retarget(void) /* each computer car: the nearest car of anothe
         }
         /* (a computer car of another team; with no player of another team, one given up on too: -1 would be "the
          * nearest player", a teammate then, the user's 2026-10-29) */
-        for (int pass = 0; pass < 2 && best < 0 && (pass == 0 || human < 0); pass++)
+        /* (pass 2: none alive, every enemy computer car down (respawning): one of them all the same, its record; -1
+         * would be the nearest player, a teammate when no enemy player is in: KinggzZ's 2026-11-23 report) */
+        for (int pass = 0; pass < 3 && best < 0 && (pass == 0 || human < 0); pass++)
             for (int j = 0; j < n && j < cars_ai_max(); j++) {
-                if (j == k || !ai_alive(j) || team_of_ai(j) == team_of_ai(k)) continue;
+                if (j == k || (pass < 2 && !ai_alive(j)) || team_of_ai(j) == team_of_ai(k)) continue;
                 double dx = (int32_t)mem_r32(&M.cpu, AI_REC(j) + 0x73C) - kx, dy = (int32_t)mem_r32(&M.cpu, AI_REC(j) + 0x740) - ky;
                 if (!pass && gu_skip(k, j, dx * dx + dy * dy)) continue;
                 if (dx * dx + dy * dy < best_d) { best_d = dx * dx + dy * dy; best = j; }
             }
+        static int dbg = -1; /* tests: TM2PC_TARGET_DEBUG, each computer car's new target */
+        if (dbg < 0) dbg = getenv("TM2PC_TARGET_DEBUG") != NULL;
+        if (dbg && (int32_t)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k) != best)
+            fprintf(stderr, "teams: computer car %d's target %d (frame %d)\n", k + 1, best, (int)(vp_gv() / 3));
         mem_w32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k, (uint32_t)best);
     }
 }
@@ -2068,6 +2106,74 @@ static int shield_bubble(int i, int seconds)
 }
 
 static void watch_end_for(int i);
+/* each human's respawn: where the car came in, and 2 seconds later where it is: far below that, or destroyed, logged
+ * (the reports of cars spawning under the map: the next log names the spot). Log only, nothing else. */
+static struct { uint64_t at; int32_t x, y, z; } spawn_check[CARS_HUMANS_MAX];
+static void spawn_check_start(int i, uint32_t rec)
+{
+    if (i < 0 || i >= CARS_HUMANS_MAX) return;
+    spawn_check[i].x = (int32_t)mem_r32(&M.cpu, rec + 0x6FC);
+    spawn_check[i].y = (int32_t)mem_r32(&M.cpu, rec + 0x700);
+    spawn_check[i].z = (int32_t)mem_r32(&M.cpu, rec + 0x704);
+    spawn_check[i].at = vp_gv() + 120;
+    fprintf(stderr, "spawn: player %d in at %d %d z %d (arena %d)\n", i + 1, spawn_check[i].x, spawn_check[i].y, spawn_check[i].z,
+            (int)mem_r8(&M.cpu, GA(0x8016475Cu) + 24));
+}
+static void spawn_check_frame(void)
+{
+    /* a car under the arena may not fall: it can drive about down there, or a jump can put it back on top (the user's,
+     * 2026-11-23). Twice a second, each player's height against the arena's lowest route point (the lowest place cars
+     * drive): far below it, logged once (with where they last came in), and once when back above. Reads only (no game
+     * call: the same on every machine and every re-run). */
+    static int under[CARS_HUMANS_MAX];
+    if (vp_gv() % 30 == 0) {
+        int n = (int)mem_r32(&M.cpu, ROUTE_NODE_COUNT), humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+        int lowest = 32767;
+        for (int k = 0; k < n && k < 400; k++) {
+            int z = (int16_t)mem_r16(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k + 8);
+            if (z < lowest) lowest = z;
+        }
+        for (int i = 0; n > 0 && i < humans && i < CARS_HUMANS_MAX; i++) {
+            uint32_t rec = HUMAN_REC(i);
+            if (mem_r8(&M.cpu, rec + 0x9C)) continue; /* (a wreck) */
+            int32_t z = (int32_t)mem_r32(&M.cpu, rec + 0x704);
+            /* the lowest route point within 2000 of the car (a bridge over a tunnel: the tunnel's), else the arena's: a car on
+             * its floor stands about 200 above it */
+            int32_t cx = (int32_t)mem_r32(&M.cpu, rec + 0x6FC), cy = (int32_t)mem_r32(&M.cpu, rec + 0x700);
+            int near = 32767;
+            for (int k = 0; k < n && k < 400; k++) {
+                int64_t dx = (int32_t)mem_r32(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k) - cx;
+                int64_t dy = (int32_t)mem_r32(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k + 4) - cy;
+                int nz = (int16_t)mem_r16(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k + 8);
+                if (dx * dx + dy * dy <= 2000LL * 2000 && nz < near) near = nz;
+            }
+            if (near == 32767) near = lowest;
+            static int watch = -1; /* tests: TM2PC_SPAWN_WATCH, each check */
+            if (watch < 0) watch = getenv("TM2PC_SPAWN_WATCH") != NULL;
+            if (watch) fprintf(stderr, "spawn watch: player %d z %d, lowest route point near %d (arena %d)\n", i + 1, z, near, lowest);
+            if (!under[i] && z < near - 300) {
+                under[i] = 1;
+                fprintf(stderr, "spawn: player %d UNDER the arena at %d %d z %d (the lowest route point near: z %d; last in at %d %d z %d)\n",
+                        i + 1, cx, cy, z, near,
+                        spawn_check[i].x, spawn_check[i].y, spawn_check[i].z);
+            } else if (under[i] && z >= near - 100) {
+                under[i] = 0;
+                fprintf(stderr, "spawn: player %d back above at %d %d z %d\n", i + 1, (int32_t)mem_r32(&M.cpu, rec + 0x6FC),
+                        (int32_t)mem_r32(&M.cpu, rec + 0x700), z);
+            }
+        }
+    }
+    for (int i = 0; i < CARS_HUMANS_MAX; i++) {
+        if (!spawn_check[i].at || vp_gv() < spawn_check[i].at) continue;
+        spawn_check[i].at = 0;
+        uint32_t rec = HUMAN_REC(i);
+        int32_t x = (int32_t)mem_r32(&M.cpu, rec + 0x6FC), y = (int32_t)mem_r32(&M.cpu, rec + 0x700), z = (int32_t)mem_r32(&M.cpu, rec + 0x704);
+        int dead = mem_r8(&M.cpu, rec + 0x9C);
+        if (z < spawn_check[i].z - 400 || dead)
+            fprintf(stderr, "spawn: player %d 2 s after coming in at %d %d z %d: %s at %d %d z %d (%d below)\n", i + 1, spawn_check[i].x,
+                    spawn_check[i].y, spawn_check[i].z, dead ? "DESTROYED" : "FELL", x, y, z, spawn_check[i].z - z);
+    }
+}
 static void respawn_human(int i)
 {
     uint32_t rec = HUMAN_REC(i);
@@ -2100,6 +2206,7 @@ static void respawn_human(int i)
         mem_w8(&M.cpu, rec + 0xAA, 1);
         life[i].shield_off = vp_gv() + 60u * (uint64_t)shield;
     }
+    spawn_check_start(i, rec);
     fprintf(stderr, "lives: player %d is back (vblank %llu)\n", i + 1, (unsigned long long)vp_gv());
 }
 
@@ -2372,8 +2479,46 @@ static void showdown_frame(void);
 static void watch_frame(void); /* (below, with the watching) */
 static void survival_watch_frame(void);
 static void versus_frame(void);
+/* Dark Tooth's ricochet look (decomp request 122, PLAYTEST_ANSWERS.md 36): in his BB.DMD, 15 animation frames whose
+ * primitive pointer (+0x0C) something overwrites with an absolute value (FDA1F14C: Supr's and Mohamed Eissa's co-op Dark
+ * Tooth phase, 2026-11-23; request 110 before): the emitter then drew garbage (missing textures, broken pictures, a
+ * freeze). Each step, every loaded BB.DMD (known by its frame 5's vertex pointer, base + 0x1DD0): each frame's pointer
+ * back to its own primitives (header + 0x2C) if it is not, the first time logged (the step says load or play: 36.4).
+ * Every machine the same (the same files at the same places), so the same online. */
+static void dt_ricochet_check(void)
+{
+    static uint32_t a_images = 1;
+    if (a_images == 1) a_images = port_sym("portDmdImages");
+    if (!a_images) return;
+    static const uint32_t frames[15] = {0xE8DC, 0xE950, 0xE9C4, 0xEA38, 0xEAAC, 0xEB20, 0xEB94, 0xEC08,
+                                        0xEC7C, 0xECF4, 0xED68, 0xEDDC, 0xEE50, 0xEEC4, 0xEF38};
+    static int told;
+    for (uint32_t g = 1; g < 64; g++) {
+        uint32_t base = mem_r32(&M.cpu, a_images + 4u * g);
+        if (!base || (base & 0x1FFFFFFFu) + 0xF0B8u >= GUEST_RAM_BYTES) continue;
+        if (mem_r32(&M.cpu, base + 0xEB20u + 4) != base + 0x1DD0u) continue; /* (not a BB.DMD) */
+        static uint32_t seen[8];
+        int known = 0;
+        for (int k = 0; k < 8; k++) known |= seen[k] == base;
+        if (!known) { /* (once per file loaded: the check is on) */
+            for (int k = 7; k > 0; k--) seen[k] = seen[k - 1];
+            seen[0] = base;
+            fprintf(stderr, "dark tooth: his model file (group %u at %08X) watched\n", g, base);
+        }
+        for (int f = 0; f < 15; f++) {
+            uint32_t h = base + frames[f], want = h + 0x2C, got = mem_r32(&M.cpu, h + 0x0C);
+            if (got == want) continue;
+            if (told++ < 20)
+                fprintf(stderr, "dark tooth: ricochet frame %d's primitives %08X (should be %08X): put back (group %u at %08X, "
+                        "step %llu, frame %d of the round)\n", f, got, want, g, base, (unsigned long long)vp_gv(), vp_round_frames());
+            mem_w32(&M.cpu, h + 0x0C, want);
+        }
+    }
+}
 void vp_lives_frame(void)
 {
+    dt_ricochet_check();
+    spawn_check_frame();
     versus_frame();
     test_kills();
     round_test_kills();
@@ -2437,7 +2582,7 @@ void vp_lives_frame(void)
  * (aiCarsCountRemaining, aiCarsCountAlive), and after 7 seconds it alone
  * comes back (2.6: aiCarStart at the start point farthest from the other
  * cars, its damage model and body object, the object shown, 2 seconds of
- * shield). Dark Tooth has one life (his two-stage fight).
+ * shield). Dark Tooth as a boss has one life (his two-stage fight).
  * Whom they hunt (the game type's Computer cars): the game's (every one the
  * nearest human: aiCarTargets -1; a computer car is hurt only while in range
  * of its own target, +0x034); Everyone equal (the nearest car of any kind,
@@ -2450,8 +2595,13 @@ int vp_ai_ignore_ai(void) { return 0; } /* accidental hits between computer cars
 static void ai_lives_start(void)
 {
     int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu)), lives = battle_rules() ? battle_lives() : 1;
+    /* Dark Tooth: one life as a boss (his two-stage fight: Survival's, a tournament's level 8); an ordinary computer Dark
+     * Tooth (a Challenge Match's or a custom tournament's: portCarOptions bit 10) the game type's lives as any car (decomp
+     * request 121, PLAYTEST_ANSWERS.md 35.2; KinggzZ's report) */
+    uint32_t opt = port_sym("portCarOptions");
+    int dt_ordinary = opt && (mem_r32(&M.cpu, opt) & 0x400u);
     for (int k = 0; k < cars_ai_max(); k++) {
-        ai_life[k].left = k < n && mem_r32(&M.cpu, AI_REC(k) + 0x30) != 0xF0u ? lives - 1 : 0;
+        ai_life[k].left = k < n && (mem_r32(&M.cpu, AI_REC(k) + 0x30) != 0xF0u || dt_ordinary) ? lives - 1 : 0;
         ai_life[k].at = ai_life[k].shield_off = 0;
     }
 }
@@ -2535,6 +2685,12 @@ static void ai_respawn(int k)
     uint32_t key = car_key_of((int16_t)mem_r16(&M.cpu, rec + 0x006), t);
     if (mem_r8(&M.cpu, rec + 0x518)) { guest_call(GA(0x80124C00u), key, 0, 0, 0); mem_w8(&M.cpu, rec + 0x518, 0); } /* the ice look */
     if (mem_r8(&M.cpu, rec + 0x088)) guest_call(GA(0x80124384u), key + 6, 0, 0, 0);                              /* the turbo flame */
+    if (t == 0xF0u) { /* Dark Tooth back: his shot and swoop timers, his swoop and stage flag reset, so he does not swoop the moment he
+                       * is back (decomp request 121, PLAYTEST_ANSWERS.md 35.2) */
+        static uint32_t reset = 1;
+        if (reset == 1) reset = port_sym("portCarResetSpecials");
+        if (reset) guest_call(reset, (uint32_t)(int16_t)mem_r16(&M.cpu, rec + 0x006), 0, 0, 0);
+    }
     const uint32_t list = GA(0x801B2B28u), taken = GA(0x801B2B46u), nodes = GA(0x801B1DE8u);
     int count = mem_r8(&M.cpu, GA(0x801B2B55u)), humans = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
     if (count > 15) count = 15;
@@ -2633,7 +2789,8 @@ void vp_ai_frame(void)
                             (int)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k), (int)mem_r32(&M.cpu, AI_REC(k) + 0x28),
                             mem_r8(&M.cpu, AI_REC(k) + 0x34), mem_r8(&M.cpu, AI_REC(k) + 1));
             }
-        }
+        } else if (teams_targets_bad())
+            teams_retarget();
         return;
     }
     if (t->ai_targets == AI_TARGETS_GAME) return;
@@ -3044,6 +3201,21 @@ void vp_survival_frame(void)
                     mem_r8(&M.cpu, r + 0x34), (int)mem_r32(&M.cpu, r + 0x73C), (int)mem_r32(&M.cpu, r + 0x740),
                     (int)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k), mem_r8(&M.cpu, r));
         }
+    /* co-op: the game's won test (worldUpdate) asks for human 0 alive (!humanCars[0].f_09C): with player 1 out until the
+     * next round, the others clearing the wave left "Enemies Toasted" up and no next round (Blues's and Slick!'s online
+     * Survival, 2026-11-23). The round won here instead, as the game would: its flag, then rtScheduleEvent(3) (through
+     * vp_ScheduleEvent: the next round, or the last round's win) */
+    if (ui_survival() && surv_state == 2 && mem_r8(&M.cpu, HUMAN_REC(0) + 0x9C) && (int)mem_r32(&M.cpu, AI_REMAINING) <= 0 &&
+        !mem_r32(&M.cpu, ROUND_WON_FLAG)) {
+        int humans = (int)mem_r32(&M.cpu, GA(0x80181014u)), alive = 0;
+        for (int i = 1; i < humans && i < CARS_HUMANS_MAX; i++) alive |= !mem_r8(&M.cpu, HUMAN_REC(i) + 0x9C);
+        if (alive) {
+            mem_w32(&M.cpu, ROUND_WON_FLAG, 1);
+            fprintf(stderr, "survival: round %d cleared with player 1 out\n", surv_round);
+            guest_call(GA(0x800D181Cu), 3, 420, 0, 0); /* rtScheduleEvent */
+            return;
+        }
+    }
     if (ui_survival() && surv_state == 3 && vp_gv() >= surv_until) { /* the round cleared a while ago: the next one's banner */
         surv_round++;
         survival_banner();
@@ -3617,18 +3789,19 @@ static int ai_aim(CPU *c) /* weaponFindTarget*(owner, out, mode): 1 when done he
  * at +0x80, 4.12); ahead: y >= 12, y >= |x|, y < 8001 (computer cars also z < 401); behind: -y > 11,
  * -y >= |x|, -y < 8001; the nearest; the computer cars first, the players only when none qualifies. */
 static int mode_side(int slot); /* (below: Juggernaut, Hunted without teams: 1 the special cars, 0 the others; -1 no sides) */
-static int team_aim(CPU *c, int behind)
+static int team_aim(CPU *c, int behind, int ffa_dead) /* (ffa_dead: free for all, the game's pick was a dead player: again
+                                                    * without the dead, no teams) */
 {
     int owner = (int)c->r[4];
     int sides = !teams_on() && mode_side(-1) >= 0; /* Juggernaut, Hunted: the others lock only onto the special car (the user's) */
     /* co-op (the tournament's, Survival's with 2 or more): the players one side, the computer cars the other: a player's
      * homing never on another player (the user's online take: missiles, napalm on the teammates; their hits still hurt) */
     int coop = !teams_on() && !sides && (mem_r8(c, GA(0x8016475Cu)) == 2 || (ui_survival() && (int)mem_r32(c, GA(0x80181014u)) >= 2));
-    if (!(c->r[6] & 0xFF) || (!teams_on() && !sides && !coop) || owner < 0 || owner >= CARS_HUMANS_MAX) return 0; /* a player's shot in a team game */
+    if (!(c->r[6] & 0xFF) || (!ffa_dead && !teams_on() && !sides && !coop) || owner < 0 || owner >= CARS_HUMANS_MAX) return 0; /* a player's shot in a team game */
     uint32_t me = guest_call(GA(0x8011CB50u), (uint32_t)owner, 0, 0, 0); /* humanCarObject */
     if (!me) return 0;
     int humans = (int)mem_r32(c, GA(0x80181014u)), ais = (int)mem_r32(c, GA(0x8018101Cu));
-    int mine = coop ? 0 : sides ? mode_side((int16_t)mem_r16(c, HUMAN_REC(owner) + 4)) : team_of_human(owner);
+    int mine = ffa_dead ? -1 : coop ? 0 : sides ? mode_side((int16_t)mem_r16(c, HUMAN_REC(owner) + 4)) : team_of_human(owner); /* (-1: no one's) */
     if (sides && mine == 1) return 0; /* (the Juggernaut, a target: any car, as the game's) */
     int16_t m[9];
     for (int i = 0; i < 9; i++) m[i] = (int16_t)mem_r16(c, me + 0x80 + 2u * (uint32_t)i);
@@ -3639,7 +3812,7 @@ static int team_aim(CPU *c, int behind)
         for (int i = 0; i < n && i < (pass ? CARS_HUMANS_MAX : cars_ai_max()); i++) { /* (past the 9th computer car too: the user's) */
             uint32_t o;
             if (pass) {
-                if (coop || i == owner || mem_r8(c, HUMAN_REC(i) + 0x9C) ||
+                if (coop || i == owner || mem_r8(c, HUMAN_REC(i) + 0x9C) || (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0 || /* (dead: no) */
                     (sides ? mode_side((int16_t)mem_r16(c, HUMAN_REC(i) + 4)) : team_of_human(i)) == mine) continue;
                 o = guest_call(GA(0x8011CB50u), (uint32_t)i, 0, 0, 0);
             } else {
@@ -3659,10 +3832,32 @@ static int team_aim(CPU *c, int behind)
     mem_w32(c, c->r[5], best ? best + 0xA8 : 0);
     return 1;
 }
+/* the game's own pick for a player's shot (free for all) a dead or out player: weaponFindTarget* scans the players with
+ * no health test (a wreck, a player out of lives: Phoenix's, KinggzZ's reports); then the search again without them */
+static int aim_at_dead(CPU *c, uint32_t pos)
+{
+    int humans = (int)mem_r32(c, GA(0x80181014u));
+    for (int i = 0; pos && i < humans && i < CARS_HUMANS_MAX; i++) {
+        uint32_t o = guest_call(GA(0x8011CB50u), (uint32_t)i, 0, 0, 0); /* humanCarObject */
+        if (o && o + 0xA8 == pos) return (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0 || mem_r8(c, HUMAN_REC(i) + 0x9C);
+    }
+    return 0;
+}
+static void find_target(CPU *c, int behind, void (*orig)(CPU *))
+{
+    if (ai_aim(c) || team_aim(c, behind, 0)) return;
+    uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6];
+    orig(c);
+    if (!(a2 & 0xFF) || !aim_at_dead(c, mem_r32(c, a1))) return;
+    uint32_t v0 = c->r[2];
+    c->r[4] = a0, c->r[5] = a1, c->r[6] = a2;
+    team_aim(c, behind, 1);
+    c->r[2] = v0; /* (the callers ignore it) */
+}
 void F_80109F94_orig(CPU *c);
-void vp_FindTargetAhead(CPU *c) { if (!ai_aim(c) && !team_aim(c, 0)) F_80109F94_orig(c); }
+void vp_FindTargetAhead(CPU *c) { find_target(c, 0, F_80109F94_orig); }
 void F_8010A2AC_orig(CPU *c);
-void vp_FindTargetBehind(CPU *c) { if (!ai_aim(c) && !team_aim(c, 1)) F_8010A2AC_orig(c); }
+void vp_FindTargetBehind(CPU *c) { find_target(c, 1, F_8010A2AC_orig); }
 void F_8011B7D8_orig(CPU *c);
 void vp_AiCarShouldUpdate(CPU *c)
 {

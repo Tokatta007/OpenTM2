@@ -5,13 +5,15 @@
 #define BIND_ACTIONS 12
 #define BIND_BUTTONS 14   /* the game's button numbers 1..14 */
 #define BIND_STICK 17       /* the right stick's Up, Down, Left, Right (17..20): any action's, as a button (Sage's, 2026-11-23) */
-#define BIND_BUTTONS_ALL 20 /* and L3 (15), R3 (16), the right stick (17-20): the game has no such buttons; a player's own
+#define BIND_LSTICK 21      /* the left stick's Up, Down, Left, Right (21..24): a direction with an action of its own stops
+                             * being the D-pad's (the user's, 2026-11-23); none given: the D-pad's, as always */
+#define BIND_BUTTONS_ALL 24 /* and L3 (15), R3 (16), the sticks (17-24): the game has no such buttons; a player's own
                              * machine turns them into the actions' Standard buttons (vplus/humans.c) */
-#define BIND_TOUCHPAD 21    /* the touchpad (PS4/PS5; Share on other pads): only for the extra controls (not a PS1 button) */
+#define BIND_TOUCHPAD 25    /* the touchpad (PS4/PS5; Share on other pads): only for the extra controls (not a PS1 button) */
 
 /* The rebindable actions, in the order the Controls page lists them. */
 extern const char *const bind_action_names[BIND_ACTIONS];
-extern const char *const bind_button_names[BIND_TOUCHPAD + 1];      /* [1..21]: PlayStation */
+extern const char *const bind_button_names[BIND_TOUCHPAD + 1];      /* [1..25]: PlayStation */
 extern const char *const bind_button_names_xbox[BIND_TOUCHPAD + 1]; /* the same buttons on an Xbox pad */
 
 /* The button (1..14) an action has in one of the game's four layouts. */
@@ -28,6 +30,9 @@ void bind_reset(int player);
 /* Whether a player has controller buttons of their own (the Controls page
  * shows the layout as Custom). */
 int bind_is_custom(int player);
+/* The left stick's directions (bit d: BIND_LSTICK + d) given an action, energy attack or extra control of player's own:
+ * in a battle those are no longer the D-pad's. */
+int bind_lstick_mask(int player);
 
 /* The keyboard key (SDL scancode, 0: none) a player has for an action;
  * setting one takes it from any other action that had it. */
@@ -72,6 +77,8 @@ void bind_set_jump_safety(int player, int v);
 int bind_easy_energy(int player);
 int bind_analog_steer(int player);   /* the stick turns as far as it is tilted (on by default) */
 void bind_set_analog_steer(int player, int on);
+int bind_analog_throttle(int player); /* a trigger on accelerate or reverse drives as fast as it is pressed (on by default) */
+void bind_set_analog_throttle(int player, int on);
 int bind_steer_keep(int player);      /* in reverse, Left still turns the nose left (decomp request 66, ANALOG_STEERING.md; off: retail) */
 void bind_set_steer_keep(int player, int on);
 void bind_set_easy_energy(int player, int on);

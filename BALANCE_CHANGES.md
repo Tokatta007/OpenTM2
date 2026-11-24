@@ -7,6 +7,24 @@ The newest update is at the top.
 
 ---
 
+## v1.0.14 (November 24, 2026)
+
+### General (V1.0.14)
+
+- **Machine guns:** bullets fly 25% farther before they fade, as in the PC version.
+
+### Characters (V1.0.14)
+
+#### Grasshopper
+
+- **Special damage:** 18 → 20.
+
+#### Thumper
+
+- **Special:** can no longer be fired again while his flame is still burning. Before, the second one cost the energy and did nothing.
+
+---
+
 ## v1.0.0 (November 20, 2026)
 
 ### General (V1.0.0)
