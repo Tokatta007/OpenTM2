@@ -152,6 +152,15 @@ static void gpu_checked(void)
 #ifdef _WIN32
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return; /* (no video at all: PSY-Z says so) */
     int ok = SDL_GPUSupportsShaderFormats(SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_SPIRV, NULL);
+    /* Video > Renderer: Vulkan when chosen and there (JohnKook9707's Intel graphics ran out of Direct3D 12 memory,
+     * issue 43); SDL_GPU_DRIVER in the environment still decides; no Vulkan: Direct3D 12 (PSY-Z: under Wine/Proton
+     * Vulkan by itself) */
+    if (ok && settings_video.renderer == 1 && !SDL_GetHint(SDL_HINT_GPU_DRIVER)) {
+        if (SDL_GPUSupportsShaderFormats(SDL_GPU_SHADERFORMAT_SPIRV, "vulkan")) {
+            SDL_SetHint(SDL_HINT_GPU_DRIVER, "vulkan");
+            fprintf(stderr, "renderer: Vulkan (Video > Renderer)\n");
+        } else fprintf(stderr, "renderer: Vulkan chosen but not on this graphics card or driver: Direct3D 12\n");
+    }
     if (ok) return;
     fprintf(stderr, "renderer: no Direct3D 12 or Vulkan on this graphics card or driver (%s)\n", SDL_GetError());
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenTM2",

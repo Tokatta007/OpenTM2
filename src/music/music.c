@@ -55,6 +55,7 @@ static Slot slots[] = {
      "random, order or a file", "Mod arenas", "", -2},
     {"PODIUM", "a Versus Tournament's podium and final standings: default (the menus' music), random, order or a file",
      "Versus podium", "", -2},
+    {"MENULOOP", "the menus' loop after the title song: default (the game's own), random, order or a file", "Menu loop", "", -2},
     {"SHOWDOWN", "a battle's final moments: off, default (the Dark Tooth track as set), random, order or a file",
      "Showdown", "", -2},
 };
@@ -81,6 +82,13 @@ int music_podium_slot(void) /* the Versus podium's own song (its slot), or -1: t
 {
     for (int i = 0; i < SLOT_COUNT; i++)
         if (!SDL_strcasecmp(slots[i].da, "PODIUM"))
+            return *slots[i].setting && SDL_strcasecmp(slots[i].setting, "default") ? i : -1;
+    return -1;
+}
+int music_menuloop_slot(void) /* the menus' loop's own song (its slot), or -1: the game's loop (default) */
+{
+    for (int i = 0; i < SLOT_COUNT; i++)
+        if (!SDL_strcasecmp(slots[i].da, "MENULOOP"))
             return *slots[i].setting && SDL_strcasecmp(slots[i].setting, "default") ? i : -1;
     return -1;
 }

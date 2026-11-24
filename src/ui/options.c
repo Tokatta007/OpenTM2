@@ -121,6 +121,7 @@ static const TextColor SILVER = {{222, 230, 244}, {124, 136, 160}}; /* (its seco
 static const TextColor BRONZE = {{240, 178, 120}, {164, 92, 40}};  /* (its third) */
 static const TextColor CUSTOM = {{150, 214, 255}, {84, 150, 214}}; /* the player's own game types */
 static const TextColor BAD = {{255, 96, 86}, {200, 40, 32}}; /* (a slow connection's ping) */
+static const TextColor READY_GREEN = {{120, 255, 120}, {40, 180, 60}}; /* (the lobby: a player ready) */
 
 /* ---- the game's settings ---- */
 
@@ -433,7 +434,7 @@ enum { ACT_NONE, ACT_NEW, ACT_DONE, ACT_PICTURE, ACT_RENAME, ACT_DELETE,
        ACT_GT_DESC, ACT_SURVIVAL_START, ACT_RECHECK_PADS, ACT_LOBBY_CAR, ACT_LOBBY_EDIT, ACT_LOBBY_QUIT, ACT_TOUR_START,
        ACT_NET_MODE, ACT_NET_REFRESH, ACT_NET_JOIN, ACT_NET_NAME, ACT_NET_GAME, ACT_NET_CREATE, ACT_NET_SAY, ACT_NET_START,
        ACT_NET_LEAVE, ACT_NET_PL_ADD, ACT_NET_PL_REMOVE, ACT_NET_PLAYER, ACT_NET_CAR, ACT_NET_KICK, ACT_NET_VOTEKICK,
-       ACT_NET_ADDRESS, ACT_NET_READY, ACT_NET_PL_EDIT, ACT_NET_VOTE, ACT_LOBBY_CPU_REMOVE, ACT_LOBBY_RANDOM, ACT_NET_BACK, ACT_UPDATE, ACT_SETUP,
+       ACT_NET_ADDRESS, ACT_NET_READY, ACT_NET_PL_EDIT, ACT_NET_VOTE, ACT_LOBBY_CPU_REMOVE, ACT_LOBBY_RANDOM, ACT_NET_BACK, ACT_UPDATE, ACT_SETUP, ACT_QUIT_GAME,
        ACT_FRIEND_ADD, ACT_FRIEND_ACCEPT, ACT_FRIEND_DECLINE, ACT_FRIEND_JOIN, ACT_FRIEND_REMOVE, ACT_FRIEND_ASK,
        ACT_ONLINE_COPY_ID, ACT_ONLINE_MASTERS, ACT_ONLINE_MASTERS_DEFAULT, ACT_NET_MODS_GET, ACT_NET_PASSWORD }; /* (the local lobby's Remove: dispatched with Network Play's, its way back) */
 static void lobby_cpu_remove(void);
@@ -853,6 +854,9 @@ static int get_resolution(int a) { (void)a; return settings_video.resolution; }
 static void set_resolution(int a, int v) { (void)a; settings_video.resolution = v; changed |= SAVE_VIDEO; }
 static int get_dithering(int a) { (void)a; return settings_video.dithering; }
 static const char *const textures_values[] = {"SHARPEST", "PLAYSTATION"};
+static const char *const renderer_values[] = {"DIRECT3D 12", "VULKAN"}; /* (more may come: Video > Renderer, at the next start) */
+static int get_renderer(int a) { (void)a; return settings_video.renderer; }
+static void set_renderer(int a, int v) { (void)a; settings_video.renderer = v; changed |= SAVE_VIDEO; }
 void hdtex_setting_changed(void);
 int hdtex_available(void);
 static int get_textures(int a) { (void)a; return settings_video.textures; }
@@ -3795,6 +3799,15 @@ static int net_play_entry(int i)
 static void net_vote_begin(void)
 {
     int pool[NET_PLAYLIST_MAX], n = 0;
+    if (net_pl.n <= 0) { /* (an empty playlist: no cards. Its garbage cards drew a crash: BookReport's, 2026-11-24, the host's
+                          * playlist on with no matches after it became the host) */
+        net_vote_n = 0;
+        net_vote_winner = -1;
+        net_vote_go = 1;
+        net_send_settings();
+        return;
+    }
+    if (net_pl.last >= net_pl.n) net_pl.last = -1; /* (a shorter list since) */
     for (int i = 0; i < net_pl.n; i++) if (i != net_pl.last || net_pl.n == 1) pool[n++] = i;
     net_vote_round++;
     net_vote_winner = -1;
@@ -4311,6 +4324,8 @@ static void build(PageId page)
         else add_page("Game discs", PAGE_DISCS, "Recommended: add the 1997 PC version (its disc image or folder) for menu pictures twice as sharp. The game restarts into its setup.");
         rows[row_count - 1].text = *settings_pc_version() ? "PS1 + PC" : "PS1 ONLY";
         add_page("Mods", PAGE_MODS, "Skins, cars, arenas and tournaments from your mods folder: turn each on or off.");
+        add_page("Quit Game", PAGE_ACTION, "Close OpenTM2 (it asks first).");
+        rows[row_count - 1].act = ACT_QUIT_GAME;
         break;
     case PAGE_DISCS: /* the setup closes this game: asked first (the user's, 2026-10-28) */
         add_page("Go back", PAGE_MAIN, "Keep playing: nothing changes.");
@@ -4719,6 +4734,9 @@ static void build(PageId page)
         else
             add_choice("Draw distance", "How far away the arena and the cars are drawn. Original: as the PlayStation.",
                        get_draw_distance, set_draw_distance, 0, draw_distance_values, 3);
+        add_choice("Renderer", "Direct3D 12 (the default) suits most PCs. Try Vulkan if the game is slow or runs out of "
+                   "memory. Linux uses Vulkan either way. Takes effect when you restart the game.",
+                   get_renderer, set_renderer, 0, renderer_values, 2);
         add_page("Customize HUD", PAGE_HUD, "Choose what the battle screen shows.");
         for (int i = 0; i < row_count; i++) rows[i].small = 1; /* the list size: the values fit */
         break;
@@ -4851,9 +4869,9 @@ static void build(PageId page)
         add_choice("Invisibility", "The Juggernaut shimmers, barely seen (the invisibility pickup's look, all the time).",
                    get_gt_flag, set_gt_flag, GT_JUGG_INVISIBLE, onoff_values, 2);
         if (vp_jugg_car_swap()) { /* (the decomp's car swap in the build: request 32 step 3) */
-            static const char *jugg_car_values[14];
-            static char jugg_car_names[14][24];
-            for (int i = 0; i < 14; i++) {
+            static const char *jugg_car_values[15]; /* (the 14 and Dark Tooth: KinggzZ's, 2026-11-24) */
+            static char jugg_car_names[15][24];
+            for (int i = 0; i < 15; i++) {
                 snprintf(jugg_car_names[i], sizeof jugg_car_names[i], "%s", profile_character_name(i));
                 upper(jugg_car_names[i]);
                 jugg_car_values[i] = jugg_car_names[i];
@@ -4861,7 +4879,7 @@ static void build(PageId page)
             add_choice("Force Juggernaut car", "The Juggernaut drives one car (below), whatever it picked. Each new Juggernaut "
                        "takes it over where it is.", get_gt_flag, set_gt_flag, GT_JUGG_FORCE, onoff_values, 2);
             add_choice("Juggernaut car", "The car a forced Juggernaut drives.", get_gt_flag, set_gt_flag, GT_JUGG_CAR,
-                       jugg_car_values, 14)->locked = !edit_gt.jugg_force;
+                       jugg_car_values, 15)->locked = !edit_gt.jugg_force;
         } else {
             add_locked("Force Juggernaut car", "Coming: the Juggernaut becomes one car.", "OFF");
         }
@@ -4956,6 +4974,9 @@ static void build(PageId page)
             Row *r = add_choice(music_page_name(i), music_page_has_off(i)
                                 ? "Final showdown: a battle's last moments switch to this. Off, or Default (the Dark Tooth "
                                   "track), Random, In order, a song."
+                                : !strcmp(music_page_name(i), "Menu loop")
+                                ? "The menus' music after the title song. Default: the game's own loop; or Random, In order, "
+                                  "a song."
                                 : !strcmp(music_page_name(i), "Versus podium")
                                 ? "A Versus Tournament's podium and final standings. Default: the menus' music; or Random, "
                                   "In order, a song."
@@ -7666,31 +7687,76 @@ static void draw_lobby_screen(const View *v, int sel, int online)
         while (ns > S(v, 7) && text_width(up, ns) > room) ns--; /* (a long name: smaller first) */
         fit_text(fit, sizeof fit, up, room, ns);
         text_draw(v->c, fit, X(v, nx), Y(v, y + 4), ns, ink);
-        int ux = X(v, nx), uy = Y(v, y + cellh - 15);
-        if (c->local || pc >= 0 || (online && c->mach1 && c->seat1)) { /* this PC's players: P1..P4 in gold; another PC's
-                                                                        * split screen: its seats in its color; a single: white */
-            char tag[4];
-            snprintf(tag, sizeof tag, "P%d", c->local ? c->local : c->seat1);
+        /* the two lines beside the name, each fitted to the room before the car (never into it): a step smaller, then the
+         * least needed parts left out first (the user's 2026-11-24: narrow cards, 4:3 and small windows) */
+        static const uint8_t green[3] = {70, 220, 90};
+        int fit_room = room - S(v, 3); /* (clear of the car's frame) */
+        { /* the line under the name: another machine's player's ping to the host (white, orange past 100 ms, red past
+           * 150), a continent (2 letters) and a platform (3: PC, MAC, LNX), the user's 2026-11-24; out first: the
+           * platform, then the continent */
+            static const char *test_info; /* tests: TM2PC_TEST_LOBBY_INFO=150,EU,LNX on every player's card */
+            static int test_read;
+            if (!test_read) { test_read = 1; test_info = getenv("TM2PC_TEST_LOBBY_INFO"); }
+            int ms = 0;
+            char cont[4] = "", plat[4] = "";
+            if (online && c->kind == LC_REMOTE && !c->host && c->mach1 > 0 && netplay_lobby())
+                ms = lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].ping;
+            if (test_info && (c->kind == LC_PLAYER || c->kind == LC_REMOTE))
+                sscanf(test_info, "%d,%3[^,],%3s", &ms, cont, plat);
+            char pt[16] = "";
+            if (ms > 0) snprintf(pt, sizeof pt, "%dMS", ms);
+            const char *part[3] = {pt, cont, plat};
+            TextColor pcol[3] = {ms < 100 ? PALE : ms <= 150 ? ORANGE : BAD, PALE, PALE};
+            int is = S(v, 7), gap = S(v, 5), keep = 3;
+            for (;;) {
+                int total = 0;
+                for (int k = 0; k < keep; k++) if (*part[k]) total += (total ? gap : 0) + text_width(part[k], is);
+                if (total <= fit_room) break;
+                if (is > S(v, 6)) is--;
+                else if (keep > 1) keep--;
+                else break;
+            }
+            int ix = X(v, nx), iy = Y(v, y + (cellh + 2) / 2 - 4);
+            for (int k = 0; k < keep; k++) {
+                if (!*part[k]) continue;
+                text_draw(v->c, part[k], ix, iy, is, pcol[k]);
+                ix += text_width(part[k], is) + gap;
+            }
+        }
+        { /* the row under it: the seat (P1..P4: this PC's in gold, another PC's split screen in its color, a single
+           * white), CPU, HOST, READY (green: players' wish, 2026-11-23), a friend (sky blue), the microphone (talking:
+           * green, muted: struck through); out first: the friend, the microphone, then the seat */
+            int talking = c->talking || (c->node1 && netplay_lobby() && voice_io_talking(netplay_lobby(), c->node1 - 1));
+            char tag[4] = "";
+            if (c->local || pc >= 0 || (online && c->mach1 && c->seat1)) snprintf(tag, sizeof tag, "P%d", c->local ? c->local : c->seat1);
             TextColor tink = c->local ? ORANGE : WHITE;
             if (!c->local && pc >= 0) { memcpy(tink.top, pc_colors[pc % PC_COLORS], 3); memcpy(tink.bottom, pc_colors[pc % PC_COLORS], 3); }
-            text_draw(v->c, tag, ux, uy + S(v, 3), S(v, 7), tink);
-            ux += text_width(tag, S(v, 7)) + S(v, 5);
+            int show_tag = *tag != 0, show_friend = c->friend != 0, show_mic = talking || c->muted;
+            int ts = S(v, 7), gap = S(v, 5);
+            for (;;) {
+                int total = 0;
+                if (show_tag) total += text_width(tag, ts) + gap;
+                if (c->kind == LC_CPU) total += text_width("CPU", ts) + gap;
+                if (c->host) total += text_width("HOST", ts) + gap;
+                if (c->ready) total += text_width("READY", ts) + gap;
+                if (show_friend) total += S(v, 10) + S(v, 4);
+                if (show_mic) total += S(v, 12);
+                else if (total) total -= gap;
+                if (total <= fit_room) break;
+                if (ts > S(v, 6)) ts--;
+                else if (show_friend) show_friend = 0;
+                else if (show_mic) show_mic = 0;
+                else if (show_tag) show_tag = 0;
+                else break;
+            }
+            int ux = X(v, nx), uy = Y(v, y + cellh - 15);
+            if (show_tag) { text_draw(v->c, tag, ux, uy + S(v, 3), ts, tink); ux += text_width(tag, ts) + gap; }
+            if (c->kind == LC_CPU) { text_draw(v->c, "CPU", ux, uy + S(v, 3), ts, PALE); ux += text_width("CPU", ts) + gap; }
+            if (c->host) { text_draw(v->c, "HOST", ux, uy + S(v, 3), ts, COPPER); ux += text_width("HOST", ts) + gap; }
+            if (c->ready) { text_draw(v->c, "READY", ux, uy + S(v, 3), ts, READY_GREEN); ux += text_width("READY", ts) + gap; }
+            if (show_friend) { draw_person(v, ux, uy + S(v, 6), S(v, 10), CUSTOM); ux += S(v, 10) + S(v, 4); }
+            if (show_mic) draw_mic(v, ux, uy, S(v, 12), c->muted ? (const uint8_t *)line : green, c->muted);
         }
-        if (c->kind == LC_CPU) { /* (local: a computer car) */
-            text_draw(v->c, "CPU", ux, uy + S(v, 3), S(v, 7), PALE);
-            ux += text_width("CPU", S(v, 7)) + S(v, 5);
-        }
-        if (c->host) {
-            text_draw(v->c, "HOST", ux, uy + S(v, 3), S(v, 7), COPPER);
-            ux += text_width("HOST", S(v, 7)) + S(v, 5);
-        }
-        if (c->friend) { /* (this profile's friend: the person, sky blue) */
-            draw_person(v, ux, uy + S(v, 6), S(v, 10), CUSTOM);
-            ux += S(v, 10) + S(v, 4);
-        }
-        int talking = c->talking || (c->node1 && netplay_lobby() && voice_io_talking(netplay_lobby(), c->node1 - 1));
-        if (talking || c->muted) /* the microphone: talking (green), muted (struck through) */
-            draw_mic(v, ux, uy, S(v, 12), c->muted ? (const uint8_t *)line : green, c->muted);
     }
     /* the chat's keyboard over the players (the chat and the game still in view) */
     if (online && naming.active && naming.game_type == 4) {
@@ -8934,7 +9000,10 @@ static int run(PageId start)
                 pressed = 0;
             } else if (r->act >= ACT_BATTLE_START && (pressed & (B_CROSS | B_START))) {
                 menu_sound(1);
-                if (r->act == ACT_SETUP) { /* (this game ends: the new one opens the setup window) */
+                if (r->act == ACT_QUIT_GAME) { /* the quit question over the menu (Escape's: YES closes, NO stays here) */
+                    void ui_quit_ask(void);
+                    ui_quit_ask();
+                } else if (r->act == ACT_SETUP) { /* (this game ends: the new one opens the setup window) */
                     setup_restart();
                 } else if (r->act == ACT_UPDATE) { /* the update: download it, or (in place) restart */
                     if (update_state() == UPDATE_READY) update_restart();
@@ -9522,9 +9591,19 @@ int ui_menu_music_keeps(int code, int start) /* fixes.c: the game's soundPlay (s
     if (start && !menu_music) { menu_music = 1; return 0; } /* (the game's way into a menu the port does not see: its copy is the one) */
     return menu_music;
 }
+static int menu_music_custom; /* the menus' loop is Custom Music's "Menu loop" song (the CD music's player), not sound 27 */
 static void menu_loop_start(void)
 {
     if (menu_music) return; /* (one copy: already on) */
+    int music_menuloop_slot(void);    /* music/music.c: Custom Music's "Menu loop", -1 the game's */
+    int cd_audio_play_slot(int slot); /* runtime/cd_audio.c */
+    int own = music_menuloop_slot();
+    if (own >= 0 && cd_audio_play_slot(own)) { /* (its own song, looping; else the game's loop) */
+        cd_audio_hold(0); /* (the title's song held in the menus: this one plays) */
+        menu_music = menu_music_custom = 1;
+        fprintf(stderr, "menu music: Custom Music's menu loop\n");
+        return;
+    }
     menu_music_own = 1;
     uint32_t saved = mem_r32(&M.cpu, VOL_SFX);
     guest_call(GA(0x800D3464u), 27, 0, 0, 0); /* one loop only: a copy still playing would play out of step (louder or quieter) */
@@ -9552,7 +9631,7 @@ static void menu_loop_start(void)
 void ui_menu_music_vblank(void)
 {
     static int quiet;
-    if (!menu_music || menu_music_own || !menu_music_samples) { quiet = 0; return; }
+    if (!menu_music || menu_music_own || menu_music_custom || !menu_music_samples) { quiet = 0; return; }
     for (int v = 0; v < 48; v++) {
         uint16_t sm = (uint16_t)rc_io_read(&M.cpu, music_voice_reg(v) + 6, 2);
         for (int i = 0; i < menu_music_samples; i++)
@@ -9567,6 +9646,7 @@ void ui_menu_music_vblank(void)
 
 static void menu_loop_stop_all(int wait) /* every copy of the menus' loop: a match, a movie, the title */
 {
+    if (menu_music_custom) { cd_audio_stop_music(); menu_music_custom = 0; }
     menu_music_own = 1;
     for (int i = 0; i < 4; i++) {
         guest_call(GA(0x800D3464u), 27, 0, 0, 0);
@@ -11805,6 +11885,10 @@ static void net_play(CPU *c, int resume)
             }
             four_setup(0, -1, -1);
             net_carsel = lobby_pick = 1;
+            /* the game's start car (carSelectStartCar) before its screen: it starts the carousel there and its name
+             * label with it. Set after the screen began (carsel_start_frame), the carousel moved and the label kept the
+             * old car's name until Left / Right (the online lobby's car select, 2026-11-24) */
+            if (net_car[0] >= 0 && net_car[0] < 0x20) mem_w32(&M.cpu, GA(0x80180D14u), (uint32_t)net_car[0]);
             c->r[2] = battle_start(0);
             return;
         }
@@ -15364,7 +15448,7 @@ void ui_AiSelect(CPU *c)
      * the opponents and it (the decomp's TM2_MAX_AI_CARS: 1 player + 15 opponents + the parked car); one opponent fewer
      * only when the records are full */
     const GameType *jt = battle_match_type();
-    int jforce = jt->mode == MODE_JUGGERNAUT && jt->jugg_force && jt->jugg_car >= 0 && jt->jugg_car < BATTLE_DRIVERS &&
+    int jforce = jt->mode == MODE_JUGGERNAUT && jt->jugg_force && jt->jugg_car >= 0 && jt->jugg_car <= BATTLE_DRIVERS &&
                  vp_jugg_car_swap() && !trun.on;
     if (jforce && n > 1 && n >= cars_ai_max()) n--;
     for (int h = 0; h < humans; h++) used[mem_r8(&M.cpu, S + 8 + h) % (BATTLE_DRIVERS + 1)] = 1;
@@ -15380,7 +15464,8 @@ void ui_AiSelect(CPU *c)
     int level = mem_r8(&M.cpu, S + 24), types = 0;
     for (int cc = 0; cc <= BATTLE_DRIVERS; cc++) types += used[cc];
     for (int j = 0; j < 128; j++) types += used_mod[j]; /* (a character: textures of its own) */
-    if (jforce && !used[jt->jugg_car]) { used[jt->jugg_car] = 1; types++; } /* (its textures counted: the arena's room) */
+    if (jforce && jt->jugg_car != TOUR_DARK_TOOTH && !used[jt->jugg_car]) { used[jt->jugg_car] = 1; types++; } /* (its textures
+                                                     * counted: the arena's room; Dark Tooth's: a boss's room, below) */
     /* the random opponents: the 12, then Sweet Tooth, Minion and Dark Tooth once unlocked (decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md: Sweet Tooth's
      * AI is all there; Dark Tooth his first phase only, portCarOptions bit 10, four.c), Dark Tooth once a match, never
      * beside his boss fight (a stage's boss), and where his textures fit (texture banks, or the arena's room) */
@@ -15394,6 +15479,8 @@ void ui_AiSelect(CPU *c)
                    (cc == TOUR_MINION && profile_minion_unlocked()) ||
                    (cc == TOUR_DARK_TOOTH && profile_dark_tooth_unlocked() && !dt_boss_here && port_config_on() &&
                     (cars_banks() || level >= 13 || boss_room[level] > humans + n));
+    int jforce_dt = jforce && jt->jugg_car == TOUR_DARK_TOOTH; /* (the Juggernaut's car is Dark Tooth: no other one) */
+    if (jforce_dt) open[TOUR_DARK_TOOTH] = 0;
     int pool_cars = TOUR_DARK_TOOTH + 1;
     if (getenv("TM2PC_TEST_PRE42")) { /* tests: the pool before request 42 (CUSTOM_TOURNAMENT_ANSWERS.md; the 12; a tournament's regular Minion) */
         pool_cars = trun.on && (battle_tour()->roster >> TOUR_MINION & 1) && profile_minion_unlocked() ? TOUR_MINION + 1 : BATTLE_OPPONENT_CARS;
@@ -15409,7 +15496,7 @@ void ui_AiSelect(CPU *c)
          * keeps its picks; online the host's pick, every machine alike) and, Dark Tooth, once a match where his textures
          * fit, as the random ones; else Random */
         if (car >= 12 && car <= TOUR_DARK_TOOTH &&
-            ((!online && !open[car]) || (car == TOUR_DARK_TOOTH && (((dt_picked || human_dt) && (online || dt_multi_off)) || !dt_room)))) {
+            ((!online && !open[car]) || (car == TOUR_DARK_TOOTH && (((dt_picked || human_dt) && (online || dt_multi_off)) || !dt_room || jforce_dt)))) {
             fprintf(stderr, "challenge match: opponent %d, %s, not here (locked, or no room): Random\n", i + 1, car_label(car));
             car = -1;
         }
@@ -15450,8 +15537,11 @@ void ui_AiSelect(CPU *c)
      * and the arena's VRAM its type */
     const GameType *t = battle_match_type();
     int jc = t->jugg_force ? t->jugg_car : -1, everyone = (humans > four_humans() ? humans : four_humans()) + n;
-    if (t->mode == MODE_JUGGERNAUT && jc >= 0 && jc < BATTLE_DRIVERS && vp_jugg_car_swap() && everyone <= CARS_MAX &&
-        n < cars_ai_max() && (used[jc] || types < cars_arena_types(level))) {
+    /* (Dark Tooth's car, KinggzZ's 2026-11-24: as a boss's room, and never a second one beside a player's or an opponent's) */
+    int jc_dt_ok = jc != TOUR_DARK_TOOTH || (!used[TOUR_DARK_TOOTH] && port_config_on() &&
+                                             (cars_banks() || level >= 13 || boss_room[level] > everyone));
+    if (t->mode == MODE_JUGGERNAUT && jc >= 0 && jc <= BATTLE_DRIVERS && jc_dt_ok && vp_jugg_car_swap() && everyone <= CARS_MAX &&
+        n < cars_ai_max() && ((used[jc] && jc != TOUR_DARK_TOOTH) || types < cars_arena_types(level))) {
         guest_call(GA(0x80137854u), S, (uint32_t)n, (uint32_t)jc, 0);
         guest_call(GA(0x80137918u), S, (uint32_t)(n + 1), 0, 0);
         vp_jugg_car_set(n);
@@ -15506,6 +15596,19 @@ static const uint8_t SB_PLAYER[2][3] = {{228, 24, 36}, {40, 110, 230}};
 /* The player's name (a human: the profile's, or Player N; a computer car: CPU) and the driver's */
 /* human h of the match's name: a server's match, as its lobby has the player (every machine the same names); else this
  * PC's player h's */
+/* the match's player h's profile picture (online: their lobby picture; offline: this PC's players' profiles), -1 none */
+static int match_human_picture(int h)
+{
+    Lobby *l = netplay_lobby();
+    if (l && netplay_in_match()) {
+        const LobbyView *v = lobby_view(l);
+        for (int n = 0; n < SES_MAX_NODES; n++)
+            if (v->start.first[n] != 0xFF && h >= v->start.first[n] && h < v->start.first[n] + v->m[n].count)
+                return v->m[n].p[h - v->start.first[n]].picture;
+        return -1;
+    }
+    return h == 0 && profile_signed_in() ? profile_picture() : h == 1 ? profile_p2_picture() : -1;
+}
 static const char *match_human_name(int h)
 {
     Lobby *l = netplay_lobby();
@@ -16404,9 +16507,8 @@ static void scoreboard_frame(void)
             draw_fill(&sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
             lettering();
             const char *legend[5] = {mode == 4 ? "FREECAM" : mode == 3 ? "CINEMATIC" : "SPECTATING",
-                                     mode == 4 ? SQUARE " = CINEMATIC" : mode == 3 && wp < 0 ? SQUARE " = FREECAM" : mode == 3 ? SQUARE " = NEW CAR"
-                                               : CROSS " = NEXT",
-                                     mode >= 3 ? CROSS " = CHASE CAM" : CIRCLE " = BACK", mode >= 3 ? "" : SQUARE " = CINEMATIC",
+                                     CROSS " = NEXT", CIRCLE " = BACK", /* (every camera: the free camera back to the chase) */
+                                     mode == 4 ? SQUARE " = CHASE CAM" : mode == 3 ? (wp < 0 ? SQUARE " = FREECAM" : SQUARE " = CHASE CAM") : SQUARE " = CINEMATIC",
                                      TRIANGLE " = HIDE"};
             int ls = S(&v, 13 * s), ty = text_top_for_center(Y(&v, by + bh / 2), ls);
             /* the title at the left, then the buttons spread evenly over the rest (each measured: equal gaps) */
@@ -16526,10 +16628,18 @@ backdrop_done:;
         }
         card = &champ;
     }
-    int total = (card ? pw + gap : 0) + (int)(tw / v.s), x = 320 - total / 2;
+    int card_pic = card && card->human >= 0 ? match_human_picture(card->human) : -1, picw = ph / 2; /* (the winner's portrait
+                                                       * beside their car's card: players' wish, 2026-11-23) */
+    int total = (card ? pw + gap : 0) + (card_pic >= 0 ? picw + 4 : 0) + (int)(tw / v.s), x = 320 - total / 2;
     int ty = !trun.versus && !scoreboard_allowed() ? 120 : 56; /* (no scoreboard (Survival): lower, off the HUD's top line and
                                                               * clock, the user's 2026-11-01; with one: 56, under the
                                                               * HUD's info line, the user's 2026-11-02) */
+    if (card_pic >= 0) {
+        portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
+        draw_portrait_image(&v, card_pic, X(&v, x), Y(&v, ty - ph / 2), S(&v, picw), S(&v, ph));
+        portrait_any = 0;
+        x += picw + 4;
+    }
     if (card) {
         draw_plate(&v, card, X(&v, x), Y(&v, ty - ph / 2), S(&v, pw), S(&v, ph));
         x += pw + gap;
@@ -17048,7 +17158,7 @@ static int battle_results(int result, int mode)
         image_free(&canvas);
         return 0;
     }
-    if (netplay_in_match() && net_pl.on && netplay_lobby() && !lobby_migrated_at(netplay_lobby(), NULL)) { /* a server's playlist: the final scoreboard a while, then the vote, then on */
+    if (netplay_in_match() && net_pl.on && net_pl.n > 0 && netplay_lobby() && !lobby_migrated_at(netplay_lobby(), NULL)) { /* a server's playlist: the final scoreboard a while, then the vote, then on */
         uint64_t until = SDL_GetTicks() + NET_SCOREBOARD_MS;
         results_no_choices = 1;
         while (SDL_GetTicks() < until) {

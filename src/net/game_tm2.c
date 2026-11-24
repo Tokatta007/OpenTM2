@@ -235,6 +235,14 @@ static void cb_advance(void *ctx, const RbInput *inputs)
         }
         ng.cur[p][0] |= 0x0008;                                         /* (no Start online: nobody pauses everyone) */
     }
+    static int in_log = -1; /* tests: TM2PC_NET_INPUT_LOG, each step's agreed inputs (two machines' logs compared) */
+    if (in_log < 0) in_log = getenv("TM2PC_NET_INPUT_LOG") != NULL;
+    if (in_log) {
+        fprintf(stderr, "inputs: step %d%s:", ng.resim ? ng.resim_step : (int)rb_now(ses_rollback(ng.ses)), ng.resim ? " again" : "");
+        for (int p = 0; p < ng.humans && p < NG_PLAYERS; p++)
+            fprintf(stderr, " %04X/%u/%X/%u", ng.cur[p][0], ng.cur[p][1], ng.cur[p][2], ng.cur[p][3]);
+        fputc(10, stderr);
+    }
     if (ng.resim) { /* (a step run again: its input written, then the step) */
         int32_t f = ng.resim_step++;
         if (ng.resim_ended) return;

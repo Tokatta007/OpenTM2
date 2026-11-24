@@ -2515,8 +2515,10 @@ static void dt_ricochet_check(void)
         }
     }
 }
+void vp_messages_clock_check(void); /* (below, with the kill feed) */
 void vp_lives_frame(void)
 {
+    vp_messages_clock_check();
     dt_ricochet_check();
     spawn_check_frame();
     versus_frame();
@@ -3048,43 +3050,45 @@ static void watch_frame_one(int p)
     uint16_t pad = p < 2 ? (uint16_t)~M.pad_buttons[p] : input_player_bits(p), pressed = (uint16_t)(pad & ~wv[p].prev);
     wv[p].prev = pad;
     int lost = wv[p].human >= 0 ? !watch_eligible_human(p, wv[p].human) : !ai_alive(wv[p].ai);
-    /* X the next driver, O the one before; Square: the chase camera to cinematic (the kill cam's shots on the car and
-     * the one it is after, a new shot every 4 seconds and a new car every 8), then cinematic and the free camera in turn
-     * (split screen: no free camera, Square a new car); X or O the chase camera again; the D-pad turns the chase camera
-     * around the car; Triangle the HUD, then the banner too, then both back */
+    /* cinematic: the kill cam's shots on the car and the one it is after, a new shot every 4 seconds and a new car every
+     * 8; the D-pad turns the chase camera around the car; Triangle the HUD, then the banner too, then both back */
     if (pressed & 0x1000) wv[p].hide = (wv[p].hide + 1) % 3;
     if (!wv[p].cinema && !wv[p].free) {
         if (pad & 0x0080) wv[p].orbit += 48;
         if (pad & 0x0020) wv[p].orbit -= 48;
         if (pressed & (0x4000 | 0x2000)) wv[p].orbit = 0;
     }
+    /* Square cycles the cameras: chase, cinematic, free, chase (split screen: no free camera, chase and cinematic); X the
+     * next driver, O the one before, in every camera (the free camera: back to the chase camera on that driver). The
+     * user's 2026-11-24: cinematic to chase took Square, then X */
     if (wv[p].free && (pressed & (0x4000 | 0x2000 | 0x8000))) {
         wv[p].free = 0;
-        wv[p].cinema = (pressed & 0x8000) != 0;
+        wv[p].cinema = 0;
         wv[p].switch_at = vp_gv() + 480;
-        pressed = 0;
-    } else if (wv[p].cinema && one_view() && (pressed & 0x8000)) { /* the free camera: from behind the car watched */
-        void photo_freecam_begin(double cx, double cy, double cz, int heading); /* ui/photo.c */
-        int32_t x, y, z;
-        int hd;
-        if (watched_pos(p, &x, &y, &z, &hd)) {
-            photo_freecam_begin(x, y, z, hd);
-            wv[p].cinema = 0;
-            wv[p].free = 1;
+        pressed &= (uint16_t)~0x8000; /* (X / O: the driver below as well) */
+    } else if (pressed & 0x8000) {
+        if (!wv[p].cinema) wv[p].cinema = 1; /* (the view stays the chase view 7: killcam_camera puts the shots over it) */
+        else if (!one_view()) wv[p].cinema = 0;
+        else { /* the free camera: from behind the car watched */
+            void photo_freecam_begin(double cx, double cy, double cz, int heading); /* ui/photo.c */
+            int32_t x, y, z;
+            int hd;
+            if (watched_pos(p, &x, &y, &z, &hd)) {
+                photo_freecam_begin(x, y, z, hd);
+                wv[p].cinema = 0;
+                wv[p].free = 1;
+            } else wv[p].cinema = 0; /* (nothing to start it from: the chase camera) */
         }
-        pressed = 0;
-    }
-    if ((wv[p].cinema && (pressed & (0x4000 | 0x2000))) || (!wv[p].cinema && !wv[p].free && (pressed & 0x8000))) {
-        wv[p].cinema = !wv[p].cinema; /* (the view stays the chase view 7: killcam_camera puts the shots over it) */
         wv[p].switch_at = vp_gv() + 480;
         pressed = 0;
     }
     if (wv[p].free) return; /* (the free camera: the car watched stays as it was) */
-    if (lost || (!wv[p].cinema && (pressed & 0x4000)) || (wv[p].cinema && ((pressed & 0x8000) || vp_gv() >= wv[p].switch_at))) {
+    if (lost || (pressed & 0x4000) || (wv[p].cinema && vp_gv() >= wv[p].switch_at)) {
         watch_step(p, 1);
         wv[p].switch_at = vp_gv() + 480;
-    } else if (!wv[p].cinema && (pressed & 0x2000)) {
+    } else if (pressed & 0x2000) {
         watch_step(p, -1);
+        wv[p].switch_at = vp_gv() + 480;
     }
 }
 static void watch_end_one(int p) /* view p's player back: their own view (view_last) */
@@ -3843,9 +3847,41 @@ static int aim_at_dead(CPU *c, uint32_t pos)
     }
     return 0;
 }
+/* With teams a computer car's aimed shot (mode 0) never locks onto a teammate: its own target record (any of the 15,
+ * the decomp's portAiAim only the first 9: past them its retail fallback, the nearest player, a teammate: KinggzZ's
+ * 2026-11-24 King of the Hill, his red team and Dark Tooth alone on blue, teammates' missiles and specials on him;
+ * decomp request 123), else the nearest living player of another team, else no lock at all. State only: the same on
+ * every machine. */
+static int team_ai_aim(CPU *c)
+{
+    if ((c->r[6] & 0xFF) || !teams_on()) return 0;
+    int owner = (int)c->r[4], n = (int)mem_r32(c, GA(0x8018101Cu));
+    if (owner < 0 || owner >= n || owner >= cars_ai_max() || !ai_alive(owner)) return 0;
+    int mine = team_of_ai(owner), t = (int32_t)mem_r32(c, GA(0x801879FCu) + 4u * (uint32_t)owner);
+    uint32_t obj = 0;
+    if (t >= 0 && t < n && t < cars_ai_max() && t != owner && ai_alive(t) && team_of_ai(t) != mine)
+        obj = mem_r32(c, GA(0x80188B38u) + 4u * (uint32_t)t);
+    if (!obj) {
+        int humans = (int)mem_r32(c, GA(0x80181014u)), best = -1;
+        uint32_t best_d = 0; /* (each axis / 16, squared in 32 bits: as portAiAim) */
+        for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++) {
+            if (mem_r8(c, HUMAN_REC(i) + 0x9C) || (int32_t)mem_r32(c, HUMAN_REC(i) + 0x1F0) <= 0 || team_of_human(i) == mine) continue;
+            int32_t dx = (int32_t)(mem_r32(c, HUMAN_REC(i) + 0x6FC) - mem_r32(c, AI_REC(owner) + 0x73C)) / 16;
+            int32_t dy = (int32_t)(mem_r32(c, HUMAN_REC(i) + 0x700) - mem_r32(c, AI_REC(owner) + 0x740)) / 16;
+            uint32_t d = (uint32_t)dx * (uint32_t)dx + (uint32_t)dy * (uint32_t)dy;
+            if (best < 0 || d < best_d) { best_d = d; best = i; }
+        }
+        if (best >= 0) obj = guest_call(GA(0x8011CB50u), (uint32_t)best, 0, 0, 0); /* humanCarObject */
+    }
+    static int dbg = -1; /* tests: TM2PC_TEAM_AIM_DEBUG, each aimed shot whose target the decomp's portAiAim left out */
+    if (dbg < 0) dbg = getenv("TM2PC_TEAM_AIM_DEBUG") != NULL;
+    if (dbg && t >= 9) fprintf(stderr, "team aim: computer car %d, target record %d: %s\n", owner + 1, t, obj ? "aimed at it" : "no lock");
+    mem_w32(c, c->r[5], obj ? obj + 0xA8 : 0);
+    return 1;
+}
 static void find_target(CPU *c, int behind, void (*orig)(CPU *))
 {
-    if (ai_aim(c) || team_aim(c, behind, 0)) return;
+    if (team_ai_aim(c) || ai_aim(c) || team_aim(c, behind, 0)) return;
     uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6];
     orig(c);
     if (!(a2 & 0xFF) || !aim_at_dead(c, mem_r32(c, a1))) return;
@@ -3885,6 +3921,12 @@ static int16_t pickup_kind0[50];    /* each slot's kind as the level has it */
 static uint32_t pickup_step, pickup_taken_step[50]; /* respawn steps counted; when each slot was taken (0: not) */
 static uint32_t pickup_node[50];    /* its node (a new one: a new level) */
 static int pickup_models_ready;
+static int pickup_debug(void) /* tests: TM2PC_PICKUP_DEBUG (cached: per-step paths) */
+{
+    static int on = -1;
+    if (on < 0) on = getenv("TM2PC_PICKUP_DEBUG") != NULL;
+    return on;
+}
 static uint32_t pickup_child_at(uint32_t node) { return node + (mem_r8(&M.cpu, node) == 1 ? 0x18u : 0x14u); }
 static uint32_t pickup_special_look(void) /* the special's look on this level (0: none, the old look) */
 {
@@ -3908,6 +3950,17 @@ static void pickup_reroll(int n)
     mem_w32(&M.cpu, pickup_child_at(node), pickup_model[base - 400]);
     mem_w16(&M.cpu, PICKUP_SLOTS + 16u * (uint32_t)n, (uint16_t)base);
 }
+/* a match's load (vplus/four.c vp_SessionLoad): each slot's own kind read from the new level at its first round. The kinds
+ * were read only when a slot's node moved: every arena's file loads at one address, so a slot of another arena at the
+ * same place kept the last arena's kind, and each machine's from the arenas it had loaded before (online: pickups
+ * rolled different kinds on different machines, more with every match: the re-syncs that grew as a session went on,
+ * 2026-11-24's logs). With the network states too (vp_keep_register: a machine coming in takes the host's) */
+void vp_pickups_loading(void)
+{
+    memset(pickup_node, 0, sizeof pickup_node);
+    memset(pickup_kind0, 0, sizeof pickup_kind0);
+    pickup_models_ready = 0;
+}
 static void pickups_round(void)
 {
     pickup_step = 0; /* (a new round: no slot waiting) */
@@ -3927,7 +3980,7 @@ static void pickups_round(void)
     if (!pickup_model[18]) pickup_model[18] = pickup_model[17];
     pickup_models_ready = 1;
     for (int n = 0; n < 50; n++) pickup_reroll(n);
-    if (getenv("TM2PC_PICKUP_DEBUG"))
+    if (pickup_debug())
         for (int n = 0; n < 50; n++) {
             uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
             if (node) fprintf(stderr, "pickups: slot %d kind %d -> %d (node %08x, model %08x; weapons %02x, special pickups %d, look %08x)\n", n,
@@ -3942,7 +3995,7 @@ void vp_pickup_taken(int slot)
     uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)slot);
     if (node && !mem_r8(&M.cpu, node + (mem_r8(&M.cpu, node) == 1 ? 0x14u : 0x12u))) pickup_reroll(slot);
     pickup_taken_step[slot] = pickup_step ? pickup_step : 1; /* (its wait for the respawn starts) */
-    if (getenv("TM2PC_PICKUP_DEBUG")) fprintf(stderr, "pickups: step %u slot %d taken (player 1 at %d, %d, %d)\n", pickup_step, slot,
+    if (pickup_debug()) fprintf(stderr, "pickups: step %u slot %d taken (player 1 at %d, %d, %d)\n", pickup_step, slot,
                                               (int32_t)mem_r32(&M.cpu, HUMAN_REC(0) + 0x6FC), (int32_t)mem_r32(&M.cpu, HUMAN_REC(0) + 0x700),
                                               (int32_t)mem_r32(&M.cpu, HUMAN_REC(0) + 0x704));
 }
@@ -3966,7 +4019,7 @@ void vp_PickupRespawnTick(CPU *c)
 {
     pickup_step++;
     int32_t period = (int32_t)mem_r32(c, PICKUP_RESPAWN_PERIOD), count = (int32_t)mem_r32(c, PICKUP_COUNT);
-    if (getenv("TM2PC_PICKUP_DEBUG")) { /* tests: a slot back by any other way than this draw */
+    if (pickup_debug()) { /* tests: a slot back by any other way than this draw */
         uint64_t now = 0, seen = pickup_seen;
         for (int n = 0; n < count && n < 50; n++) now |= (uint64_t)(mem_r16(c, PICKUP_SLOTS + 16u * (uint32_t)n + 2u) != 0) << n;
         for (int n = 0; n < count && n < 50; n++)
@@ -3999,7 +4052,7 @@ void vp_PickupRespawnTick(CPU *c)
     }
     if (!brought && waiting) mem_w32(c, PICKUP_RESPAWN_TIMER, (uint32_t)period); /* (again at the next step) */
     pickup_seen_now(c, count);
-    if (getenv("TM2PC_PICKUP_DEBUG"))
+    if (pickup_debug())
         fprintf(stderr, "pickups: step %u respawn draw, %s %d (taken at %u)%s\n", pickup_step, brought ? "back: slot" : "none back",
                 brought - 1, brought ? pickup_taken_step[brought - 1] : 0, waiting ? " (a slot still waiting)" : "");
 }
@@ -4041,7 +4094,9 @@ void vp_MoveCodes(CPU *c)
      * frame's start, as it was, a joiner catching up after the host's state skipped every other one: the states parted
      * at each Versus stage) */
     int rf = vp_round_frames();
-    if (rf < 6 && !getenv("TM2PC_NO_START_GUARD")) {
+    static int no_guard = -1; /* (tests: TM2PC_NO_START_GUARD; cached, a per-step path) */
+    if (no_guard < 0) no_guard = getenv("TM2PC_NO_START_GUARD") != NULL;
+    if (rf < 6 && !no_guard) {
         mem_w8(c, rec + 0xED, 0);
         mem_w8(c, rec + 0xEC, 0);
         mem_w8(c, rec + 0xF1, 0);
@@ -4059,7 +4114,7 @@ void vp_MoveCodes(CPU *c)
     uint16_t pad = on ? (uint16_t)((easy & EASY_SELECT ? 0x0001 : 0) | (easy & EASY_L1 ? 0x0400 : 0) | (easy & EASY_R1 ? 0x0800 : 0)) : p < 2 ? (uint16_t)~M.pad_buttons[p] : (uint16_t)killcam_input(0, p, input_player_bits(p)),
              new_pad = (uint16_t)(pad & ~prev_pad[p]); /* set = held */
     int killcam_battle_frame(void); /* vplus/killcam.c */
-    if (rf < 6 && !getenv("TM2PC_NO_START_GUARD")) pressed = 0, new_pad = 0; /* a battle's first frames: buttons held from before (the
+    if (rf < 6 && !no_guard) pressed = 0, new_pad = 0; /* a battle's first frames: buttons held from before (the
                                                                 * menus, the load) are not new presses (the user's jump
                                                                 * as Amazonia started, 2026-11-04) */
     prev_easy[p] = easy;
@@ -4279,6 +4334,7 @@ static uint64_t hunted_tick, mode_retarget;
 #define JUGG_SLOTS 32
 static int slot_alive(int slot);
 static int32_t jugg_damage[JUGG_SLOTS];
+static int32_t jugg_frac; /* the Juggernaut's toughness: the part of a point of damage carried to its next hit */
 static int jugg_top_damager(void)
 {
     int best = -1;
@@ -4507,6 +4563,7 @@ static void mode_round_start(void)
     hunted_tick = vp_gv();
     mode_retarget = 0;
     memset(jugg_damage, 0, sizeof jugg_damage);
+    jugg_frac = 0;
     gun_round_start();
     hill_round_start();
     if (mode_is(MODE_JUGGERNAUT) || mode_is(MODE_ODDBALL)) special_fill();
@@ -4557,9 +4614,18 @@ int vp_mode_damage(int victim_slot, int attacker_slot, int ram, int amount)
 {
     if (!mode_is(MODE_JUGGERNAUT) || special_slot < 0) return amount;
     const GameType *t = battle_rules();
-    if (victim_slot == special_slot && amount > 1) amount = amount * 100 / (t->jugg_health > 0 ? t->jugg_health : 100);
-    else if (attacker_slot == special_slot && attacker_slot != victim_slot) amount = amount * (ram ? t->jugg_ram : t->jugg_weapon) / 100;
-    if (amount < 1) amount = 1;
+    if (victim_slot == special_slot && amount > 0) {
+        /* the toughness on every hit, the fraction carried to the next: a 1-point hit (the machine gun's) was left whole, so
+         * at 400% the gun still did its full damage (KinggzZ's, 2026-11-24); now each 4th bullet counts. (In the state:
+         * the same on every machine, and again in a replay) */
+        int h = t->jugg_health > 0 ? t->jugg_health : 100;
+        int total = amount * 100 + jugg_frac;
+        amount = total / h;
+        jugg_frac = total % h;
+    } else if (attacker_slot == special_slot && attacker_slot != victim_slot) {
+        amount = amount * (ram ? t->jugg_ram : t->jugg_weapon) / 100;
+        if (amount < 1) amount = 1;
+    }
     if (victim_slot == special_slot && attacker_slot >= 0 && attacker_slot < JUGG_SLOTS && attacker_slot != victim_slot)
         jugg_damage[attacker_slot] += amount;
     return amount;
@@ -4599,6 +4665,7 @@ static void hunted_team_became(int team, int killer) /* Swap team: this team has
 static void special_became(int slot)
 {
     memset(jugg_damage, 0, sizeof jugg_damage);
+    jugg_frac = 0;
     if (mode_is(MODE_JUGGERNAUT)) jc_pending = 1; /* into the Juggernaut's car (the next battle frame) */
     int h = slot_human(slot), k = slot_ai(slot);
     if (mode_is(MODE_JUGGERNAUT) && battle_rules()->jugg_full_heal) {
@@ -5028,6 +5095,21 @@ void vp_net_notice(const char *text)
     net_notice_until = vp_gv() + 180;
 }
 static struct { char text[48], a[24], b[24]; int icon, ta, tb; uint64_t until; } feed[FEED_LINES]; /* icon: a weapon slot, -1 the text; ta, tb: teams (-1 none) */
+/* The port's timed messages (the kill feed, the "X LEFT THE MATCH" notice, a flash) end at a time on the step clock
+ * (vp_gv). Online a joiner takes the clock from the host's state: a new server's clock lower than the last one's left
+ * the last server's feed and "GODSLAYER LEFT THE MATCH" up for good (Enough Boxes, 2026-11-24). When the clock goes
+ * back, they are dropped. This machine's screen only (none of it is in the state). */
+void vp_messages_clock_check(void)
+{
+    /* (a rollback puts the clock back a few steps too: only an end further off than any message lasts (5 s at most)
+     * is the last timeline's) */
+    const uint64_t now = vp_gv(), most = 600;
+    for (int i = 0; i < FEED_LINES; i++)
+        if (feed[i].until > now + most) feed[i].text[0] = 0, feed[i].until = 0;
+    if (net_notice_until > now + most) net_notice[0] = 0, net_notice_until = 0;
+    if (flash_until > now + most) flash_text[0] = 0, flash_until = 0;
+    for (int p = 0; p < 4; p++) if (split_msg[p].until > now + most) split_msg[p].until = 0;
+}
 static const uint8_t *team_color(int t); /* (below) */
 static int slot_team(int slot);
 static const int attack_icon[] = {-1, -1, 1, 2, 4, 5, 101, 3, 100, 6, 7, -1, 0, -1}; /* by attack (A_*): the HUD icon's slot */
@@ -6547,7 +6629,7 @@ void vp_keep_register(void)
     KEEP(gun_seq); KEEP(gun_count); KEEP(specials); KEEP(special_n); KEEP(hunted_team); KEEP(hunted_tick); KEEP(mode_retarget);
     KEEP(watch_at); KEEP(spectate_at); KEEP(gun_level_given); KEEP(hill_x); KEEP(hill_y); KEEP(hill_z); KEEP(hill_holder); KEEP(hill_contested);
     KEEP(hill_moved); KEEP(hill_tick); KEEP(hill_count); KEEP(hill_spot_of); KEEP(duo_ended); KEEP(duo_win_human); KEEP(duo_win_ai);
-    KEEP(duo_win_team); KEEP(prev_easy); KEEP(prev_pad); KEEP(hill_goal); KEEP(jugg_damage); KEEP(jc_pending); KEEP(jc_driver);
+    KEEP(duo_win_team); KEEP(prev_easy); KEEP(prev_pad); KEEP(hill_goal); KEEP(jugg_damage); KEEP(jugg_frac); KEEP(jc_pending); KEEP(jc_driver);
     void feats_keep_register(void); /* profile/feat_hooks.c: the last hits */
     feats_keep_register();
     void ui_keep_register(void); /* ui/options.c: a Versus Tournament's totals (the honorable mentions), its computer cars */
@@ -6555,7 +6637,9 @@ void vp_keep_register(void)
     KEEP(spect_retarget); KEEP(team_next); KEEP(equal_next); KEEP(hill_retarget); KEEP(versus);
     KEEP(gu_target); KEEP(gu_node); KEEP(gu_points); KEEP(gu_hp); KEEP(gu_banned); KEEP(gu_best); KEEP(gu_until);
     KEEP(bf_last); KEEP(bf_ticks); KEEP(bf_refill_at); KEEP(bf_roulette_at); KEEP(win_at); KEEP(vs_at); KEEP(freeze_fired); KEEP(fired);
-    KEEP(pickup_step); KEEP(pickup_taken_step);
+    KEEP(pickup_step); KEEP(pickup_taken_step); KEEP(pickup_kind0); KEEP(pickup_node); KEEP(pickup_model); KEEP(pickup_models_ready);
+    KEEP(burn_wait); KEEP(jc_opp); /* (Deathmatch's computer cars wait the last death's burning: a machine in mid-match had 180, the
+                                    * host 420; the Juggernaut car's parked record) */
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */
     KEEP(human_gone); KEEP(gone_left); KEEP(handed); KEEP(ai_team_plus1); KEEP(back_wait); KEEP(dropped_bot); /* (online: who left, who may come back) */
     KEEP(jump_wait_dir); KEEP(jump_wait_at); /* (L1 + R1 jump: a lone shoulder's weapon switch waiting) */

@@ -19,7 +19,7 @@ static int ask(void) /* "Yes" (1) or "No" */
         {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes"},
         {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No"},
     };
-    const SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION, NULL, "OpenTM2 update", msg, 2, buttons, NULL};
+    const SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT /* (Windows: else right to left, "No | Yes") */, NULL, "OpenTM2 update", msg, 2, buttons, NULL};
     int pressed = 0;
     if (!SDL_ShowMessageBox(&box, &pressed)) return 0;
     return pressed == 1;

@@ -407,7 +407,7 @@ static void type_key(GameType *t, const char *key, const char *val)
         {"jugg_ram", offsetof(GameType, jugg_ram), 100, 500},
         {"jugg_infinite", offsetof(GameType, jugg_infinite), 0, 1},
         {"jugg_force", offsetof(GameType, jugg_force), 0, 1},
-        {"jugg_car", offsetof(GameType, jugg_car), 0, 13},
+        {"jugg_car", offsetof(GameType, jugg_car), 0, 14}, /* (14: Dark Tooth) */
         {"gun_order", offsetof(GameType, gun_order), 0, 1},
         {"gun_infinite", offsetof(GameType, gun_infinite), 0, 1},
         {"gun_ammo", offsetof(GameType, gun_ammo), 1, 20},
