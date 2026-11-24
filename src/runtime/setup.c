@@ -262,7 +262,7 @@ static int confirm_ps1_only(SDL_Window *win)
         {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Go back"},
         {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 1, "PlayStation only"},
     };
-    const SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION, win, "OpenTM2 setup",
+    const SDL_MessageBoxData box = {SDL_MESSAGEBOX_INFORMATION | SDL_MESSAGEBOX_BUTTONS_LEFT_TO_RIGHT /* (Windows: else right to left, "No | Yes") */, win, "OpenTM2 setup",
                                     "Make the pictures without the PC version?\n\n"
                                     "They will come from the PlayStation disc alone, at half the sharpness. We recommend "
                                     "both discs; you can add the PC version later (Options, Game discs).",
