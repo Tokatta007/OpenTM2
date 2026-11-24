@@ -12261,18 +12261,23 @@ static void name_sprites_off(void);
  * (Vanilla Plus "Hide locked drivers") without the secret ones still locked. */
 static int cs_available(int car);
 static int carsel_teams(void);
+static int bar_shows(int car) /* in the bars: a driver the match allows (a locked secret one: as the setting has it) */
+{
+    if (M.ram && battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
+    return !vp_on(VP_HIDE_LOCKED_DRIVERS) || car < 12 || cs_available(car);
+}
 static int bar_count(void)
 {
     int n = 0;
     for (int col = 0; col < roster_n(); col++)
-        n += !vp_on(VP_HIDE_LOCKED_DRIVERS) || grid_car(col) < 12 || cs_available(grid_car(col));
+        n += bar_shows(grid_car(col));
     return n;
 }
 static int bar_car(int i)
 {
     for (int col = 0; col < roster_n(); col++) {
         int car = grid_car(col);
-        if (vp_on(VP_HIDE_LOCKED_DRIVERS) && car >= 12 && !cs_available(car)) continue;
+        if (!bar_shows(car)) continue;
         if (i-- == 0) return car;
     }
     return 0;
@@ -12592,6 +12597,9 @@ static int cs_players = 2; /* how many choose in the live car select (3 and 4: t
 static int cs_available(int car)
 {
     if (!M.ram) return car >= 0 && car < 12; /* previews: the game is not running */
+    /* a Challenge Match (a server's too): only the drivers its game type has on (the others out of the bars and the
+     * cursor's way, the user's 2026-11-24; vp_CarAccept refuses them to the game as well) */
+    if (battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
     if (car == 12) return mem_r8(&M.cpu, GA(0x80180D04u)) != 0;
     if (car == 13) return mem_r8(&M.cpu, GA(0x80180D05u)) != 0;
     if (car == 14) return vp_dt_player_offered();
