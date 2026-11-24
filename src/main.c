@@ -316,10 +316,18 @@ void rt_frame_boundary(void)
                 fprintf(state_log, " %08x", bh);
             }
         fputc('\n', state_log);
-        if (getenv("TM2PC_STATE_WORDS") && boundary == strtoull(getenv("TM2PC_STATE_WORDS"), NULL, 10)) { /* tests: the hashed
+        static unsigned long long words_a = ~0ull, words_b = 0; /* tests: TM2PC_STATE_WORDS=A (or A-B: each frame, .words.N) */
+        static int words_read;
+        if (!words_read) {
+            words_read = 1;
+            const char *e = getenv("TM2PC_STATE_WORDS");
+            if (e) { words_a = strtoull(e, NULL, 10); const char *dash = strchr(e, '-'); words_b = dash ? strtoull(dash + 1, NULL, 10) : words_a; }
+        }
+        if (boundary >= words_a && boundary <= words_b) { /* tests: the hashed
              * words at that frame, by retail address (pointers back at retail's): two builds' files diff line by line */
             char path[1024];
-            snprintf(path, sizeof path, "%s.words", getenv("TM2PC_STATE_LOG"));
+            if (words_b > words_a) snprintf(path, sizeof path, "%s.words.%llu", getenv("TM2PC_STATE_LOG"), (unsigned long long)boundary);
+            else snprintf(path, sizeof path, "%s.words", getenv("TM2PC_STATE_LOG"));
             FILE *d = fopen(path, "w");
             for (uint32_t a = 0x80187B10u; d && a < 0x8018D674u; a += 4) /* retail-address */
                 fprintf(d, "%08X %08X\n", a, rb_back(mem_r32(&M.cpu, rb_where(a))));
