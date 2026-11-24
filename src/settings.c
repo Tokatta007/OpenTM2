@@ -88,6 +88,8 @@ static void video_key(const char *key, const char *val)
         settings_video.wobble = !strcmp(val, "ps1") ? 0 : !strcmp(val, "smooth") ? 1 : 2;
     } else if (!strcmp(key, "hidden_surfaces")) {
         settings_video.depth = strcmp(val, "ps1") != 0;
+    } else if (!strcmp(key, "renderer")) {
+        settings_video.renderer = !strcmp(val, "vulkan");
     } else if (!strcmp(key, "window")) {
         settings_video.window_mode = !strcmp(val, "window") ? 0 : !strcmp(val, "exclusive") ? 2 : 1;
     } else if (!strcmp(key, "display_mode")) {
@@ -218,6 +220,9 @@ static void video_write(FILE *f)
     static const char *const window[] = {"window", "borderless", "exclusive"};
     fprintf(f, "; window: window, borderless (fullscreen at the desktop's resolution) or exclusive (fullscreen). F4 switches.\n");
     fprintf(f, "window = %s\n", window[settings_video.window_mode % 3]);
+    fprintf(f, "; renderer: direct3d12 (the default) or vulkan (try it when Direct3D 12 is slow or runs out of memory).\n"
+               ";   Linux (Proton, Wine) uses Vulkan either way. Takes effect at the next start.\n");
+    fprintf(f, "renderer = %s\n", settings_video.renderer ? "vulkan" : "direct3d12");
     fprintf(f, "; display_mode: exclusive fullscreen's resolution and refresh rate (as 2560x1440@144), or desktop.\n");
     if (settings_video.display_w)
         fprintf(f, "display_mode = %dx%d@%g\n", settings_video.display_w, settings_video.display_h, settings_video.display_hz);

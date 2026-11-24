@@ -854,6 +854,9 @@ static int get_resolution(int a) { (void)a; return settings_video.resolution; }
 static void set_resolution(int a, int v) { (void)a; settings_video.resolution = v; changed |= SAVE_VIDEO; }
 static int get_dithering(int a) { (void)a; return settings_video.dithering; }
 static const char *const textures_values[] = {"SHARPEST", "PLAYSTATION"};
+static const char *const renderer_values[] = {"DIRECT3D 12", "VULKAN"}; /* (more may come: Video > Renderer, at the next start) */
+static int get_renderer(int a) { (void)a; return settings_video.renderer; }
+static void set_renderer(int a, int v) { (void)a; settings_video.renderer = v; changed |= SAVE_VIDEO; }
 void hdtex_setting_changed(void);
 int hdtex_available(void);
 static int get_textures(int a) { (void)a; return settings_video.textures; }
@@ -4731,6 +4734,9 @@ static void build(PageId page)
         else
             add_choice("Draw distance", "How far away the arena and the cars are drawn. Original: as the PlayStation.",
                        get_draw_distance, set_draw_distance, 0, draw_distance_values, 3);
+        add_choice("Renderer", "Direct3D 12 (the default) suits most PCs. Try Vulkan if the game is slow or runs out of "
+                   "memory. Linux uses Vulkan either way. Takes effect when you restart the game.",
+                   get_renderer, set_renderer, 0, renderer_values, 2);
         add_page("Customize HUD", PAGE_HUD, "Choose what the battle screen shows.");
         for (int i = 0; i < row_count; i++) rows[i].small = 1; /* the list size: the values fit */
         break;

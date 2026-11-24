@@ -57,6 +57,7 @@ typedef struct {
     int window_mode;      /* 0 a window, 1 borderless fullscreen (default), 2 exclusive fullscreen; F4 switches */
     int display_w, display_h; /* exclusive fullscreen's display mode (0: the desktop's) */
     float display_hz;
+    int renderer;         /* 0 Direct3D 12 (default; under Wine/Proton Vulkan all the same), 1 Vulkan; at the next start */
     int split;            /* split screen: 0 by arena (the game's), 1 top and bottom, 2 side by side (3 players: player 1's half) */
 } VideoSettings;
 extern VideoSettings settings_video;
