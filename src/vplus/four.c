@@ -109,6 +109,8 @@ static int four_computer(uint32_t s)
 int four_computer_cars(void) { return four_computer(SETTINGS); } /* (the line-up) */
 void vp_SessionLoad(CPU *c)
 {
+    void vp_pickups_loading(void); /* vplus/fixes.c: the pickups' kinds read again from this load */
+    vp_pickups_loading();
     uint32_t s = c->r[4], opt = port_sym("portCarOptions");
     if (getenv("TM2PC_TEST_P1_CAR")) mem_w8(c, s + 8, (uint8_t)atoi(getenv("TM2PC_TEST_P1_CAR"))); /* tests: player 1's car */
     uint32_t dtp = port_sym("portDtPlayer"); /* a player's Dark Tooth (decomp request 36, DARK_TOOTH_PLAYER.md 3): Minion's

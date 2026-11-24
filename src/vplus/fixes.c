@@ -3887,6 +3887,12 @@ static int16_t pickup_kind0[50];    /* each slot's kind as the level has it */
 static uint32_t pickup_step, pickup_taken_step[50]; /* respawn steps counted; when each slot was taken (0: not) */
 static uint32_t pickup_node[50];    /* its node (a new one: a new level) */
 static int pickup_models_ready;
+static int pickup_debug(void) /* tests: TM2PC_PICKUP_DEBUG (cached: per-step paths) */
+{
+    static int on = -1;
+    if (on < 0) on = getenv("TM2PC_PICKUP_DEBUG") != NULL;
+    return on;
+}
 static uint32_t pickup_child_at(uint32_t node) { return node + (mem_r8(&M.cpu, node) == 1 ? 0x18u : 0x14u); }
 static uint32_t pickup_special_look(void) /* the special's look on this level (0: none, the old look) */
 {
@@ -3910,6 +3916,17 @@ static void pickup_reroll(int n)
     mem_w32(&M.cpu, pickup_child_at(node), pickup_model[base - 400]);
     mem_w16(&M.cpu, PICKUP_SLOTS + 16u * (uint32_t)n, (uint16_t)base);
 }
+/* a match's load (vplus/four.c vp_SessionLoad): each slot's own kind read from the new level at its first round. The kinds
+ * were read only when a slot's node moved: every arena's file loads at one address, so a slot of another arena at the
+ * same place kept the last arena's kind, and each machine's from the arenas it had loaded before (online: pickups
+ * rolled different kinds on different machines, more with every match: the re-syncs that grew as a session went on,
+ * 2026-11-24's logs). With the network states too (vp_keep_register: a machine coming in takes the host's) */
+void vp_pickups_loading(void)
+{
+    memset(pickup_node, 0, sizeof pickup_node);
+    memset(pickup_kind0, 0, sizeof pickup_kind0);
+    pickup_models_ready = 0;
+}
 static void pickups_round(void)
 {
     pickup_step = 0; /* (a new round: no slot waiting) */
@@ -3929,7 +3946,7 @@ static void pickups_round(void)
     if (!pickup_model[18]) pickup_model[18] = pickup_model[17];
     pickup_models_ready = 1;
     for (int n = 0; n < 50; n++) pickup_reroll(n);
-    if (getenv("TM2PC_PICKUP_DEBUG"))
+    if (pickup_debug())
         for (int n = 0; n < 50; n++) {
             uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
             if (node) fprintf(stderr, "pickups: slot %d kind %d -> %d (node %08x, model %08x; weapons %02x, special pickups %d, look %08x)\n", n,
@@ -3944,7 +3961,7 @@ void vp_pickup_taken(int slot)
     uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)slot);
     if (node && !mem_r8(&M.cpu, node + (mem_r8(&M.cpu, node) == 1 ? 0x14u : 0x12u))) pickup_reroll(slot);
     pickup_taken_step[slot] = pickup_step ? pickup_step : 1; /* (its wait for the respawn starts) */
-    if (getenv("TM2PC_PICKUP_DEBUG")) fprintf(stderr, "pickups: step %u slot %d taken (player 1 at %d, %d, %d)\n", pickup_step, slot,
+    if (pickup_debug()) fprintf(stderr, "pickups: step %u slot %d taken (player 1 at %d, %d, %d)\n", pickup_step, slot,
                                               (int32_t)mem_r32(&M.cpu, HUMAN_REC(0) + 0x6FC), (int32_t)mem_r32(&M.cpu, HUMAN_REC(0) + 0x700),
                                               (int32_t)mem_r32(&M.cpu, HUMAN_REC(0) + 0x704));
 }
@@ -3968,7 +3985,7 @@ void vp_PickupRespawnTick(CPU *c)
 {
     pickup_step++;
     int32_t period = (int32_t)mem_r32(c, PICKUP_RESPAWN_PERIOD), count = (int32_t)mem_r32(c, PICKUP_COUNT);
-    if (getenv("TM2PC_PICKUP_DEBUG")) { /* tests: a slot back by any other way than this draw */
+    if (pickup_debug()) { /* tests: a slot back by any other way than this draw */
         uint64_t now = 0, seen = pickup_seen;
         for (int n = 0; n < count && n < 50; n++) now |= (uint64_t)(mem_r16(c, PICKUP_SLOTS + 16u * (uint32_t)n + 2u) != 0) << n;
         for (int n = 0; n < count && n < 50; n++)
@@ -4001,7 +4018,7 @@ void vp_PickupRespawnTick(CPU *c)
     }
     if (!brought && waiting) mem_w32(c, PICKUP_RESPAWN_TIMER, (uint32_t)period); /* (again at the next step) */
     pickup_seen_now(c, count);
-    if (getenv("TM2PC_PICKUP_DEBUG"))
+    if (pickup_debug())
         fprintf(stderr, "pickups: step %u respawn draw, %s %d (taken at %u)%s\n", pickup_step, brought ? "back: slot" : "none back",
                 brought - 1, brought ? pickup_taken_step[brought - 1] : 0, waiting ? " (a slot still waiting)" : "");
 }
@@ -6574,7 +6591,7 @@ void vp_keep_register(void)
     KEEP(spect_retarget); KEEP(team_next); KEEP(equal_next); KEEP(hill_retarget); KEEP(versus);
     KEEP(gu_target); KEEP(gu_node); KEEP(gu_points); KEEP(gu_hp); KEEP(gu_banned); KEEP(gu_best); KEEP(gu_until);
     KEEP(bf_last); KEEP(bf_ticks); KEEP(bf_refill_at); KEEP(bf_roulette_at); KEEP(win_at); KEEP(vs_at); KEEP(freeze_fired); KEEP(fired);
-    KEEP(pickup_step); KEEP(pickup_taken_step);
+    KEEP(pickup_step); KEEP(pickup_taken_step); KEEP(pickup_kind0); KEEP(pickup_node); KEEP(pickup_model); KEEP(pickup_models_ready);
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */
     KEEP(human_gone); KEEP(gone_left); KEEP(handed); KEEP(ai_team_plus1); KEEP(back_wait); KEEP(dropped_bot); /* (online: who left, who may come back) */
     KEEP(jump_wait_dir); KEEP(jump_wait_at); /* (L1 + R1 jump: a lone shoulder's weapon switch waiting) */
