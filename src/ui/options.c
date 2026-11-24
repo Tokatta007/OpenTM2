@@ -16356,6 +16356,8 @@ static uint16_t qp_pad_prev; /* (the controllers too: D-pad / stick, Cross picks
 void ui_quit_ask(void)
 {
     if (qp_open) return;
+    load_art(); /* (the lettering: Escape during the intro movies, before any menu loaded it, showed an empty box;
+                 * LuKeStorm's report 2026-11-24) */
     const bool *k = SDL_GetKeyboardState(NULL);
     if (k) memcpy(qp_prev, k, sizeof qp_prev); /* (the Escape that opened it, still held, is not an answer) */
     qp_pad_prev = input_pad_buttons_raw(); /* (the button that opened it, still held, is not an answer) */
