@@ -2515,8 +2515,10 @@ static void dt_ricochet_check(void)
         }
     }
 }
+void vp_messages_clock_check(void); /* (below, with the kill feed) */
 void vp_lives_frame(void)
 {
+    vp_messages_clock_check();
     dt_ricochet_check();
     spawn_check_frame();
     versus_frame();
@@ -4041,7 +4043,9 @@ void vp_MoveCodes(CPU *c)
      * frame's start, as it was, a joiner catching up after the host's state skipped every other one: the states parted
      * at each Versus stage) */
     int rf = vp_round_frames();
-    if (rf < 6 && !getenv("TM2PC_NO_START_GUARD")) {
+    static int no_guard = -1; /* (tests: TM2PC_NO_START_GUARD; cached, a per-step path) */
+    if (no_guard < 0) no_guard = getenv("TM2PC_NO_START_GUARD") != NULL;
+    if (rf < 6 && !no_guard) {
         mem_w8(c, rec + 0xED, 0);
         mem_w8(c, rec + 0xEC, 0);
         mem_w8(c, rec + 0xF1, 0);
@@ -4059,7 +4063,7 @@ void vp_MoveCodes(CPU *c)
     uint16_t pad = on ? (uint16_t)((easy & EASY_SELECT ? 0x0001 : 0) | (easy & EASY_L1 ? 0x0400 : 0) | (easy & EASY_R1 ? 0x0800 : 0)) : p < 2 ? (uint16_t)~M.pad_buttons[p] : (uint16_t)killcam_input(0, p, input_player_bits(p)),
              new_pad = (uint16_t)(pad & ~prev_pad[p]); /* set = held */
     int killcam_battle_frame(void); /* vplus/killcam.c */
-    if (rf < 6 && !getenv("TM2PC_NO_START_GUARD")) pressed = 0, new_pad = 0; /* a battle's first frames: buttons held from before (the
+    if (rf < 6 && !no_guard) pressed = 0, new_pad = 0; /* a battle's first frames: buttons held from before (the
                                                                 * menus, the load) are not new presses (the user's jump
                                                                 * as Amazonia started, 2026-11-04) */
     prev_easy[p] = easy;
@@ -5028,6 +5032,21 @@ void vp_net_notice(const char *text)
     net_notice_until = vp_gv() + 180;
 }
 static struct { char text[48], a[24], b[24]; int icon, ta, tb; uint64_t until; } feed[FEED_LINES]; /* icon: a weapon slot, -1 the text; ta, tb: teams (-1 none) */
+/* The port's timed messages (the kill feed, the "X LEFT THE MATCH" notice, a flash) end at a time on the step clock
+ * (vp_gv). Online a joiner takes the clock from the host's state: a new server's clock lower than the last one's left
+ * the last server's feed and "GODSLAYER LEFT THE MATCH" up for good (Enough Boxes, 2026-11-24). When the clock goes
+ * back, they are dropped. This machine's screen only (none of it is in the state). */
+void vp_messages_clock_check(void)
+{
+    /* (a rollback puts the clock back a few steps too: only an end further off than any message lasts (5 s at most)
+     * is the last timeline's) */
+    const uint64_t now = vp_gv(), most = 600;
+    for (int i = 0; i < FEED_LINES; i++)
+        if (feed[i].until > now + most) feed[i].text[0] = 0, feed[i].until = 0;
+    if (net_notice_until > now + most) net_notice[0] = 0, net_notice_until = 0;
+    if (flash_until > now + most) flash_text[0] = 0, flash_until = 0;
+    for (int p = 0; p < 4; p++) if (split_msg[p].until > now + most) split_msg[p].until = 0;
+}
 static const uint8_t *team_color(int t); /* (below) */
 static int slot_team(int slot);
 static const int attack_icon[] = {-1, -1, 1, 2, 4, 5, 101, 3, 100, 6, 7, -1, 0, -1}; /* by attack (A_*): the HUD icon's slot */

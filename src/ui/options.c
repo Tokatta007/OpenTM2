@@ -11805,6 +11805,10 @@ static void net_play(CPU *c, int resume)
             }
             four_setup(0, -1, -1);
             net_carsel = lobby_pick = 1;
+            /* the game's start car (carSelectStartCar) before its screen: it starts the carousel there and its name
+             * label with it. Set after the screen began (carsel_start_frame), the carousel moved and the label kept the
+             * old car's name until Left / Right (the online lobby's car select, 2026-11-24) */
+            if (net_car[0] >= 0 && net_car[0] < 0x20) mem_w32(&M.cpu, GA(0x80180D14u), (uint32_t)net_car[0]);
             c->r[2] = battle_start(0);
             return;
         }
