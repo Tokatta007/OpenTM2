@@ -4863,9 +4863,9 @@ static void build(PageId page)
         add_choice("Invisibility", "The Juggernaut shimmers, barely seen (the invisibility pickup's look, all the time).",
                    get_gt_flag, set_gt_flag, GT_JUGG_INVISIBLE, onoff_values, 2);
         if (vp_jugg_car_swap()) { /* (the decomp's car swap in the build: request 32 step 3) */
-            static const char *jugg_car_values[14];
-            static char jugg_car_names[14][24];
-            for (int i = 0; i < 14; i++) {
+            static const char *jugg_car_values[15]; /* (the 14 and Dark Tooth: KinggzZ's, 2026-11-24) */
+            static char jugg_car_names[15][24];
+            for (int i = 0; i < 15; i++) {
                 snprintf(jugg_car_names[i], sizeof jugg_car_names[i], "%s", profile_character_name(i));
                 upper(jugg_car_names[i]);
                 jugg_car_values[i] = jugg_car_names[i];
@@ -4873,7 +4873,7 @@ static void build(PageId page)
             add_choice("Force Juggernaut car", "The Juggernaut drives one car (below), whatever it picked. Each new Juggernaut "
                        "takes it over where it is.", get_gt_flag, set_gt_flag, GT_JUGG_FORCE, onoff_values, 2);
             add_choice("Juggernaut car", "The car a forced Juggernaut drives.", get_gt_flag, set_gt_flag, GT_JUGG_CAR,
-                       jugg_car_values, 14)->locked = !edit_gt.jugg_force;
+                       jugg_car_values, 15)->locked = !edit_gt.jugg_force;
         } else {
             add_locked("Force Juggernaut car", "Coming: the Juggernaut becomes one car.", "OFF");
         }
@@ -7699,14 +7699,33 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             text_draw(v->c, "HOST", ux, uy + S(v, 3), S(v, 7), COPPER);
             ux += text_width("HOST", S(v, 7)) + S(v, 5);
         }
-        if (online && c->kind == LC_REMOTE && !c->host && c->mach1 > 0 && netplay_lobby()) { /* another machine's player: its ping
-                                                            * to the host (white, orange past 100 ms, red past 150) */
-            int ms = lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].ping;
-            if (ms > 0) {
-                char pt[16];
-                snprintf(pt, sizeof pt, "%dMS", ms);
-                text_draw(v->c, pt, ux, uy + S(v, 3), S(v, 7), ms < 100 ? PALE : ms <= 150 ? ORANGE : BAD);
-                ux += text_width(pt, S(v, 7)) + S(v, 5);
+        { /* the line under the name: another machine's player's ping to the host (white, orange past 100 ms, red past
+           * 150; in the row below it ran READY into the car), then room kept for a continent (2 letters) and a platform
+           * (3: PC, MAC, LNX), the user's 2026-11-24. Smaller to fit a narrow card, never into the car. */
+            static const char *test_info; /* tests: TM2PC_TEST_LOBBY_INFO=150,EU,LNX on every player's card */
+            static int test_read;
+            if (!test_read) { test_read = 1; test_info = getenv("TM2PC_TEST_LOBBY_INFO"); }
+            int ms = 0;
+            char cont[4] = "", plat[4] = "";
+            if (online && c->kind == LC_REMOTE && !c->host && c->mach1 > 0 && netplay_lobby())
+                ms = lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].ping;
+            if (test_info && (c->kind == LC_PLAYER || c->kind == LC_REMOTE))
+                sscanf(test_info, "%d,%3[^,],%3s", &ms, cont, plat);
+            char pt[16] = "";
+            if (ms > 0) snprintf(pt, sizeof pt, "%dMS", ms);
+            const char *part[3] = {pt, cont, plat};
+            TextColor pcol[3] = {ms < 100 ? PALE : ms <= 150 ? ORANGE : BAD, PALE, PALE};
+            int is = S(v, 7), gap = S(v, 5), total;
+            for (;; is--) { /* (the three at a size that fits the room beside the car) */
+                total = 0;
+                for (int k = 0; k < 3; k++) if (*part[k]) total += (total ? gap : 0) + text_width(part[k], is);
+                if (total <= room || is <= S(v, 5)) break;
+            }
+            int ix = X(v, nx), iy = Y(v, y + (cellh + 2) / 2 - 4);
+            for (int k = 0; k < 3; k++) {
+                if (!*part[k]) continue;
+                text_draw(v->c, part[k], ix, iy, is, pcol[k]);
+                ix += text_width(part[k], is) + gap;
             }
         }
         if (c->ready) { /* ready: a green word and a green stripe on the card's right edge (the solid card alone was hard to
@@ -15414,7 +15433,7 @@ void ui_AiSelect(CPU *c)
      * the opponents and it (the decomp's TM2_MAX_AI_CARS: 1 player + 15 opponents + the parked car); one opponent fewer
      * only when the records are full */
     const GameType *jt = battle_match_type();
-    int jforce = jt->mode == MODE_JUGGERNAUT && jt->jugg_force && jt->jugg_car >= 0 && jt->jugg_car < BATTLE_DRIVERS &&
+    int jforce = jt->mode == MODE_JUGGERNAUT && jt->jugg_force && jt->jugg_car >= 0 && jt->jugg_car <= BATTLE_DRIVERS &&
                  vp_jugg_car_swap() && !trun.on;
     if (jforce && n > 1 && n >= cars_ai_max()) n--;
     for (int h = 0; h < humans; h++) used[mem_r8(&M.cpu, S + 8 + h) % (BATTLE_DRIVERS + 1)] = 1;
@@ -15430,7 +15449,8 @@ void ui_AiSelect(CPU *c)
     int level = mem_r8(&M.cpu, S + 24), types = 0;
     for (int cc = 0; cc <= BATTLE_DRIVERS; cc++) types += used[cc];
     for (int j = 0; j < 128; j++) types += used_mod[j]; /* (a character: textures of its own) */
-    if (jforce && !used[jt->jugg_car]) { used[jt->jugg_car] = 1; types++; } /* (its textures counted: the arena's room) */
+    if (jforce && jt->jugg_car != TOUR_DARK_TOOTH && !used[jt->jugg_car]) { used[jt->jugg_car] = 1; types++; } /* (its textures
+                                                     * counted: the arena's room; Dark Tooth's: a boss's room, below) */
     /* the random opponents: the 12, then Sweet Tooth, Minion and Dark Tooth once unlocked (decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md: Sweet Tooth's
      * AI is all there; Dark Tooth his first phase only, portCarOptions bit 10, four.c), Dark Tooth once a match, never
      * beside his boss fight (a stage's boss), and where his textures fit (texture banks, or the arena's room) */
@@ -15444,6 +15464,8 @@ void ui_AiSelect(CPU *c)
                    (cc == TOUR_MINION && profile_minion_unlocked()) ||
                    (cc == TOUR_DARK_TOOTH && profile_dark_tooth_unlocked() && !dt_boss_here && port_config_on() &&
                     (cars_banks() || level >= 13 || boss_room[level] > humans + n));
+    int jforce_dt = jforce && jt->jugg_car == TOUR_DARK_TOOTH; /* (the Juggernaut's car is Dark Tooth: no other one) */
+    if (jforce_dt) open[TOUR_DARK_TOOTH] = 0;
     int pool_cars = TOUR_DARK_TOOTH + 1;
     if (getenv("TM2PC_TEST_PRE42")) { /* tests: the pool before request 42 (CUSTOM_TOURNAMENT_ANSWERS.md; the 12; a tournament's regular Minion) */
         pool_cars = trun.on && (battle_tour()->roster >> TOUR_MINION & 1) && profile_minion_unlocked() ? TOUR_MINION + 1 : BATTLE_OPPONENT_CARS;
@@ -15459,7 +15481,7 @@ void ui_AiSelect(CPU *c)
          * keeps its picks; online the host's pick, every machine alike) and, Dark Tooth, once a match where his textures
          * fit, as the random ones; else Random */
         if (car >= 12 && car <= TOUR_DARK_TOOTH &&
-            ((!online && !open[car]) || (car == TOUR_DARK_TOOTH && (((dt_picked || human_dt) && (online || dt_multi_off)) || !dt_room)))) {
+            ((!online && !open[car]) || (car == TOUR_DARK_TOOTH && (((dt_picked || human_dt) && (online || dt_multi_off)) || !dt_room || jforce_dt)))) {
             fprintf(stderr, "challenge match: opponent %d, %s, not here (locked, or no room): Random\n", i + 1, car_label(car));
             car = -1;
         }
@@ -15500,8 +15522,11 @@ void ui_AiSelect(CPU *c)
      * and the arena's VRAM its type */
     const GameType *t = battle_match_type();
     int jc = t->jugg_force ? t->jugg_car : -1, everyone = (humans > four_humans() ? humans : four_humans()) + n;
-    if (t->mode == MODE_JUGGERNAUT && jc >= 0 && jc < BATTLE_DRIVERS && vp_jugg_car_swap() && everyone <= CARS_MAX &&
-        n < cars_ai_max() && (used[jc] || types < cars_arena_types(level))) {
+    /* (Dark Tooth's car, KinggzZ's 2026-11-24: as a boss's room, and never a second one beside a player's or an opponent's) */
+    int jc_dt_ok = jc != TOUR_DARK_TOOTH || (!used[TOUR_DARK_TOOTH] && port_config_on() &&
+                                             (cars_banks() || level >= 13 || boss_room[level] > everyone));
+    if (t->mode == MODE_JUGGERNAUT && jc >= 0 && jc <= BATTLE_DRIVERS && jc_dt_ok && vp_jugg_car_swap() && everyone <= CARS_MAX &&
+        n < cars_ai_max() && ((used[jc] && jc != TOUR_DARK_TOOTH) || types < cars_arena_types(level))) {
         guest_call(GA(0x80137854u), S, (uint32_t)n, (uint32_t)jc, 0);
         guest_call(GA(0x80137918u), S, (uint32_t)(n + 1), 0, 0);
         vp_jugg_car_set(n);
