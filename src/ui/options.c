@@ -4321,7 +4321,7 @@ static void build(PageId page)
         else add_page("Game discs", PAGE_DISCS, "Recommended: add the 1997 PC version (its disc image or folder) for menu pictures twice as sharp. The game restarts into its setup.");
         rows[row_count - 1].text = *settings_pc_version() ? "PS1 + PC" : "PS1 ONLY";
         add_page("Mods", PAGE_MODS, "Skins, cars, arenas and tournaments from your mods folder: turn each on or off.");
-        add_page("Quit Game", PAGE_ACTION, "Close OpenTM2 (it asks first). Works without a keyboard.");
+        add_page("Quit Game", PAGE_ACTION, "Close OpenTM2 (it asks first).");
         rows[row_count - 1].act = ACT_QUIT_GAME;
         break;
     case PAGE_DISCS: /* the setup closes this game: asked first (the user's, 2026-10-28) */
@@ -7681,27 +7681,13 @@ static void draw_lobby_screen(const View *v, int sel, int online)
         while (ns > S(v, 7) && text_width(up, ns) > room) ns--; /* (a long name: smaller first) */
         fit_text(fit, sizeof fit, up, room, ns);
         text_draw(v->c, fit, X(v, nx), Y(v, y + 4), ns, ink);
-        int ux = X(v, nx), uy = Y(v, y + cellh - 15);
-        if (c->local || pc >= 0 || (online && c->mach1 && c->seat1)) { /* this PC's players: P1..P4 in gold; another PC's
-                                                                        * split screen: its seats in its color; a single: white */
-            char tag[4];
-            snprintf(tag, sizeof tag, "P%d", c->local ? c->local : c->seat1);
-            TextColor tink = c->local ? ORANGE : WHITE;
-            if (!c->local && pc >= 0) { memcpy(tink.top, pc_colors[pc % PC_COLORS], 3); memcpy(tink.bottom, pc_colors[pc % PC_COLORS], 3); }
-            text_draw(v->c, tag, ux, uy + S(v, 3), S(v, 7), tink);
-            ux += text_width(tag, S(v, 7)) + S(v, 5);
-        }
-        if (c->kind == LC_CPU) { /* (local: a computer car) */
-            text_draw(v->c, "CPU", ux, uy + S(v, 3), S(v, 7), PALE);
-            ux += text_width("CPU", S(v, 7)) + S(v, 5);
-        }
-        if (c->host) {
-            text_draw(v->c, "HOST", ux, uy + S(v, 3), S(v, 7), COPPER);
-            ux += text_width("HOST", S(v, 7)) + S(v, 5);
-        }
+        /* the two lines beside the name, each fitted to the room before the car (never into it): a step smaller, then the
+         * least needed parts left out first (the user's 2026-11-24: narrow cards, 4:3 and small windows) */
+        static const uint8_t green[3] = {70, 220, 90};
+        int fit_room = room - S(v, 3); /* (clear of the car's frame) */
         { /* the line under the name: another machine's player's ping to the host (white, orange past 100 ms, red past
-           * 150; in the row below it ran READY into the car), then room kept for a continent (2 letters) and a platform
-           * (3: PC, MAC, LNX), the user's 2026-11-24. Smaller to fit a narrow card, never into the car. */
+           * 150), a continent (2 letters) and a platform (3: PC, MAC, LNX), the user's 2026-11-24; out first: the
+           * platform, then the continent */
             static const char *test_info; /* tests: TM2PC_TEST_LOBBY_INFO=150,EU,LNX on every player's card */
             static int test_read;
             if (!test_read) { test_read = 1; test_info = getenv("TM2PC_TEST_LOBBY_INFO"); }
@@ -7715,33 +7701,56 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             if (ms > 0) snprintf(pt, sizeof pt, "%dMS", ms);
             const char *part[3] = {pt, cont, plat};
             TextColor pcol[3] = {ms < 100 ? PALE : ms <= 150 ? ORANGE : BAD, PALE, PALE};
-            int is = S(v, 7), gap = S(v, 5), total;
-            for (;; is--) { /* (the three at a size that fits the room beside the car) */
-                total = 0;
-                for (int k = 0; k < 3; k++) if (*part[k]) total += (total ? gap : 0) + text_width(part[k], is);
-                if (total <= room || is <= S(v, 5)) break;
+            int is = S(v, 7), gap = S(v, 5), keep = 3;
+            for (;;) {
+                int total = 0;
+                for (int k = 0; k < keep; k++) if (*part[k]) total += (total ? gap : 0) + text_width(part[k], is);
+                if (total <= fit_room) break;
+                if (is > S(v, 6)) is--;
+                else if (keep > 1) keep--;
+                else break;
             }
             int ix = X(v, nx), iy = Y(v, y + (cellh + 2) / 2 - 4);
-            for (int k = 0; k < 3; k++) {
+            for (int k = 0; k < keep; k++) {
                 if (!*part[k]) continue;
                 text_draw(v->c, part[k], ix, iy, is, pcol[k]);
                 ix += text_width(part[k], is) + gap;
             }
         }
-        if (c->ready) { /* ready: a green word and a green stripe on the card's right edge (the solid card alone was hard to
-                         * see: players' wish, 2026-11-23) */
-            static const uint8_t green[3] = {70, 220, 90};
-            text_draw(v->c, "READY", ux, uy + S(v, 3), S(v, 7), READY_GREEN);
-            ux += text_width("READY", S(v, 7)) + S(v, 5);
-            draw_fill(v->c, X(v, x + cellw) - S(v, 3), Y(v, y), S(v, 3), S(v, cellh), green, 255);
+        { /* the row under it: the seat (P1..P4: this PC's in gold, another PC's split screen in its color, a single
+           * white), CPU, HOST, READY (green: players' wish, 2026-11-23), a friend (sky blue), the microphone (talking:
+           * green, muted: struck through); out first: the friend, the microphone, then the seat */
+            int talking = c->talking || (c->node1 && netplay_lobby() && voice_io_talking(netplay_lobby(), c->node1 - 1));
+            char tag[4] = "";
+            if (c->local || pc >= 0 || (online && c->mach1 && c->seat1)) snprintf(tag, sizeof tag, "P%d", c->local ? c->local : c->seat1);
+            TextColor tink = c->local ? ORANGE : WHITE;
+            if (!c->local && pc >= 0) { memcpy(tink.top, pc_colors[pc % PC_COLORS], 3); memcpy(tink.bottom, pc_colors[pc % PC_COLORS], 3); }
+            int show_tag = *tag != 0, show_friend = c->friend != 0, show_mic = talking || c->muted;
+            int ts = S(v, 7), gap = S(v, 5);
+            for (;;) {
+                int total = 0;
+                if (show_tag) total += text_width(tag, ts) + gap;
+                if (c->kind == LC_CPU) total += text_width("CPU", ts) + gap;
+                if (c->host) total += text_width("HOST", ts) + gap;
+                if (c->ready) total += text_width("READY", ts) + gap;
+                if (show_friend) total += S(v, 10) + S(v, 4);
+                if (show_mic) total += S(v, 12);
+                else if (total) total -= gap;
+                if (total <= fit_room) break;
+                if (ts > S(v, 6)) ts--;
+                else if (show_friend) show_friend = 0;
+                else if (show_mic) show_mic = 0;
+                else if (show_tag) show_tag = 0;
+                else break;
+            }
+            int ux = X(v, nx), uy = Y(v, y + cellh - 15);
+            if (show_tag) { text_draw(v->c, tag, ux, uy + S(v, 3), ts, tink); ux += text_width(tag, ts) + gap; }
+            if (c->kind == LC_CPU) { text_draw(v->c, "CPU", ux, uy + S(v, 3), ts, PALE); ux += text_width("CPU", ts) + gap; }
+            if (c->host) { text_draw(v->c, "HOST", ux, uy + S(v, 3), ts, COPPER); ux += text_width("HOST", ts) + gap; }
+            if (c->ready) { text_draw(v->c, "READY", ux, uy + S(v, 3), ts, READY_GREEN); ux += text_width("READY", ts) + gap; }
+            if (show_friend) { draw_person(v, ux, uy + S(v, 6), S(v, 10), CUSTOM); ux += S(v, 10) + S(v, 4); }
+            if (show_mic) draw_mic(v, ux, uy, S(v, 12), c->muted ? (const uint8_t *)line : green, c->muted);
         }
-        if (c->friend) { /* (this profile's friend: the person, sky blue) */
-            draw_person(v, ux, uy + S(v, 6), S(v, 10), CUSTOM);
-            ux += S(v, 10) + S(v, 4);
-        }
-        int talking = c->talking || (c->node1 && netplay_lobby() && voice_io_talking(netplay_lobby(), c->node1 - 1));
-        if (talking || c->muted) /* the microphone: talking (green), muted (struck through) */
-            draw_mic(v, ux, uy, S(v, 12), c->muted ? (const uint8_t *)line : green, c->muted);
     }
     /* the chat's keyboard over the players (the chat and the game still in view) */
     if (online && naming.active && naming.game_type == 4) {
@@ -16492,9 +16501,8 @@ static void scoreboard_frame(void)
             draw_fill(&sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
             lettering();
             const char *legend[5] = {mode == 4 ? "FREECAM" : mode == 3 ? "CINEMATIC" : "SPECTATING",
-                                     mode == 4 ? SQUARE " = CINEMATIC" : CROSS " = NEXT",
-                                     mode == 4 ? CROSS " = CHASE CAM" : CIRCLE " = BACK",
-                                     mode == 4 ? "" : mode == 3 ? (wp < 0 ? SQUARE " = FREECAM" : SQUARE " = CHASE CAM") : SQUARE " = CINEMATIC",
+                                     CROSS " = NEXT", CIRCLE " = BACK", /* (every camera: the free camera back to the chase) */
+                                     mode == 4 ? SQUARE " = CHASE CAM" : mode == 3 ? (wp < 0 ? SQUARE " = FREECAM" : SQUARE " = CHASE CAM") : SQUARE " = CINEMATIC",
                                      TRIANGLE " = HIDE"};
             int ls = S(&v, 13 * s), ty = text_top_for_center(Y(&v, by + bh / 2), ls);
             /* the title at the left, then the buttons spread evenly over the rest (each measured: equal gaps) */

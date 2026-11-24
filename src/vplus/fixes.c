@@ -3050,37 +3050,35 @@ static void watch_frame_one(int p)
     uint16_t pad = p < 2 ? (uint16_t)~M.pad_buttons[p] : input_player_bits(p), pressed = (uint16_t)(pad & ~wv[p].prev);
     wv[p].prev = pad;
     int lost = wv[p].human >= 0 ? !watch_eligible_human(p, wv[p].human) : !ai_alive(wv[p].ai);
-    /* X the next driver, O the one before; Square: the chase camera to cinematic (the kill cam's shots on the car and
-     * the one it is after, a new shot every 4 seconds and a new car every 8), then cinematic and the free camera in turn
-     * (split screen: no free camera, Square a new car); X or O the chase camera again; the D-pad turns the chase camera
-     * around the car; Triangle the HUD, then the banner too, then both back */
+    /* cinematic: the kill cam's shots on the car and the one it is after, a new shot every 4 seconds and a new car every
+     * 8; the D-pad turns the chase camera around the car; Triangle the HUD, then the banner too, then both back */
     if (pressed & 0x1000) wv[p].hide = (wv[p].hide + 1) % 3;
     if (!wv[p].cinema && !wv[p].free) {
         if (pad & 0x0080) wv[p].orbit += 48;
         if (pad & 0x0020) wv[p].orbit -= 48;
         if (pressed & (0x4000 | 0x2000)) wv[p].orbit = 0;
     }
+    /* Square cycles the cameras: chase, cinematic, free, chase (split screen: no free camera, chase and cinematic); X the
+     * next driver, O the one before, in every camera (the free camera: back to the chase camera on that driver). The
+     * user's 2026-11-24: cinematic to chase took Square, then X */
     if (wv[p].free && (pressed & (0x4000 | 0x2000 | 0x8000))) {
         wv[p].free = 0;
-        wv[p].cinema = (pressed & 0x8000) != 0;
+        wv[p].cinema = 0;
         wv[p].switch_at = vp_gv() + 480;
-        pressed = 0;
-    } else if (wv[p].cinema && one_view() && (pressed & 0x8000)) { /* the free camera: from behind the car watched */
-        void photo_freecam_begin(double cx, double cy, double cz, int heading); /* ui/photo.c */
-        int32_t x, y, z;
-        int hd;
-        if (watched_pos(p, &x, &y, &z, &hd)) {
-            photo_freecam_begin(x, y, z, hd);
-            wv[p].cinema = 0;
-            wv[p].free = 1;
+        pressed &= (uint16_t)~0x8000; /* (X / O: the driver below as well) */
+    } else if (pressed & 0x8000) {
+        if (!wv[p].cinema) wv[p].cinema = 1; /* (the view stays the chase view 7: killcam_camera puts the shots over it) */
+        else if (!one_view()) wv[p].cinema = 0;
+        else { /* the free camera: from behind the car watched */
+            void photo_freecam_begin(double cx, double cy, double cz, int heading); /* ui/photo.c */
+            int32_t x, y, z;
+            int hd;
+            if (watched_pos(p, &x, &y, &z, &hd)) {
+                photo_freecam_begin(x, y, z, hd);
+                wv[p].cinema = 0;
+                wv[p].free = 1;
+            } else wv[p].cinema = 0; /* (nothing to start it from: the chase camera) */
         }
-        pressed = 0;
-    }
-    /* Square: the chase camera to cinematic, and (split screen, no free camera) cinematic back to the chase camera. X the next
-     * driver, O the one before, in both (cinematic: X / O only went back to the chase camera, nothing switched the car: "can't
-     * switch characters while spectating", Ryupichu's, 2026-11-24) */
-    if ((wv[p].cinema && !one_view() && (pressed & 0x8000)) || (!wv[p].cinema && !wv[p].free && (pressed & 0x8000))) {
-        wv[p].cinema = !wv[p].cinema; /* (the view stays the chase view 7: killcam_camera puts the shots over it) */
         wv[p].switch_at = vp_gv() + 480;
         pressed = 0;
     }
