@@ -3795,6 +3795,15 @@ static int net_play_entry(int i)
 static void net_vote_begin(void)
 {
     int pool[NET_PLAYLIST_MAX], n = 0;
+    if (net_pl.n <= 0) { /* (an empty playlist: no cards. Its garbage cards drew a crash: BookReport's, 2026-11-24, the host's
+                          * playlist on with no matches after it became the host) */
+        net_vote_n = 0;
+        net_vote_winner = -1;
+        net_vote_go = 1;
+        net_send_settings();
+        return;
+    }
+    if (net_pl.last >= net_pl.n) net_pl.last = -1; /* (a shorter list since) */
     for (int i = 0; i < net_pl.n; i++) if (i != net_pl.last || net_pl.n == 1) pool[n++] = i;
     net_vote_round++;
     net_vote_winner = -1;
@@ -17057,7 +17066,7 @@ static int battle_results(int result, int mode)
         image_free(&canvas);
         return 0;
     }
-    if (netplay_in_match() && net_pl.on && netplay_lobby() && !lobby_migrated_at(netplay_lobby(), NULL)) { /* a server's playlist: the final scoreboard a while, then the vote, then on */
+    if (netplay_in_match() && net_pl.on && net_pl.n > 0 && netplay_lobby() && !lobby_migrated_at(netplay_lobby(), NULL)) { /* a server's playlist: the final scoreboard a while, then the vote, then on */
         uint64_t until = SDL_GetTicks() + NET_SCOREBOARD_MS;
         results_no_choices = 1;
         while (SDL_GetTicks() < until) {
