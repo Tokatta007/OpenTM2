@@ -6592,6 +6592,8 @@ void vp_keep_register(void)
     KEEP(gu_target); KEEP(gu_node); KEEP(gu_points); KEEP(gu_hp); KEEP(gu_banned); KEEP(gu_best); KEEP(gu_until);
     KEEP(bf_last); KEEP(bf_ticks); KEEP(bf_refill_at); KEEP(bf_roulette_at); KEEP(win_at); KEEP(vs_at); KEEP(freeze_fired); KEEP(fired);
     KEEP(pickup_step); KEEP(pickup_taken_step); KEEP(pickup_kind0); KEEP(pickup_node); KEEP(pickup_model); KEEP(pickup_models_ready);
+    KEEP(burn_wait); KEEP(jc_opp); /* (Deathmatch's computer cars wait the last death's burning: a machine in mid-match had 180, the
+                                    * host 420; the Juggernaut car's parked record) */
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */
     KEEP(human_gone); KEEP(gone_left); KEEP(handed); KEEP(ai_team_plus1); KEEP(back_wait); KEEP(dropped_bot); /* (online: who left, who may come back) */
     KEEP(jump_wait_dir); KEEP(jump_wait_at); /* (L1 + R1 jump: a lone shoulder's weapon switch waiting) */
