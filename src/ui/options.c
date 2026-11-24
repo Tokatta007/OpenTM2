@@ -16449,25 +16449,32 @@ static int win_frame(Image *sb, int *shown)
     if (*shown) { Psyz_VideoSetOverlay(NULL, 0, 0, NULL, 0); hudlay_overlay_ui(0); }
     char title[64];
     int team = match_winner(r, mem_r8(&M.cpu, SETTINGS_BLOCK), title, sizeof title), pics[16], np = 0;
+    if (strlen(title) + 1 < sizeof title) strcat(title, "!"); /* ("CBTEST WINS!": the moment's; the results keep theirs) */
     for (int i = 0; i < match_cars() && np < 16; i++) {
         const MatchCar *m = match_car(i);
         if (m->human < 0 || (team >= 0 ? vp_team_of_human(m->human) != team : m != results_winner)) continue;
         int pic = match_human_picture(m->human);
         if (pic >= 0) pics[np++] = pic;
     }
+    const char *test_pics = getenv("TM2PC_TEST_WIN_PICS"); /* tests: the first picture N times (a big team's layout) */
+    if (test_pics && np) for (int n = atoi(test_pics); np < n && np < 16; np++) pics[np] = pics[0];
     memset(sb->px, 0, (size_t)sb->w * sb->h * 3);
     View v = view_fit(sb);
     static const uint8_t frame[3] = {188, 188, 196};
     lettering();
     int ts = S(&v, 34);
-    float ph = np ? (np > 6 ? 84.0f : 120.0f) : 0, pw = ph / 2, gap = 10, row = np ? np * pw + (np - 1) * gap : 0;
-    float tw = text_width(title, ts) / v.s, bw = (tw > row ? tw : row) + 48, bh = (np ? ph + 16 : 0) + 64;
+    /* the pictures: up to 8 a row, a second row past 8 (a team of 16 players: 8 and 8), smaller with two */
+    int rows = (np + 7) / 8, per = rows ? (np + rows - 1) / rows : 0;
+    float ph = !np ? 0 : rows > 1 ? 96.0f : 120.0f, pw = ph / 2, gap = 8, row = per ? per * pw + (per - 1) * gap : 0;
+    float tall = rows ? rows * ph + (rows - 1) * gap : 0;
+    float tw = text_width(title, ts) / v.s, bw = (tw > row ? tw : row) + 48, bh = (np ? tall + 16 : 0) + 64;
     if (bw > 620) bw = 620;
     float bx = 320 - bw / 2, by = 240 - bh / 2;
-    float px = 320 - row / 2, py = by + 16;
     int t = S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1;
     portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
-    for (int i = 0; i < np; i++, px += pw + gap) {
+    for (int i = 0; i < np; i++) {
+        int r = i / per, in_row = r < rows - 1 ? per : np - per * (rows - 1), k = i - r * per;
+        float px = 320 - (in_row * pw + (in_row - 1) * gap) / 2 + k * (pw + gap), py = by + 16 + r * (ph + gap);
         draw_fill(sb, X(&v, px) - t, Y(&v, py) - t, S(&v, pw) + 2 * t, S(&v, ph) + 2 * t, frame, 255);
         draw_portrait_image(&v, pics[i], X(&v, px), Y(&v, py), S(&v, pw), S(&v, ph));
     }
