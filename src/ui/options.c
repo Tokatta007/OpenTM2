@@ -16475,9 +16475,21 @@ static int win_frame(Image *sb, int *shown)
     float ty = by + bh - 32;
     { /* a dark edge around the words (not pure black: that is see-through), readable over anything: the black pixels
        * within o of a letter's */
-        int tw_px = text_width(title, ts), tx = X(&v, 320) - tw_px / 2, tt = text_top_for_center(Y(&v, ty), ts);
-        text_draw(sb, title, tx, tt, ts, TITLE);
-        int o = S(&v, 2) > 1 ? S(&v, 2) : 1, x0 = tx - o - 2, x1 = tx + tw_px + o + 2, y0 = Y(&v, ty) - ts - o, y1 = Y(&v, ty) + ts + o;
+        /* the words in the game's font of "CONGRATULATIONS!" (font 6, its red-orange: the tournament's message screens,
+         * msg_compose; the user's 2026-11-24), as large as there (2 window pixels a game pixel at 480 lines), smaller
+         * for a long name; the lettering if the font is missing */
+        static const uint8_t msg_rgb[3] = {115, 25, 8};
+        int tw_px, tx;
+        if (gfont_ready(6)) {
+            float gs = 2 * v.s, gw = (float)gfont_width(6, title);
+            if (gw * gs > 600 * v.s) gs = 600 * v.s / gw;
+            tw_px = (int)(gw * gs + 0.5f), tx = X(&v, 320) - tw_px / 2;
+            gfont_draw(sb, 6, title, (float)tx, (float)Y(&v, ty) + 8 * gs, gs, msg_rgb); /* (y: the letters' bottom) */
+        } else {
+            tw_px = text_width(title, ts), tx = X(&v, 320) - tw_px / 2;
+            text_draw(sb, title, tx, text_top_for_center(Y(&v, ty), ts), ts, TITLE);
+        }
+        int o = S(&v, 2) > 1 ? S(&v, 2) : 1, x0 = tx - o - 2, x1 = tx + tw_px + o + 2, y0 = Y(&v, ty) - ts * 2 - o, y1 = Y(&v, ty) + ts + o;
         if (x0 < 0) x0 = 0;
         if (y0 < 0) y0 = 0;
         if (x1 > sb->w) x1 = sb->w;
