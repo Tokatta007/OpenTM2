@@ -14629,6 +14629,7 @@ void ui_MessageLines(CPU *c)
  * 0 the screen, 1 with the prompt, 2 with the waiting */
 enum { STORY_MIN = 120 };
 static uint16_t pm_prev[4]; /* (the online menu's held buttons, below) */
+static int pm_test_open; /* tests: TM2PC_TEST_STORY_MENU=N, the online menu opened after story screen N */
 static void story_wait(void (*draw)(int mode))
 {
     int online = net_tour_on && netplay_in_match();
@@ -14662,7 +14663,8 @@ static void story_wait(void (*draw)(int mode))
         prev = b;
         if (host && (pr & (B_CROSS | B_START | B_CIRCLE))) {
             fprintf(stderr, "story: screen %d: on (pressed)\n", story_idx);
-            for (int p = 0; p < 4; p++) pm_prev[p] = 0xFFFF; /* (the press that went on, still held, does not open the
+            for (int p = 0; p < 4; p++) pm_prev[p] = 0xFFFF;
+            if (getenv("TM2PC_TEST_STORY_MENU") && atoi(getenv("TM2PC_TEST_STORY_MENU")) == story_idx) pm_test_open = 1; /* (the press that went on, still held, does not open the
                                                               * online menu in the next battle: Mohamed's Start, 2026-11-24) */
             if (online && l) {
                 net_story_n = story_idx;
@@ -16113,6 +16115,7 @@ static void pm_input(void)
         static int test_read;
         if (!test_read) { test_read = 1; test_at = getenv("TM2PC_NET_TEST_MENU_AT"); } /* tests: the menu opens then */
         if (test_at && p == 0 && pm_open < 0 && M.vblanks >= strtoull(test_at, NULL, 10)) { test_at = NULL; pressed = B_START; }
+        if (pm_test_open && p == 0 && pm_open < 0) { pm_test_open = 0; pressed = B_START; }
         if (pm_open < 0) {
             if (pressed & B_START) { /* the menu (a kick vote running: the Players list at once, to vote) */
                 pm_open = p; pm_sel = 0; pm_sub = -1; np_on = !vote; np_sel = 0; np_sure = 0;
