@@ -201,7 +201,8 @@ static uint32_t throttle_of(int L, uint32_t mine)
     static int test = -1; /* tests: TM2PC_TEST_THROTTLE=N, every local player's accelerate held at N of 4096 */
     if (test < 0) test = getenv("TM2PC_TEST_THROTTLE") ? atoi(getenv("TM2PC_TEST_THROTTLE")) : 0;
     if (L < 0 || L > 3 || !own_ok[L] || !bind_analog_throttle(L)) return 4096;
-    if (test > 0 && own[L][0x18] >= 1 && own[L][0x18] <= 14 && (mine & button_bit[own[L][0x18]])) return (uint32_t)test;
+    for (int a = 0x18; test > 0 && a <= 0x1B; a++) /* (any drive action held: accelerate, brake, Forward, Reverse) */
+        if (own[L][a] >= 1 && own[L][a] <= BIND_BUTTONS_ALL && (mine & button_bit[own[L][a]])) return (uint32_t)test;
     /* accelerate, brake / reverse, and Forward / Reverse (the D-pad's Up / Down by default: full, as the original, the
      * left stick too while it is the D-pad's) */
     static const uint8_t drive[4] = {0x18, 0x19, 0x1A, 0x1B};
