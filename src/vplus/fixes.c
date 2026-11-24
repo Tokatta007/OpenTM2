@@ -3082,6 +3082,21 @@ void vp_survival_frame(void)
                     mem_r8(&M.cpu, r + 0x34), (int)mem_r32(&M.cpu, r + 0x73C), (int)mem_r32(&M.cpu, r + 0x740),
                     (int)mem_r32(&M.cpu, GA(0x801879FCu) + 4u * (uint32_t)k), mem_r8(&M.cpu, r));
         }
+    /* co-op: the game's won test (worldUpdate) asks for human 0 alive (!humanCars[0].f_09C): with player 1 out until the
+     * next round, the others clearing the wave left "Enemies Toasted" up and no next round (Blues's and Slick!'s online
+     * Survival, 2026-11-23). The round won here instead, as the game would: its flag, then rtScheduleEvent(3) (through
+     * vp_ScheduleEvent: the next round, or the last round's win) */
+    if (ui_survival() && surv_state == 2 && mem_r8(&M.cpu, HUMAN_REC(0) + 0x9C) && (int)mem_r32(&M.cpu, AI_REMAINING) <= 0 &&
+        !mem_r32(&M.cpu, ROUND_WON_FLAG)) {
+        int humans = (int)mem_r32(&M.cpu, GA(0x80181014u)), alive = 0;
+        for (int i = 1; i < humans && i < CARS_HUMANS_MAX; i++) alive |= !mem_r8(&M.cpu, HUMAN_REC(i) + 0x9C);
+        if (alive) {
+            mem_w32(&M.cpu, ROUND_WON_FLAG, 1);
+            fprintf(stderr, "survival: round %d cleared with player 1 out\n", surv_round);
+            guest_call(GA(0x800D181Cu), 3, 420, 0, 0); /* rtScheduleEvent */
+            return;
+        }
+    }
     if (ui_survival() && surv_state == 3 && vp_gv() >= surv_until) { /* the round cleared a while ago: the next one's banner */
         surv_round++;
         survival_banner();
