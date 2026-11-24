@@ -15546,6 +15546,19 @@ static const uint8_t SB_PLAYER[2][3] = {{228, 24, 36}, {40, 110, 230}};
 /* The player's name (a human: the profile's, or Player N; a computer car: CPU) and the driver's */
 /* human h of the match's name: a server's match, as its lobby has the player (every machine the same names); else this
  * PC's player h's */
+/* the match's player h's profile picture (online: their lobby picture; offline: this PC's players' profiles), -1 none */
+static int match_human_picture(int h)
+{
+    Lobby *l = netplay_lobby();
+    if (l && netplay_in_match()) {
+        const LobbyView *v = lobby_view(l);
+        for (int n = 0; n < SES_MAX_NODES; n++)
+            if (v->start.first[n] != 0xFF && h >= v->start.first[n] && h < v->start.first[n] + v->m[n].count)
+                return v->m[n].p[h - v->start.first[n]].picture;
+        return -1;
+    }
+    return h == 0 && profile_signed_in() ? profile_picture() : h == 1 ? profile_p2_picture() : -1;
+}
 static const char *match_human_name(int h)
 {
     Lobby *l = netplay_lobby();
@@ -16566,10 +16579,18 @@ backdrop_done:;
         }
         card = &champ;
     }
-    int total = (card ? pw + gap : 0) + (int)(tw / v.s), x = 320 - total / 2;
+    int card_pic = card && card->human >= 0 ? match_human_picture(card->human) : -1, picw = ph / 2; /* (the winner's portrait
+                                                       * beside their car's card: players' wish, 2026-11-23) */
+    int total = (card ? pw + gap : 0) + (card_pic >= 0 ? picw + 4 : 0) + (int)(tw / v.s), x = 320 - total / 2;
     int ty = !trun.versus && !scoreboard_allowed() ? 120 : 56; /* (no scoreboard (Survival): lower, off the HUD's top line and
                                                               * clock, the user's 2026-11-01; with one: 56, under the
                                                               * HUD's info line, the user's 2026-11-02) */
+    if (card_pic >= 0) {
+        portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
+        draw_portrait_image(&v, card_pic, X(&v, x), Y(&v, ty - ph / 2), S(&v, picw), S(&v, ph));
+        portrait_any = 0;
+        x += picw + 4;
+    }
     if (card) {
         draw_plate(&v, card, X(&v, x), Y(&v, ty - ph / 2), S(&v, pw), S(&v, ph));
         x += pw + gap;
