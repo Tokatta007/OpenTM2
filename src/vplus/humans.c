@@ -99,6 +99,11 @@ int humans_local_count(void) /* a match's players on this machine (online); -1: 
 int humans_slot(int h) /* this machine's slot of human h (-1: another machine's); offline every human local */
 {
     if (h < 0 || h >= HUMANS_MAX) return -1;
+    /* a machine watching the match (in to watch, or out until the next stage): no human is its own. A player who left
+     * and came back to watch kept their old map: their human marked this machine's and their pad in it, a re-sync every
+     * 8 steps on the watcher (Phoenix's log, 2026-11-24) */
+    int netplay_watching(void); /* net/game_tm2.c */
+    if (netplay_watching()) return -1;
     return map_set ? slot_of[h] : h < 4 ? h : -1;
 }
 int humans_of_slot(int L)
