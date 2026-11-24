@@ -33,6 +33,7 @@ static const uint16_t button_bits[BIND_TOUCHPAD + 1] = {
     0, PSX_SELECT, PSX_START, PSX_L1, PSX_L2, PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT,
     PSX_R1, PSX_R2, PSX_TRIANGLE, PSX_CROSS, PSX_SQUARE, PSX_CIRCLE, PSX_L3, PSX_R3,
     0, 0, 0, 0, /* (the right stick's directions, BIND_STICK..: no PS1 bit, stick_held) */
+    0, 0, 0, 0, /* (the left stick's, BIND_LSTICK..: the same) */
     0, /* (the touchpad: no PS1 bit) */
 };
 
@@ -214,15 +215,17 @@ static bool gamepad_touchpad(SDL_Gamepad *g)
 /* the right stick tilted one way (BIND_STICK + 0 up, 1 down, 2 left, 3 right) past the deadzone */
 static bool stick_held(SDL_Gamepad *g, int b)
 {
-    if (!g || input_pads_off || b < BIND_STICK || b > BIND_STICK + 3) return 0;
-    int d = b - BIND_STICK, v = SDL_GetGamepadAxis(g, d < 2 ? SDL_GAMEPAD_AXIS_RIGHTY : SDL_GAMEPAD_AXIS_RIGHTX);
+    if (!g || input_pads_off || b < BIND_STICK || b > BIND_LSTICK + 3) return 0;
+    int left = b >= BIND_LSTICK, d = b - (left ? BIND_LSTICK : BIND_STICK);
+    int v = SDL_GetGamepadAxis(g, d < 2 ? (left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY)
+                                        : (left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX));
     return d == 0 || d == 2 ? v < -STICK_DEADZONE : v > STICK_DEADZONE;
 }
 /* an extra control's button (1..21) held on a pad (bits: its gamepad_bits) */
 static bool extra_button_held(SDL_Gamepad *g, uint16_t bits, int b)
 {
     if (b == BIND_TOUCHPAD) return gamepad_touchpad(g);
-    if (b >= BIND_STICK && b <= BIND_STICK + 3) return stick_held(g, b);
+    if (b >= BIND_STICK && b <= BIND_LSTICK + 3) return stick_held(g, b);
     return b > 0 && b <= BIND_BUTTONS_ALL && (bits & button_bits[b]);
 }
 /* Player p's right stick as buttons (bit d: BIND_STICK + d held), for the actions given them (vplus/humans.c turns
@@ -232,11 +235,11 @@ int input_stick_bits(int p)
 {
     if (p < 0 || p >= PLAYERS || input_pads_off) return 0;
     int m = 0;
-    for (int d = 0; d < 4; d++) if (stick_held(pads[p], BIND_STICK + d)) m |= 1 << d;
+    for (int d = 0; d < 8; d++) if (stick_held(pads[p], BIND_STICK + d)) m |= 1 << d; /* (bits 4-7: the left stick's) */
     const bool *keys = p < 2 ? input_keys(NULL) : NULL;
     for (int a = 0; keys && a < BIND_ACTIONS; a++) {
         int b = bind_button(p, a), k = bind_key(p, a);
-        if (b >= BIND_STICK && b <= BIND_STICK + 3 && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) m |= 1 << (b - BIND_STICK);
+        if (b >= BIND_STICK && b <= BIND_LSTICK + 3 && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) m |= 1 << (b - BIND_STICK);
     }
     return m;
 }
@@ -316,15 +319,18 @@ void input_poll(void)
 int feats_in_battle(void); /* profile/feat_hooks.c: a match is running */
 static uint16_t player_pad_bits(int p)
 {
-    uint16_t bits = gamepad_bits(pads[p]);
-    if (!pads[p] || !bind_easy_energy(p) || !feats_in_battle()) return bits; /* menus (car select): the D-pad steers them */
-    if (bits & PSX_SELECT) return bits; /* Select held: Select + the D-pad (the HUD's buttons), as without energy attacks */
-    int x = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTY);
-    bits &= (uint16_t)~(PSX_UP | PSX_DOWN | PSX_LEFT | PSX_RIGHT);
-    if (x < -STICK_DEADZONE) bits |= PSX_LEFT;
-    if (x > STICK_DEADZONE) bits |= PSX_RIGHT;
-    if (y < -STICK_DEADZONE) bits |= PSX_UP;
-    if (y > STICK_DEADZONE) bits |= PSX_DOWN;
+    /* in a battle, a left stick direction given its own action (Controls) is not the D-pad's (bind_lstick_mask) */
+    int own = pads[p] && feats_in_battle() ? bind_lstick_mask(p) : 0;
+    uint16_t bits = gamepad_bits_ex(pads[p], 0);
+    if (pads[p] && !(input_pads_off && !pads_raw)) {
+        int x = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTY);
+        uint16_t stick = (uint16_t)((y < -STICK_DEADZONE && !(own & 1) ? PSX_UP : 0) | (y > STICK_DEADZONE && !(own & 2) ? PSX_DOWN : 0) |
+                                    (x < -STICK_DEADZONE && !(own & 4) ? PSX_LEFT : 0) | (x > STICK_DEADZONE && !(own & 8) ? PSX_RIGHT : 0));
+        if (!bind_easy_energy(p) || !feats_in_battle() || (bits & PSX_SELECT)) return bits | stick; /* (menus, car select: the
+                                                     * D-pad and the stick steer them; Select held: Select + the D-pad) */
+        bits &= (uint16_t)~(PSX_UP | PSX_DOWN | PSX_LEFT | PSX_RIGHT); /* energy attacks on the D-pad: the stick drives */
+        return bits | stick;
+    }
     return bits;
 }
 /* Players 3 and 4 in a battle (vplus/four.c): their controller's PS1 buttons (set = held). */
@@ -356,9 +362,10 @@ int input_trigger_amount(int p, int b)
     if (b == 4 || b == 10) { /* L2, R2 */
         v = SDL_GetGamepadAxis(pads[p], b == 4 ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
         from = TRIGGER_THRESHOLD;
-    } else if (b >= BIND_STICK && b <= BIND_STICK + 3) { /* a right stick direction: how far it is tilted that way */
-        int d = b - BIND_STICK;
-        v = SDL_GetGamepadAxis(pads[p], d < 2 ? SDL_GAMEPAD_AXIS_RIGHTY : SDL_GAMEPAD_AXIS_RIGHTX);
+    } else if (b >= BIND_STICK && b <= BIND_LSTICK + 3) { /* a stick direction: how far it is tilted that way */
+        int left = b >= BIND_LSTICK, d = b - (left ? BIND_LSTICK : BIND_STICK);
+        v = SDL_GetGamepadAxis(pads[p], d < 2 ? (left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY)
+                                              : (left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX));
         v = d == 0 || d == 2 ? -v : v;
         from = STICK_DEADZONE;
     } else {
@@ -368,6 +375,27 @@ int input_trigger_amount(int p, int b)
     const int full = 31000;
     if (v >= full) return 4096;
     return 1024 + (int)((v - from) * 3072L / (full - from));
+}
+int input_steer_amount_of(int p, int b) /* button b's amount for steering (0..4096, the stick's scale: 400 at least); -1
+                                         * not analog (a button, a key) */
+{
+    if (p < 0 || p > 3 || !pads[p] || input_pads_off) return -1;
+    int v, from;
+    if (b == 4 || b == 10) {
+        v = SDL_GetGamepadAxis(pads[p], b == 4 ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+        from = TRIGGER_THRESHOLD;
+    } else if (b >= BIND_STICK && b <= BIND_LSTICK + 3) {
+        int left = b >= BIND_LSTICK, d = b - (left ? BIND_LSTICK : BIND_STICK);
+        v = SDL_GetGamepadAxis(pads[p], d < 2 ? (left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY)
+                                              : (left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX));
+        v = d == 0 || d == 2 ? -v : v;
+        from = STICK_DEADZONE;
+    } else {
+        return -1;
+    }
+    if (v <= from) return -1;
+    int a = (int)((v - from) * 4096L / (32767 - from));
+    return a < 400 ? 400 : a > 4096 ? 4096 : a;
 }
 uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump) */
 {
@@ -383,7 +411,7 @@ uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks 
     for (int i = 0; i < BIND_ENERGY; i++) {
         int b = bind_energy_button(p, i), k = bind_energy_key(p, i);
         int held = b >= 5 && b <= 8 ? pads[p] && SDL_GetGamepadButton(pads[p], dpad[b - 5]) /* (the D-pad itself, not the stick) */
-                 : b >= BIND_STICK && b <= BIND_STICK + 3 ? stick_held(pads[p], b) /* (the right stick) */
+                 : b >= BIND_STICK && b <= BIND_LSTICK + 3 ? stick_held(pads[p], b) /* (the sticks) */
                                     : b && (pad & button_bits[b]);
         if (held || (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k])) bits |= as[i];
     }
@@ -474,6 +502,14 @@ uint16_t input_pad_buttons(void)
     uint16_t bits = 0;
     for (int i = 0; i < all_count; i++) bits |= gamepad_bits(all[i]);
     return bits;
+}
+int input_pad_lstick_any(void) /* (the Controls page's capture) any controller's left stick: bit d, BIND_LSTICK + d tilted */
+{
+    SDL_UpdateGamepads();
+    int m = 0;
+    for (int i = 0; i < all_count; i++)
+        for (int d = 0; d < 4; d++) if (stick_held(all[i], BIND_LSTICK + d)) m |= 1 << d;
+    return m;
 }
 int input_pad_stick_any(void) /* (the Controls page's capture) any controller's right stick: bit d, BIND_STICK + d tilted */
 {

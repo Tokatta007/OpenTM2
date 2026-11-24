@@ -8582,6 +8582,20 @@ static int run(PageId start)
                     key = 0;
                     capturing = -1;
                 }
+            int input_pad_lstick_any(void);  /* runtime/input.c: any controller's left stick (bit d: BIND_LSTICK + d) */
+            static int lstick_before = 0xF, lstick_row = -1; /* (tilted when the capture started: not a press; the stick also
+                                                               * moves through the menus, so each capture starts from it) */
+            int lstick = script ? 0 : input_pad_lstick_any();
+            if (lstick_row != capturing) lstick_row = capturing, lstick_before = lstick;
+            int lstick_new = lstick & ~lstick_before;
+            lstick_before = lstick;
+            for (int d = 0; d < 4 && capturing >= 0; d++)
+                if (lstick_new & (1 << d)) { /* the left stick flicked one way: that direction (before the D-pad it also
+                                              * counts as in the menus: the user's, any control on the left stick) */
+                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_LSTICK + d : BIND_LSTICK + d - 1);
+                    key = 0;
+                    capturing = -1;
+                }
             for (unsigned k = 0; k < sizeof buttons / sizeof buttons[0]; k++)
                 if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS_ALL)) {
                     cr->set(cr->arg, cr->extra || cr->energy ? buttons[k].button : buttons[k].button - 1);

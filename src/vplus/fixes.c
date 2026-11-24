@@ -515,8 +515,9 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
             }
         if (best < 0) return;
     }
-    if (getenv("TM2PC_SPAWN_TRACE"))
-        fprintf(stderr, "spawn: node %d crowded (z %d), node %d instead (z %d, nearest car %.0f)\n", id,
+    /* always logged (rare: a start point crowded), with where it puts the car: SupahFlyKev's and Slick!'s cars under
+     * Amazonia and Antarctica, 2026-11-23, with no log of where they came in */
+    fprintf(stderr, "spawn: node %d crowded (z %d), node %d instead (z %d, nearest car %.0f)\n", id,
                 (int16_t)mem_r16(c, ROUTE_NODES + 24u * (uint32_t)id + 8), best, (int16_t)mem_r16(c, ROUTE_NODES + 24u * (uint32_t)best + 8),
                 sqrt((double)best_d));
     node_xy(best, &x, &y);
@@ -2105,6 +2106,74 @@ static int shield_bubble(int i, int seconds)
 }
 
 static void watch_end_for(int i);
+/* each human's respawn: where the car came in, and 2 seconds later where it is: far below that, or destroyed, logged
+ * (the reports of cars spawning under the map: the next log names the spot). Log only, nothing else. */
+static struct { uint64_t at; int32_t x, y, z; } spawn_check[CARS_HUMANS_MAX];
+static void spawn_check_start(int i, uint32_t rec)
+{
+    if (i < 0 || i >= CARS_HUMANS_MAX) return;
+    spawn_check[i].x = (int32_t)mem_r32(&M.cpu, rec + 0x6FC);
+    spawn_check[i].y = (int32_t)mem_r32(&M.cpu, rec + 0x700);
+    spawn_check[i].z = (int32_t)mem_r32(&M.cpu, rec + 0x704);
+    spawn_check[i].at = vp_gv() + 120;
+    fprintf(stderr, "spawn: player %d in at %d %d z %d (arena %d)\n", i + 1, spawn_check[i].x, spawn_check[i].y, spawn_check[i].z,
+            (int)mem_r8(&M.cpu, GA(0x8016475Cu) + 24));
+}
+static void spawn_check_frame(void)
+{
+    /* a car under the arena may not fall: it can drive about down there, or a jump can put it back on top (the user's,
+     * 2026-11-23). Twice a second, each player's height against the arena's lowest route point (the lowest place cars
+     * drive): far below it, logged once (with where they last came in), and once when back above. Reads only (no game
+     * call: the same on every machine and every re-run). */
+    static int under[CARS_HUMANS_MAX];
+    if (vp_gv() % 30 == 0) {
+        int n = (int)mem_r32(&M.cpu, ROUTE_NODE_COUNT), humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+        int lowest = 32767;
+        for (int k = 0; k < n && k < 400; k++) {
+            int z = (int16_t)mem_r16(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k + 8);
+            if (z < lowest) lowest = z;
+        }
+        for (int i = 0; n > 0 && i < humans && i < CARS_HUMANS_MAX; i++) {
+            uint32_t rec = HUMAN_REC(i);
+            if (mem_r8(&M.cpu, rec + 0x9C)) continue; /* (a wreck) */
+            int32_t z = (int32_t)mem_r32(&M.cpu, rec + 0x704);
+            /* the lowest route point within 2000 of the car (a bridge over a tunnel: the tunnel's), else the arena's: a car on
+             * its floor stands about 200 above it */
+            int32_t cx = (int32_t)mem_r32(&M.cpu, rec + 0x6FC), cy = (int32_t)mem_r32(&M.cpu, rec + 0x700);
+            int near = 32767;
+            for (int k = 0; k < n && k < 400; k++) {
+                int64_t dx = (int32_t)mem_r32(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k) - cx;
+                int64_t dy = (int32_t)mem_r32(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k + 4) - cy;
+                int nz = (int16_t)mem_r16(&M.cpu, ROUTE_NODES + 24u * (uint32_t)k + 8);
+                if (dx * dx + dy * dy <= 2000LL * 2000 && nz < near) near = nz;
+            }
+            if (near == 32767) near = lowest;
+            static int watch = -1; /* tests: TM2PC_SPAWN_WATCH, each check */
+            if (watch < 0) watch = getenv("TM2PC_SPAWN_WATCH") != NULL;
+            if (watch) fprintf(stderr, "spawn watch: player %d z %d, lowest route point near %d (arena %d)\n", i + 1, z, near, lowest);
+            if (!under[i] && z < near - 300) {
+                under[i] = 1;
+                fprintf(stderr, "spawn: player %d UNDER the arena at %d %d z %d (the lowest route point near: z %d; last in at %d %d z %d)\n",
+                        i + 1, cx, cy, z, near,
+                        spawn_check[i].x, spawn_check[i].y, spawn_check[i].z);
+            } else if (under[i] && z >= near - 100) {
+                under[i] = 0;
+                fprintf(stderr, "spawn: player %d back above at %d %d z %d\n", i + 1, (int32_t)mem_r32(&M.cpu, rec + 0x6FC),
+                        (int32_t)mem_r32(&M.cpu, rec + 0x700), z);
+            }
+        }
+    }
+    for (int i = 0; i < CARS_HUMANS_MAX; i++) {
+        if (!spawn_check[i].at || vp_gv() < spawn_check[i].at) continue;
+        spawn_check[i].at = 0;
+        uint32_t rec = HUMAN_REC(i);
+        int32_t x = (int32_t)mem_r32(&M.cpu, rec + 0x6FC), y = (int32_t)mem_r32(&M.cpu, rec + 0x700), z = (int32_t)mem_r32(&M.cpu, rec + 0x704);
+        int dead = mem_r8(&M.cpu, rec + 0x9C);
+        if (z < spawn_check[i].z - 400 || dead)
+            fprintf(stderr, "spawn: player %d 2 s after coming in at %d %d z %d: %s at %d %d z %d (%d below)\n", i + 1, spawn_check[i].x,
+                    spawn_check[i].y, spawn_check[i].z, dead ? "DESTROYED" : "FELL", x, y, z, spawn_check[i].z - z);
+    }
+}
 static void respawn_human(int i)
 {
     uint32_t rec = HUMAN_REC(i);
@@ -2137,6 +2206,7 @@ static void respawn_human(int i)
         mem_w8(&M.cpu, rec + 0xAA, 1);
         life[i].shield_off = vp_gv() + 60u * (uint64_t)shield;
     }
+    spawn_check_start(i, rec);
     fprintf(stderr, "lives: player %d is back (vblank %llu)\n", i + 1, (unsigned long long)vp_gv());
 }
 
@@ -2411,6 +2481,7 @@ static void survival_watch_frame(void);
 static void versus_frame(void);
 void vp_lives_frame(void)
 {
+    spawn_check_frame();
     versus_frame();
     test_kills();
     round_test_kills();

@@ -107,7 +107,16 @@ alone, on every machine. A player's own layout, buttons and keys are used only o
 they hold into the ones Standard has for the same actions (the actions the car reads only). Online, then, no player's
 table travels and none can differ between machines, and a change in Controls applies from the next step, mid-battle and
 online too. Because of that an action may also have L3, R3 or a direction of the right stick (RS UP, RS DOWN, RS LEFT,
-RS RIGHT: flick the stick when Controls asks for a button). The controller's own Select, L1 and R1 go with the input
+RS RIGHT: flick the stick when Controls asks for a button) or of the left stick (LS UP ... LS RIGHT). A left stick
+direction with nothing of its own is the D-pad's, as always; given an action, an energy attack or an extra control, it is
+that in a battle and no longer the D-pad's (in the menus the stick still moves through them).
+
+**Analog steering and Analog throttle** follow whatever steering, accelerate, brake, Forward and Reverse are on: a
+stick direction's tilt or a trigger's press; a button or a key is full. The D-pad's Left and Right (and the left stick
+while it is the D-pad's) steer by the left stick's tilt as before; Forward / Reverse on the D-pad are always full. Each
+PC sends the amounts (0..4096), not the buttons, so any binding is the same number on every machine online.
+
+The controller's own Select, L1 and R1 go with the input
 separately: L1 + R1's jump and Select's buttons are those, whatever actions they have.
 
 **Jump on L1 + R1** has **Jump-Weapon Switch Safety** under it (gray while the jump is off): Off, 50, 100 or 150 ms

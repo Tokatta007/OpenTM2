@@ -64,15 +64,18 @@ const char *const bind_action_names[BIND_ACTIONS] = {
 
 const char *const bind_button_names[BIND_TOUCHPAD + 1] = {
     "-", "SELECT", "START", "L1", "L2", "UP", "DOWN", "LEFT", "RIGHT",
-    "R1", "R2", "TRIANGLE", "CROSS", "SQUARE", "CIRCLE", "L3", "R3", "RS UP", "RS DOWN", "RS LEFT", "RS RIGHT", "TOUCHPAD",
+    "R1", "R2", "TRIANGLE", "CROSS", "SQUARE", "CIRCLE", "L3", "R3", "RS UP", "RS DOWN", "RS LEFT", "RS RIGHT",
+    "LS UP", "LS DOWN", "LS LEFT", "LS RIGHT", "TOUCHPAD",
 };
 const char *const bind_button_names_xbox[BIND_TOUCHPAD + 1] = {
     "-", "VIEW", "MENU", "LB", "LT", "UP", "DOWN", "LEFT", "RIGHT",
-    "RB", "RT", "Y", "A", "X", "B", "LS", "RS", "RS UP", "RS DOWN", "RS LEFT", "RS RIGHT", "SHARE",
+    "RB", "RT", "Y", "A", "X", "B", "LS", "RS", "RS UP", "RS DOWN", "RS LEFT", "RS RIGHT",
+    "LS UP", "LS DOWN", "LS LEFT", "LS RIGHT", "SHARE",
 };
 static const char *const button_keys[BIND_TOUCHPAD + 1] = {
     "default", "select", "start", "l1", "l2", "up", "down", "left", "right",
-    "r1", "r2", "triangle", "cross", "square", "circle", "l3", "r3", "rs_up", "rs_down", "rs_left", "rs_right", "touchpad",
+    "r1", "r2", "triangle", "cross", "square", "circle", "l3", "r3", "rs_up", "rs_down", "rs_left", "rs_right",
+    "ls_up", "ls_down", "ls_left", "ls_right", "touchpad",
 };
 
 const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk", "Scoreboard", "Quit game"};
@@ -235,6 +238,25 @@ int bind_button(int player, int action)
     if (player < 0 || player > 3 || action < 0 || action >= BIND_ACTIONS) return 0;
     return chosen[player][action] ? chosen[player][action]
                                   : bind_layout_button(layout_of(player), action);
+}
+
+int bind_lstick_mask(int player)
+{
+    if (player < 0 || player > 3) return 0;
+    int m = 0;
+    for (int a = 0; a < BIND_ACTIONS; a++) {
+        int b = bind_button(player, a);
+        if (b >= BIND_LSTICK && b <= BIND_LSTICK + 3) m |= 1 << (b - BIND_LSTICK);
+    }
+    for (int i = 0; i < BIND_ENERGY; i++) {
+        int b = energy_button[player][i];
+        if (b >= BIND_LSTICK && b <= BIND_LSTICK + 3) m |= 1 << (b - BIND_LSTICK);
+    }
+    for (int i = 0; player == 0 && i < BIND_EXTRAS; i++) {
+        int b = extra_button[i];
+        if (b >= BIND_LSTICK && b <= BIND_LSTICK + 3) m |= 1 << (b - BIND_LSTICK);
+    }
+    return m;
 }
 
 void bind_set(int player, int action, int button)
