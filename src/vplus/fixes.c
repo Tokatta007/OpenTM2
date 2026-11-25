@@ -4182,6 +4182,8 @@ void vp_MoveCodes(CPU *c)
     else if (pressed & 0x0100) special = 105; /* its own button (Controls): invisibility (the code Right, Down, Left, Up:
                                                * 105; 102 is Right, Left, Up, the energy napalm: Phoenix's "invisibility
                                                * key fires napalm", 2026-11-23) */
+    else if (pressed & 0x2000) special = 102; /* its own button (Controls, none by default): the energy napalm (Gibbers's) */
+    else if (pressed & 0x4000) special = 106; /* its own button (Controls, none by default): the volley */
     else if (pressed & 0x0040) { /* Down: fire behind (the move code 3-4-2) */
         mem_w8(c, rec + 0x7CD, 1);
         mem_w8(c, rec + 0xEA, 1);

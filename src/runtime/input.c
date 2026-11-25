@@ -397,14 +397,23 @@ int input_steer_amount_of(int p, int b) /* button b's amount for steering (0..40
     int a = (int)((v - from) * 4096L / (32767 - from));
     return a < 400 ? 400 : a > 4096 ? 4096 : a;
 }
-uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump) */
+uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump, 0x2000 napalm, 0x4000 volley) */
 {
+    /* tests: TM2PC_TEST_ENERGY=I:V, player 1's energy row I (bind_energy_names) held for 6 VBlanks from VBlank V */
+    static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100, 0x1000, 0x2000,
+                                             0x4000}; /* (0x1000 jump, 0x2000 napalm, 0x4000 volley) */
+    static int test_i = -2;
+    static long long test_v;
+    if (test_i == -2) {
+        const char *e = getenv("TM2PC_TEST_ENERGY");
+        test_i = e && sscanf(e, "%d:%lld", &test_i, &test_v) == 2 && test_i >= 0 && test_i < BIND_ENERGY ? test_i : -1;
+    }
+    if (test_i >= 0 && p == 0 && M.vblanks >= (uint64_t)test_v && M.vblanks < (uint64_t)test_v + 6) return as[test_i];
     if (p < 0 || p > 3 || !bind_easy_energy(p) || input_pads_off) return 0;
     uint16_t pad = pads[p] ? gamepad_bits(pads[p]) : 0;
     if (pad & PSX_SELECT) return 0; /* Select held: the D-pad is for Select's buttons */
     uint16_t bits = 0;
     /* each attack's button (by default the D-pad's direction: bind_energy_button) and key (Controls) */
-    static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100, 0x1000}; /* (0x1000 jump) */
     static const SDL_GamepadButton dpad[4] = {SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
                                               SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT};
     const bool *keys = input_keys(0);

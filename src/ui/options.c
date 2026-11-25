@@ -5053,8 +5053,12 @@ static void build(PageId page)
         Row *eh = add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
-        for (int i = 0; i < BIND_ENERGY; i++) {
-            Row *r = add_choice(bind_energy_names[i], "Only works with Easy Energy Attacks turned on.",
+        static const int energy_order[BIND_ENERGY] = {0, 1, 2, 3, 6, 4, 7, 5}; /* napalm and volley: their own rows, none by
+                                                                          * default (Gibbers's), as the Energy page's order */
+        for (int k = 0; k < BIND_ENERGY; k++) {
+            int i = energy_order[k];
+            Row *r = add_choice(bind_energy_names[i], i >= 6 ? "Only works with Easy Energy Attacks turned on, and with "
+                                "this energy attack on in the game type." : "Only works with Easy Energy Attacks turned on.",
                                 get_energy_button, set_energy_button, p * 8 + i, bind_button_names, BIND_BUTTONS_ALL + 1);
             r->tiny = 1;
             r->press = 1;

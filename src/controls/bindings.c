@@ -92,9 +92,11 @@ static int is_extra_key(const char *key) /* an extra control's ini name (or its 
     }
     return 0;
 }
-const char *const bind_energy_names[BIND_ENERGY] = {"Freeze", "Rear fire", "Mines", "Shield", "Invisibility", "Jump"};
+const char *const bind_energy_names[BIND_ENERGY] = {"Freeze", "Rear fire", "Mines", "Shield", "Invisibility", "Jump",
+                                                       "Napalm", "Volley"};
 static const char *const energy_keys[BIND_ENERGY] = {"energy_freeze", "energy_rear_fire", "energy_mines", "energy_shield",
-                                                     "energy_invisibility", "energy_jump"}; /* (their ini names, after pN_) */
+                                                     "energy_invisibility", "energy_jump", "energy_napalm",
+                                                     "energy_volley"}; /* (their ini names, after pN_) */
 static int energy_button[4][BIND_ENERGY];        /* none by default: the D-pad has the first four */
 static int energy_key[2][BIND_ENERGY];
 static int pad_type[4];                          /* 0 auto, 1 PlayStation, 2 Xbox */
