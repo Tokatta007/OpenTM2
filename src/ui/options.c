@@ -4454,12 +4454,11 @@ static void build(PageId page)
         break;
     }
     case PAGE_NETWORK:
-        { void netplay_friends_peek(void); netplay_friends_peek(); } /* (the requests: shown here too) */
-        add_page("Online", PAGE_ACTION, friend_requests_text() ? "Play over the internet: join a server, or host one. "
-                 "Someone asked to be your friend: see Friends." : "Play over the internet: join a server, or host one.");
+        { void netplay_friends_peek(void); netplay_friends_peek(); } /* (the requests fetched early: Online's Friends row) */
+        add_page("Online", PAGE_ACTION, "Play over the internet: join a server, or host one."); /* (no notice here: the
+                                                                         * Friends row's only, the user's 2026-11-25) */
         rows[row_count - 1].act = ACT_NET_MODE;
         rows[row_count - 1].arg = 0;
-        rows[row_count - 1].text = friend_requests_text();
         add_page("LAN", PAGE_ACTION, "Play on this network: join a server, or host one.");
         rows[row_count - 1].act = ACT_NET_MODE;
         rows[row_count - 1].arg = 1;
@@ -9399,7 +9398,7 @@ static int run(PageId start)
             static int requests_seen = -1;
             int nr = friends_my_id() ? friends_count(1) : 0;
             if (nr != requests_seen) {
-                if (requests_seen >= 0 && (page == PAGE_NETWORK || page == PAGE_NET_MODE || page == PAGE_NET_BROWSER))
+                if (requests_seen >= 0 && (page == PAGE_NET_MODE || page == PAGE_NET_BROWSER))
                     rebuild_page = 1;
                 if (nr > requests_seen && requests_seen >= 0) fprintf(stderr, "friends: a new request (%d now)\n", nr);
                 requests_seen = nr;
