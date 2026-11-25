@@ -743,6 +743,11 @@ int main(int argc, char **argv)
                     wob[settings_video.wobble % 3], fr[settings_video.frame_rate % 3], settings_video.resolution,
                     settings_video.resolution ? "" : " (auto)", settings_video.textures ? "playstation" : "sharpest",
                     settings_video.depth ? "depth" : "ps1", settings_video.widescreen ? "on" : "off");
+            static const char *const dd[3] = {"game's", "far", "farthest"}, *const wm[3] = {"window", "borderless", "exclusive"};
+            fprintf(stderr, "video: mirror %s, draw distance %s, window %s %dx%d, renderer %s, split %d, dithering %d\n",
+                    settings_video.hud_mirror ? "on" : "off", dd[settings_video.draw_distance % 3], wm[settings_video.window_mode % 3],
+                    settings_video.display_w, settings_video.display_h, settings_video.renderer ? "vulkan" : "d3d12",
+                    settings_video.split, settings_video.dithering);
         }
         if (!disc) disc = settings_disc();
         else settings_remember_disc(ini);

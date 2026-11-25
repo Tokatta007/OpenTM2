@@ -7752,7 +7752,16 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             int bt = 2 * t;
             draw_fill(v->c, X(v, plx) - bt, Y(v, ply) - bt, S(v, plw) + 2 * bt, S(v, plh) + 2 * bt, PLAYER_COLOR_BASE[c->local - 1], 255);
         } else draw_fill(v->c, X(v, plx) - t, Y(v, ply) - t, S(v, plw) + 2 * t, S(v, plh) + 2 * t, line, 255);
-        draw_plate_car(v, car, X(v, plx), Y(v, ply), S(v, plw), S(v, plh));
+        /* a spectator: no car, the plate black with SPECTATOR across it (the user's 2026-11-25) */
+        int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? lobby_spectating(netplay_lobby())
+                   : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].spectate : 0);
+        if (spec) {
+            draw_fill(v->c, X(v, plx), Y(v, ply), S(v, plw), S(v, plh), black, 255);
+            int ss = S(v, 8);
+            while (ss > S(v, 4) && text_width("SPECTATOR", ss) > S(v, plw - 4)) ss--;
+            text_draw(v->c, "SPECTATOR", X(v, plx + plw / 2) - text_width("SPECTATOR", ss) / 2,
+                      text_top_for_center(Y(v, ply + plh / 2), ss), ss, WHITE);
+        } else draw_plate_car(v, car, X(v, plx), Y(v, ply), S(v, plw), S(v, plh));
         TextColor ink = WHITE;
         if (c->team >= 0) {
             memcpy(ink.top, tc, 3);
@@ -7815,10 +7824,7 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             TextColor tink = c->local ? ORANGE : WHITE;
             if (!c->local && pc >= 0) { memcpy(tink.top, pc_colors[pc % PC_COLORS], 3); memcpy(tink.bottom, pc_colors[pc % PC_COLORS], 3); }
             int show_tag = *tag != 0, show_friend = c->friend != 0, show_mic = talking || c->muted;
-            /* (a spectator: SPECTATOR in READY's place, the user's 2026-11-25) */
-            int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? lobby_spectating(netplay_lobby())
-                       : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].spectate : 0);
-            const char *rtext = spec ? "SPECTATOR" : c->ready ? "READY" : NULL;
+            const char *rtext = spec ? NULL : c->ready ? "READY" : NULL; /* (a spectator: on its plate) */
             int ts = S(v, 7), gap = S(v, 5);
             for (;;) {
                 int total = 0;
@@ -17676,6 +17682,13 @@ void ui_MainLoop(CPU *c) /* rtMainLoop: one round, its result */
     if (duel_active) fprintf(stderr, "co-op: the duel's round starts\n");
     wide_round(1); /* widescreen: the round shown stretched (its views squeezed, vplus/wide.c) */
     F_800D1318_orig(c); /* (the stretch stays on to the session's end: its end texts over the frozen battle, wide) */
+    { /* the battle's in-between frames forgotten: the boss phases load the arena and cars again next, and at 60 FPS /
+       * uncapped the redraws went on with the finished battle's poses over the files being replaced (decomp request
+       * 122: Dark Tooth's and Minion's broken meshes) */
+        void interp_snap(void), interp_frame_start(void); /* vplus/interp.c */
+        interp_snap();
+        interp_frame_start();
+    }
     if (duel_active) { /* the co-op duel: one round, then the runner quits */
         int dr = (int)c->r[2];
         fprintf(stderr, "co-op: the duel's round ended (%d)\n", dr);
