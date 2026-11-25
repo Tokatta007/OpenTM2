@@ -32,6 +32,9 @@ typedef struct {
     uint32_t listed;              /* (an asker) its last LIST: one a second (the answers are many packets: no flood) */
     uint32_t relay_second, relay_bytes; /* (a sender through the relay) this second's bytes */
     uint32_t build;               /* (a host) its build's id */
+    uint32_t registered;          /* (a host) its last REGISTER: the listing shown while this is fresh (other traffic from
+                                   * the same address, a member's KEEP, a relay, a punch, keeps the entry only: a crashed
+                                   * host back on the same port kept its old server listed, Enough Boxes's 2026-11-25) */
     int listing_len;              /* (a host) its listing's bytes; 0: a member (KEEP only) */
     uint8_t listing[LISTING_MAX];
 } Machine;
@@ -56,7 +59,7 @@ static void listing_name(const char *addr, uint16_t port, char *out, int size) /
 {
     out[0] = 0;
     Machine *h = find(addr, port, 0, now_ms());
-    if (h && h->listing_len >= 8 + 32) snprintf(out, (size_t)size, "%.31s", (const char *)h->listing + 8); /* (magic, build, name) */
+    if (h && h->listing_len >= 8 + 32 && now_ms() - h->registered <= MASTER_EXPIRE_MS) snprintf(out, (size_t)size, "%.31s", (const char *)h->listing + 8); /* (magic, build, name) */
 }
 
 static volatile sig_atomic_t stopping; /* (Ctrl+C, docker stop: written first, then out) */
@@ -92,7 +95,7 @@ int main(int argc, char **argv)
             Machine *h = find(addr, from_port, 1, now);
             if (!h) continue;
             int fresh = !h->listing_len;
-            h->heard = now;
+            h->heard = h->registered = now;
             h->build = get32(buf + 2 + 4);
             h->listing_len = n - 2 > LISTING_MAX ? LISTING_MAX : n - 2;
             memcpy(h->listing, buf + 2, (size_t)h->listing_len);
@@ -102,7 +105,7 @@ int main(int argc, char **argv)
             if (b) { if (b->listing_len) fprintf(stderr, "master: the server at %s:%u closed\n", addr, (unsigned)from_port); b->heard = 0; }
         } else if (buf[1] == MASTER_KEEP) { /* a member of an internet server */
             Machine *k = find(addr, from_port, 1, now);
-            if (k) k->heard = now;
+            if (k) k->heard = now, k->listing_len = 0; /* (a member now: no longer a host) */
         } else if (buf[1] == MASTER_LIST && n >= 6) { /* the browser: every server of its build */
             uint32_t build = get32(buf + 2);
             Machine *asker = find(addr, from_port, 1, now);
@@ -111,7 +114,7 @@ int main(int argc, char **argv)
             asker->listed = now;
             int sent = 0;
             for (int i = 0; i < MACHINES; i++) {
-                if (!m[i].heard || now - m[i].heard > MASTER_EXPIRE_MS || !m[i].listing_len || m[i].build != build) continue;
+                if (!m[i].heard || now - m[i].registered > MASTER_EXPIRE_MS || !m[i].listing_len || m[i].build != build) continue;
                 uint8_t *w = out;
                 *w++ = MASTER_CHANNEL;
                 *w++ = MASTER_ENTRY;
