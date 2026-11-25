@@ -2365,6 +2365,13 @@ static void test_handover(void) /* tests: TM2PC_TEST_HANDOVER="H@V": from VBlank
 static void test_kills(void) /* tests: TM2PC_TEST_KILL="1@2400,2@3000" destroys player P at VBlank V */
 {
     test_handover();
+    static int eiffel_at = -2; /* tests: TM2PC_TEST_EIFFEL=N, Paris's tower falls at the round's frame N (every machine the
+                                * same, a step run again too: online desync tests, Boxes's 2026-11-25) */
+    if (eiffel_at == -2) eiffel_at = getenv("TM2PC_TEST_EIFFEL") ? atoi(getenv("TM2PC_TEST_EIFFEL")) : -1;
+    if (eiffel_at >= 0 && vp_round_frames() == eiffel_at && mem_r8(&M.cpu, GA(0x8016475Cu) + 24) == 3) { /* (Paris) */
+        guest_call(GA(0x800D6710u), 0, 0, 0, 0); /* eiffelTowerStartFall (a second call does nothing) */
+        fprintf(stderr, "test: the Eiffel tower falls (round frame %d)\n", vp_round_frames());
+    }
     static int flashed;
     if (!flashed && getenv("TM2PC_TEST_FLASH") && vp_gv() >= (getenv("TM2PC_TEST_FLASH_AT") ? strtoull(getenv("TM2PC_TEST_FLASH_AT"), 0, 10) : 2000)) { /* tests: a port message at VBlank 2000 */
         flashed = 1;
