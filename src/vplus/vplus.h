@@ -73,6 +73,7 @@ typedef enum {
     VP_GLACIER_FIRE,        /* Antarctica's fire missile out of the mark that hides it (decomp request 120, RETAIL_BUGS.md); online always */
     VP_BAL_GUN_RANGE,       /* machine-gun bullets fly 25% farther (decomp request 121, BALANCE.md 25.2, portBalance bit 9) */
     VP_WARTHOG_TRIM,        /* Warthog's side: the gray strip above his side windows as the body's camo, as the PC version */
+    VP_BAL_PICKUP_PASS,     /* every shot passes pickups (the ricochet bomb trapped by one by a wall: decomp request 124, portBalance2 bit 0) */
     VP_COUNT
 } VpChangeId;
 
@@ -93,7 +94,8 @@ extern const char *const vp_category_names[VP_CAT_COUNT];
 
 int vp_on(VpChangeId id);
 int vp_retired(int id); /* taken out of the game: never on, not offered */
-unsigned vp_balance_word(void); /* the balancing rules on, as the decomp's portBalance bits (requests 40-41) */
+unsigned vp_balance_word(void);
+unsigned vp_balance_word2(void); /* the decomp's portBalance2 bits (request 124) */ /* the balancing rules on, as the decomp's portBalance bits (requests 40-41) */
 unsigned vp_visual_word(void);  /* the decomp's portVisual bits (request 42, CUSTOM_TOURNAMENT_ANSWERS.md) */
 int vp_jugg_car_swap(void);    /* fixes.c: the build can give the Juggernaut a car (decomp request 32 step 3) */
 int vp_minion_opponent(void);  /* the opponent loaded as the Juggernaut's car (parked), -1 none */
