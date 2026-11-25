@@ -7,6 +7,14 @@ The newest update is at the top.
 
 ---
 
+## v1.0.17 (November 25, 2026)
+
+### General (V1.0.17)
+
+- **Shots through pickups:** ricochet bombs, missiles and bullets pass through pickups. Before, a ricochet bomb could get trapped bouncing between a pickup and a wall, and missiles and bullets stopped at the Los Angeles and Moscow bonus pickups.
+
+---
+
 ## v1.0.14 (November 24, 2026)
 
 ### General (V1.0.14)
