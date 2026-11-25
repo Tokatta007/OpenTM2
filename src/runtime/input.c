@@ -417,7 +417,8 @@ uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks 
 {
     /* tests: TM2PC_TEST_ENERGY=I:V, player 1's energy row I (bind_energy_names) held for 6 VBlanks from VBlank V */
     static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100, 0x1000, 0x2000,
-                                             0x4000}; /* (0x1000 jump, 0x2000 napalm, 0x4000 volley) */
+                                             0x4000, 0x8000}; /* (0x1000 jump, 0x2000 napalm, 0x4000 volley, 0x8000 the
+                                                               * freeze fired behind) */
     static int test_i = -2;
     static long long test_v;
     if (test_i == -2) {

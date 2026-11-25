@@ -724,8 +724,8 @@ static int pad_kind(int player)
 static int glyph_kind = 1; /* for the page being drawn */
 
 /* next / previous song rows: the button (0 none .. 16 R3) */
-static int get_energy_button(int a) { return bind_energy_button(a / 8, a % 8); }
-static void set_energy_button(int a, int v) { bind_set_energy_button(a / 8, a % 8, v); changed |= SAVE_CONTROLS; }
+static int get_energy_button(int a) { return bind_energy_button(a / 16, a % 16); } /* (a: player * 16 + row) */
+static void set_energy_button(int a, int v) { bind_set_energy_button(a / 16, a % 16, v); changed |= SAVE_CONTROLS; }
 static int get_extra_button(int a) { return bind_extra_button(a); }
 static void set_extra_button(int a, int v) { bind_set_extra_button(a, v); changed |= SAVE_CONTROLS; }
 
@@ -5054,13 +5054,14 @@ static void build(PageId page)
         Row *eh = add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
-        static const int energy_order[BIND_ENERGY] = {0, 1, 2, 3, 6, 4, 7, 5}; /* napalm and volley: their own rows, none by
+        static const int energy_order[BIND_ENERGY] = {0, 8, 1, 2, 3, 6, 4, 7, 5}; /* napalm and volley: their own rows, none by
                                                                           * default (Gibbers's), as the Energy page's order */
         for (int k = 0; k < BIND_ENERGY; k++) {
             int i = energy_order[k];
-            Row *r = add_choice(bind_energy_names[i], i >= 6 ? "Only works with Easy Energy Attacks turned on, and with "
+            Row *r = add_choice(bind_energy_names[i], i == 8 ? "Only works with Easy Energy Attacks turned on. The freeze, "
+                                "fired behind you." : i >= 6 ? "Only works with Easy Energy Attacks turned on, and with "
                                 "this energy attack on in the game type." : "Only works with Easy Energy Attacks turned on.",
-                                get_energy_button, set_energy_button, p * 8 + i, bind_button_names, BIND_BUTTONS_ALL + 1);
+                                get_energy_button, set_energy_button, p * 16 + i, bind_button_names, BIND_BUTTONS_ALL + 1);
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
@@ -8040,7 +8041,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                     } else {
                         int button = r->extra || r->energy ? r->get(r->arg) : r->get(r->arg) + 1;
                         char key[64];
-                        int k = r->energy ? bind_energy_key(r->arg / 8, r->arg % 8)
+                        int k = r->energy ? bind_energy_key(r->arg / 16, r->arg % 16)
                               : r->extra ? bind_extra_key(r->extra - 1) : bind_key(r->arg / 16, r->arg % 16);
                         shorten(key, sizeof key, bind_key_name(k), 0);
                         if (i == sel) { /* both columns marked too: X, then a button or a key sets either (the user's) */
@@ -8695,7 +8696,7 @@ static int run(PageId start)
                     break;
                 }
             if (capturing >= 0 && key) {
-                if (cr->energy) bind_set_energy_key(cr->arg / 8, cr->arg % 8, key);
+                if (cr->energy) bind_set_energy_key(cr->arg / 16, cr->arg % 16, key);
                 else if (cr->extra) bind_set_extra_key(cr->extra - 1, key);
                 else bind_set_key(cr->arg / 16, cr->arg % 16, key);
                 changed |= SAVE_CONTROLS;

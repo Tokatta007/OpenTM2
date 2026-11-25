@@ -1289,7 +1289,17 @@ void vp_EnergyAttack(CPU *c) /* weaponFireEnergyAttack(car, human) */
             return;
         }
     }
+    uint32_t car = c->r[4];
+    int human = (c->r[5] & 0xFF) != 0, asked = human && mem_r8(c, car + 0xEC), rear = mem_r8(c, car + 0x7CD);
     F_801046FC_orig(c);
+    static int dbg = -1; /* (tests: TM2PC_MOVE_DEBUG, an energy attack fired behind: the rear fire flag taken by the launch) */
+    if (dbg < 0) dbg = getenv("TM2PC_MOVE_DEBUG") != NULL;
+    if (dbg && asked && rear && !mem_r8(c, car + 0xEC))
+        fprintf(stderr, "controls: energy attack %d with the rear fire flag: %s\n", (int8_t)mem_r8(c, car + 0x7D4),
+                mem_r8(c, car + 0x7CD) ? "not taken" : "fired behind");
+    /* a freeze asked for and now done or refused: the rear fire flag it may have carried (the rear freeze, above) not left
+     * for the next weapon (a launch clears it itself; a refusal, too little energy, did not) */
+    if (asked && !mem_r8(c, car + 0xEC) && (int8_t)mem_r8(c, car + 0x7D4) == 100) mem_w8(c, car + 0x7CD, 0);
 }
 
 /* A special from a pickup: the game takes the pickup away (as an id it does
@@ -4217,6 +4227,11 @@ void vp_MoveCodes(CPU *c)
                                                * key fires napalm", 2026-11-23) */
     else if (pressed & 0x2000) special = 102; /* its own button (Controls, none by default): the energy napalm (Gibbers's) */
     else if (pressed & 0x4000) special = 106; /* its own button (Controls, none by default): the volley */
+    else if (pressed & 0x8000) { /* its own button (Controls, none by default): the freeze fired behind (the launch
+                                  * follows the rear fire flag, weapon_launch.c's AIM; the user's 2026-11-25) */
+        special = 100;
+        mem_w8(c, rec + 0x7CD, 1);
+    }
     else if (pressed & 0x0040) { /* Down: fire behind (the move code 3-4-2) */
         mem_w8(c, rec + 0x7CD, 1);
         mem_w8(c, rec + 0xEA, 1);
