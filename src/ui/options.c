@@ -2601,12 +2601,11 @@ static void set_net_filter(int a, int v)
 static int get_net_voice(int a) { (void)a; return net_voice_mode; }
 /* a machine joining: its players spectators (watching every match: no car, no team, not on the scoreboard; the user's
  * 2026-11-25) or players */
-static int get_net_spectate(int a) { (void)a; return netplay_lobby() ? lobby_spectating(netplay_lobby()) : 0; }
-static void set_net_spectate(int a, int v)
+static int get_net_spectate(int a) { return netplay_lobby() ? (lobby_spectate_mask(netplay_lobby()) >> (a & 3)) & 1 : 0; }
+static void set_net_spectate(int a, int v) /* (a: this PC's player; a split screen's players each their own) */
 {
-    (void)a;
-    if (netplay_lobby()) lobby_set_spectate(netplay_lobby(), v);
-    fprintf(stderr, "network: %s\n", v ? "spectating: watching every match" : "playing again (from the next match)");
+    if (netplay_lobby()) lobby_set_spectate_player(netplay_lobby(), a & 3, v);
+    fprintf(stderr, "network: player %d %s\n", (a & 3) + 1, v ? "spectating: watching every match" : "playing again (from the next match)");
     rebuild_page = 1;
 }
 static void set_net_voice(int a, int v) { (void)a; net_voice_mode = v; }
@@ -3487,10 +3486,11 @@ static void net_balance_teams(Lobby *l)
     const LobbyView *v = lobby_view(l);
     int size[BATTLE_TEAM_COLORS] = {0};
     for (int n = 0; n < SES_MAX_NODES; n++) /* (spectators: no team) */
-        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++)
-            if (v->m[n].p[i].team >= 0 && v->m[n].p[i].team < teams) size[v->m[n].p[i].team]++;
+        for (int i = 0; v->m[n].present && i < v->m[n].count; i++)
+            if (!lobby_player_spectates(&v->m[n], i) && v->m[n].p[i].team >= 0 && v->m[n].p[i].team < teams) size[v->m[n].p[i].team]++;
     for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++) {
+        for (int i = 0; v->m[n].present && i < v->m[n].count; i++) {
+            if (lobby_player_spectates(&v->m[n], i)) continue; /* (a split screen's spectator: no team either) */
             int t = v->m[n].p[i].team;
             if (t >= 0 && t < teams) continue;
             int best = 0;
@@ -3697,15 +3697,17 @@ static void net_player_rows(void)
     if (c->kind == LC_PLAYER) { /* your car (as Triangle in the lobby: the user's 2026-11-01, for whoever misses it),
                                  * controls, voice; your team: car select */
         int p = c->local - 1;
-        if (netplay_lobby() && !lobby_is_host(netplay_lobby()) && c->local == 1)
-            add_choice("Spectate", "On: watch every match instead of playing (no car, no team, not on the scoreboard). "
-                       "Off: play from the next match.", get_net_spectate, set_net_spectate, 0, onoff_values, 2);
         add_page("Car select", PAGE_ACTION, "Car select for every player on this PC, as Triangle in the lobby.");
         rows[row_count - 1].act = ACT_NET_CAR;
         add_page("Set car to random", PAGE_ACTION, "A car at random when the match starts (one the game type allows)."); /* (always:
                                                        * back to the lobby, the "?" there; the user's 2026-11-01) */
         rows[row_count - 1].act = ACT_LOBBY_RANDOM;
         rows[row_count - 1].arg = p;
+        /* (each of this PC's players their own, a split screen's too; the host's first player plays: after the car's
+         * rows, the page's first row the car select as before) */
+        if (netplay_lobby() && c->local >= 1 && c->local <= 4 && !(lobby_is_host(netplay_lobby()) && c->local == 1))
+            add_choice("Spectate", "On: watch every match instead of playing (no car, no team, not on the scoreboard). "
+                       "Off: play from the next match.", get_net_spectate, set_net_spectate, c->local - 1, onoff_values, 2);
         if (c->local >= 1 && c->local <= 2) { /* (the user's 2026-11-01: your controls from the lobby) */
             add_page("Controls", PAGE_CONTROLS, "Your buttons and keys. Back returns to the lobby.");
             rows[row_count - 1].arg = c->local - 1;
@@ -3791,11 +3793,19 @@ static int net_host_start(void)
     const LobbyView *v = lobby_view(l);
     int8_t cars[SES_MAX_NODES];
     memset(cars, -1, sizeof cars);
-    int humans = 0;
-    for (int n = 0; n < SES_MAX_NODES; n++) /* (in the start's order: a spectators' machine none, as lobby_start) */
-        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++, humans++)
+    int humans = 0, players = 0;
+    for (int n = 0; n < SES_MAX_NODES; n++) /* (in the start's order: a spectators' machine none, as lobby_start; a split
+                                             * screen's spectator a car all the same, parked out each round) */
+        for (int i = 0; v->m[n].present && !lobby_machine_watches(&v->m[n]) && i < v->m[n].count; i++, humans++) {
             if (humans < SES_MAX_NODES) cars[humans] = n == lobby_node(l) ? (int8_t)net_car[i] : v->m[n].p[i].car;
-    if (humans < 2) { net_chat_add("SERVER", "Waiting for another player to join."); return NET_REBUILD; }
+            players += !lobby_player_spectates(&v->m[n], i);
+        }
+    if (players < 2) {
+        fprintf(stderr, "network: the start waits: %d players of %d humans (spectate %02x %02x)\n", players, humans,
+                v->m[0].spectate, v->m[1].spectate);
+        net_chat_add("SERVER", "Waiting for another player to join.");
+        return NET_REBUILD;
+    }
     if (humans > 16) { net_chat_add("SERVER", "A match takes 16 players at most."); return NET_REBUILD; }
     for (int h = 0; h < humans; h++) { /* a player without a vehicle: one at random, not another's (the host's pick) */
         for (int tries = 0; tries < 64 && cars[h] < 0; tries++) {
@@ -3816,7 +3826,7 @@ static int net_host_start(void)
         unsigned char ids[SES_MAX_NODES][8];
         int map[PROFILE_SAVE_PLAYERS], h = 0;
         for (int n = 0; n < SES_MAX_NODES; n++)
-            for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
+            for (int i = 0; v->m[n].present && !lobby_machine_watches(&v->m[n]) && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
                 snprintf(names[h], sizeof names[h], "%s", v->m[n].p[i].name);
                 memcpy(ids[h], v->m[n].p[i].online_id, 8);
             }
@@ -7754,8 +7764,9 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             draw_fill(v->c, X(v, plx) - bt, Y(v, ply) - bt, S(v, plw) + 2 * bt, S(v, plh) + 2 * bt, PLAYER_COLOR_BASE[c->local - 1], 255);
         } else draw_fill(v->c, X(v, plx) - t, Y(v, ply) - t, S(v, plw) + 2 * t, S(v, plh) + 2 * t, line, 255);
         /* a spectator: no car, the plate black with SPECTATOR across it (the user's 2026-11-25) */
-        int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? lobby_spectating(netplay_lobby())
-                   : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].spectate : 0);
+        int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? c->local >= 1 && ((lobby_spectate_mask(netplay_lobby()) >> (c->local - 1)) & 1)
+                   : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_player_spectates(&lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES],
+                                                                                     c->seat1 > 0 ? c->seat1 - 1 : 0) : 0);
         if (spec) {
             draw_fill(v->c, X(v, plx), Y(v, ply), S(v, plw), S(v, plh), black, 255);
             int ss = S(v, 8);
@@ -15785,6 +15796,8 @@ static void scoreboard_name(const MatchCar *m, char *out, size_t n)
 
 /* the order shown: still in first (by kills, then damage), then by place */
 int vp_deathmatch(void);
+int vp_spectator(int h); /* vplus/fixes.c: a split screen's spectator (online): not on the board */
+static int sb_spectator(const MatchCar *m) { return m && m->human >= 0 && vp_spectator(m->human); }
 static int scoreboard_order(int *order)
 {
     int n = match_cars();
@@ -15804,7 +15817,9 @@ static int scoreboard_order(int *order)
                      : b->kills != a->kills ? b->kills > a->kills : b->damage > a->damage;
             if (swap) { int t = order[i]; order[i] = order[j]; order[j] = t; }
         }
-    return n;
+    int kept = 0; /* (a split screen's spectators left out: the SPECTATORS line has them) */
+    for (int i = 0; i < n; i++) if (!sb_spectator(match_car(order[i]))) order[kept++] = order[i];
+    return kept;
 }
 
 /* A car's card (the opponent cards' picture, 2:1), framed in the player's color. */
@@ -15862,6 +15877,7 @@ static int scoreboard_split(int *order, int *per, int tc[4], int *g1)
 {
     int n = match_cars(), seen[BATTLE_TEAM_COLORS] = {0}, teams = 0, list[BATTLE_TEAM_COLORS];
     for (int i = 0; i < n; i++) {
+        if (sb_spectator(match_car(i))) continue; /* (a split screen's spectator: no team, not on the board) */
         int t = car_team(match_car(i));
         if (t < 0) return 0;
         if (!seen[t]++) list[teams++] = t;
@@ -15875,7 +15891,7 @@ static int scoreboard_split(int *order, int *per, int tc[4], int *g1)
     *g1 = a;
     *per = a + b;
     int sorted[MATCH_MAX], fill[4] = {0};
-    scoreboard_order(sorted);
+    n = scoreboard_order(sorted);
     for (int i = 0; i < 2 * *per; i++) order[i] = -1;
     for (int i = 0; i < n; i++) {
         int t = car_team(match_car(sorted[i])), k = 0;
@@ -16792,7 +16808,8 @@ static void scoreboard_frame(void)
     if (netplay_lobby()) {
         const LobbyView *lv = lobby_view(netplay_lobby());
         for (int n = 0; n < SES_MAX_NODES; n++)
-            for (int i = 0; lv->m[n].present && lv->m[n].spectate && i < lv->m[n].count; i++) {
+            for (int i = 0; lv->m[n].present && i < lv->m[n].count; i++) {
+                if (!lobby_player_spectates(&lv->m[n], i)) continue;
                 size_t at = strlen(specs);
                 snprintf(specs + at, sizeof specs - at, "%s%s", at ? ", " : "SPECTATORS: ", lv->m[n].p[i].name);
             }

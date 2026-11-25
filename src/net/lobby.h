@@ -43,8 +43,17 @@ typedef struct {
     uint16_t ping;      /* its round trip to the host, ms, as the host measures it (the host: 0; 0 too: not known yet) */
     char region[3];     /* its continent, 2 letters (NA, SA, EU, AF, AS, OC; "" not known): from its Windows region */
     char plat[4];       /* its platform, up to 3 letters (PC) */
-    uint8_t spectate;   /* its players only watch: in no match's start (no car, no team, not on the scoreboard) */
+    uint8_t spectate;   /* which of its players only watch (bit i: its player i): all of them, the machine in no match's
+                         * start (no car); some (split screen), each one's car parked out from every round's start
+                         * (LobbyStart.spec): no team, not on the scoreboard, never back (the user's 2026-11-25) */
 } LobbyMachine;
+/* every one of a machine's players spectating: the machine watches, in no match's start */
+static inline int lobby_machine_watches(const LobbyMachine *m)
+{
+    unsigned all = m->count ? (1u << m->count) - 1u : 0u;
+    return m->count && (m->spectate & all) == all;
+}
+static inline int lobby_player_spectates(const LobbyMachine *m, int i) { return i >= 0 && i < 8 && ((m->spectate >> i) & 1); }
 
 /* this PC's continent (lobby_region: its Windows region's country, as a continent; "" not known) and platform */
 const char *lobby_region(void);
@@ -56,6 +65,8 @@ typedef struct {
     uint8_t first[SES_MAX_NODES];        /* each machine's first player's human index (0xFF: none) */
     int8_t car[SES_MAX_NODES];           /* each human's car (the host's pick for a random one) */
     int8_t skin[SES_MAX_NODES];          /* each human's skin (the server's mod list's index, -1 none) */
+    uint32_t spec;                       /* the humans (bit h) who only watch: a split screen's spectators, their cars
+                                          * parked out at every round's start (vplus/fixes.c spectators_frame) */
 } LobbyStart;
 typedef struct {
     uint32_t seq;                        /* changes with every update the host sends */
@@ -71,7 +82,9 @@ typedef struct {
 typedef struct Lobby Lobby;
 /* this machine's players: spectators (watching every match, never playing) or players; and as it is now */
 void lobby_set_spectate(Lobby *l, int on);
-int lobby_spectating(const Lobby *l);
+void lobby_set_spectate_player(Lobby *l, int i, int on); /* one of this machine's players (split screen) */
+int lobby_spectating(const Lobby *l);      /* every one of this machine's players (the machine watches) */
+int lobby_spectate_mask(const Lobby *l);   /* which of them (bit i: player i) */
 /* names: count of LOBBY_NAME-byte names (this machine's players); loopback: this PC only (tests: no firewall prompt) */
 Lobby *lobby_host(uint16_t port, int loopback, const char *server, int count, const char (*names)[LOBBY_NAME]);
 Lobby *lobby_join(const char *host, uint16_t port, int loopback, int count, const char (*names)[LOBBY_NAME]);

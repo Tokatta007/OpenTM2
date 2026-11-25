@@ -1474,7 +1474,7 @@ static void rejoin_check(void) /* (host, a match on) a machine in the lobby, not
         /* a machine watching a Versus Tournament: its players in during the stage it watches, playing from the next one
          * in their own cars (new records, after the others, every machine loading them; the user's 2026-11-11); one
          * machine at a time */
-        if (v->m[k].spectate) continue; /* (a spectators' machine: watching from the start, never brought in) */
+        if (lobby_machine_watches(&v->m[k])) continue; /* (a spectators' machine: watching from the start, never brought in) */
         if (f == 0xFF && ng.watch_id[k] == v->m[k].id && !ng.offered && ui_net_join_next_stage() && ng.battle_steps >= 8 &&
             ses_present(ng.ses, k) && /* (in, watching, first: its view on the cars meanwhile) */
             ng.humans + v->m[k].count <= NG_PLAYERS) {
@@ -1624,6 +1624,9 @@ int netplay_match_begin(void)
         for (int j = 0; v->start.first[n] != 0xFF && j < v->m[n].count && v->start.first[n] + j < NG_PLAYERS; j++)
             snprintf(ng.names[v->start.first[n] + j], sizeof ng.names[0], "%s", v->m[n].p[j].name);
     ng.humans = v->start.humans;
+    void vp_set_spectators(uint32_t humans); /* vplus/fixes.c: a split screen's spectators, parked out each round */
+    vp_set_spectators(v->start.spec & (v->start.humans >= 32 ? ~0u : (1u << v->start.humans) - 1u));
+    if (v->start.spec) fprintf(stderr, "network: spectators in the start (humans %08x): parked out each round\n", (unsigned)v->start.spec);
     static NetTransport net;
     net = lobby_match_transport(lob);
     lobby_on_match(lob, match_packet, NULL);
