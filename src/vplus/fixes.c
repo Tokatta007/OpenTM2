@@ -1270,8 +1270,18 @@ void vp_EnergyAttack(CPU *c) /* weaponFireEnergyAttack(car, human) */
         int kind = (int8_t)mem_r8(c, car + (c->r[5] & 0xFF ? 0x7C8u : 0x808u) + 0x0C);
         static const int bit[7] = {ENERGY_FREEZE, ENERGY_MINES, ENERGY_NAPALM, ENERGY_SHIELD, -1, ENERGY_INVISIBILITY,
                                    ENERGY_VOLLEY};
-        if (kind >= 100 && kind <= 106 && bit[kind - 100] >= 0 && !((t->energy >> bit[kind - 100]) & 1)) {
+        /* only a request refused (ctl->fire_special: a human's +0xD0 + 0x1C, a computer car's +0x44 + 0x1C), as the game
+         * checks it first: the selected kind stays after its press, so the refusal (and its sound) came every step while
+         * the kind was one the game type has off, on and on until another attack replaced it (shuriken8147's Minion
+         * volley, 2026-11-24); the request then taken, as the game's own refusals do */
+        uint32_t req = car + (c->r[5] & 0xFF ? 0xECu : 0x60u);
+        if (kind >= 100 && kind <= 106 && bit[kind - 100] >= 0 && !((t->energy >> bit[kind - 100]) & 1) && mem_r8(c, req)) {
             if (c->r[5] & 0xFF) mem_w8(c, GA(0x80180A04u), 1); /* the "can't" sound, as the game's */
+            mem_w8(c, req, 0);
+            static int dbg = -1; /* (tests: TM2PC_MOVE_DEBUG, each refusal) */
+            if (dbg < 0) dbg = getenv("TM2PC_MOVE_DEBUG") != NULL;
+            if (dbg) fprintf(stderr, "controls: energy attack %d refused (off in the game type) at VBlank %llu\n", kind,
+                             (unsigned long long)M.vblanks);
             return;
         }
     }
