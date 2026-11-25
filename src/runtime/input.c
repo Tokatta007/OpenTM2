@@ -314,6 +314,13 @@ void input_poll(void)
     M.pad_buttons[1] = M.pad_connected[1] ? (uint16_t)~one_direction(1, p2) : 0xFFFF;
 }
 
+/* Both L1 and R1, or both L2 and R2, held: the original's codes (god mode, infinite weapons: L1 + R1 or L2 + R2 held and
+ * the D-pad's directions typed) reach the game with energy attacks on the D-pad too, and the D-pad fires no energy
+ * attack meanwhile (GitHub #57: the cheats "didn't work" with Easy Energy Attacks on) */
+static int cheat_shoulders(uint16_t bits)
+{
+    return (bits & (PSX_L1 | PSX_R1)) == (PSX_L1 | PSX_R1) || (bits & (PSX_L2 | PSX_R2)) == (PSX_L2 | PSX_R2);
+}
 /* A player's controller in a battle: with energy attacks on the D-pad
  * (Controls), its D-pad is not steering (the stick is): input_easy_buttons. */
 int feats_in_battle(void); /* profile/feat_hooks.c: a match is running */
@@ -331,6 +338,7 @@ static uint16_t player_pad_bits(int p)
         /* energy attacks on the D-pad: the directions an attack is on (Controls; by default all four) are not steering, the
          * stick drives; a direction with no attack on it steers again (Jean Alter's: the D-pad lost all steering) */
         static const uint16_t dir[4] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT};
+        if (cheat_shoulders(bits)) return bits | stick; /* (the original's codes: the D-pad to the game) */
         uint16_t used = 0;
         for (int i = 0; i < BIND_ENERGY; i++) {
             int e = bind_energy_button(p, i);
@@ -420,6 +428,7 @@ uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks 
     if (p < 0 || p > 3 || !bind_easy_energy(p) || input_pads_off) return 0;
     uint16_t pad = pads[p] ? gamepad_bits(pads[p]) : 0;
     if (pad & PSX_SELECT) return 0; /* Select held: the D-pad is for Select's buttons */
+    int codes = cheat_shoulders(pad); /* (the shoulders for a code: the D-pad's directions are the code's) */
     uint16_t bits = 0;
     /* each attack's button (by default the D-pad's direction: bind_energy_button) and key (Controls) */
     static const SDL_GamepadButton dpad[4] = {SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
@@ -427,7 +436,7 @@ uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks 
     const bool *keys = input_keys(0);
     for (int i = 0; i < BIND_ENERGY; i++) {
         int b = bind_energy_button(p, i), k = bind_energy_key(p, i);
-        int held = b >= 5 && b <= 8 ? pads[p] && SDL_GetGamepadButton(pads[p], dpad[b - 5]) /* (the D-pad itself, not the stick) */
+        int held = b >= 5 && b <= 8 ? !codes && pads[p] && SDL_GetGamepadButton(pads[p], dpad[b - 5]) /* (the D-pad itself, not the stick) */
                  : b >= BIND_STICK && b <= BIND_LSTICK + 3 ? stick_held(pads[p], b) /* (the sticks) */
                                     : b && (pad & button_bits[b]);
         if (held || (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k])) bits |= as[i];
