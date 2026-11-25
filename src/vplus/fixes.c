@@ -4144,7 +4144,15 @@ void vp_MoveCodes(CPU *c)
         mem_w32(c, rec + 0xF4, 0);
         if (rf == 0) { mem_w8(c, rec + 0x7CD, 0); mem_w8(c, rec + 0xEA, 0); }
     }
+    static int cheat_dbg = -1; /* (tests: TM2PC_MOVE_DEBUG, the codes typed and the god mode's switch) */
+    if (cheat_dbg < 0) cheat_dbg = getenv("TM2PC_MOVE_DEBUG") != NULL;
+    uint32_t code_was = cheat_dbg ? mem_r32(c, rec + 0xF4) : 0;
+    int god_was = cheat_dbg ? mem_r8(c, rec + 0x1F4) : 0;
     F_800DECA8_orig(c);
+    if (cheat_dbg && mem_r32(c, rec + 0xF4) != code_was)
+        fprintf(stderr, "controls: move code %08X\n", mem_r32(c, rec + 0xF4));
+    if (cheat_dbg && mem_r8(c, rec + 0x1F4) != god_was)
+        fprintf(stderr, "controls: damageable %d -> %d (the god mode code)\n", god_was, mem_r8(c, rec + 0x1F4));
     vp_msg_player = -1;
     int p = who;
     if (p < 0 || p > (on ? 15 : 3)) return;
