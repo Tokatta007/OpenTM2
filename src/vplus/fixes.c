@@ -726,8 +726,74 @@ static int axel_eye_entry(int car, int i)
     return car == 9 && axel.ready > 0 && vp_on(VP_AXEL_EYES) && (i == axel.idx[0] || i == axel.idx[1]);
 }
 
+/* Warthog's side (Vanilla Plus "Warthog's side trim"): his body texture has a 4-row gray strip above the side view's
+ * windows (rows 84..87, a light gray to a dark one), drawn on the model above the side windows; the 1997 PC version's
+ * texture has the body's camo there instead (a mistake the PC version fixed: Gibbers's, 2026-11-25). The strip's pixels
+ * take the camo of rows 78..81 above them, in TMS\WH.TMS's body image and in the car selects' copies of it
+ * (SHELLDB1\CARSEL.TMS, AICARSEL.TMS: the image whose palette is at 768, 25), as the files are read (as Axel's eyes).
+ * Found by the strip's own colors, so another texture (a mod's, another disc's) is left alone. */
+enum { WH_PATCH_MAX = 4 * 128 };
+static struct { int ready; int n_files; struct { uint32_t lba, n; uint32_t off[WH_PATCH_MAX]; uint8_t val[WH_PATCH_MAX]; } f[3]; } wh;
+static int wh_gray(const uint8_t *clut, int i, int r, int g, int b) /* the palette entry is (r, g, b) give or take a step */
+{
+    uint16_t c = (uint16_t)(clut[i * 2] | clut[i * 2 + 1] << 8);
+    int cr = (c & 31) * 255 / 31, cg = ((c >> 5) & 31) * 255 / 31, cb = ((c >> 10) & 31) * 255 / 31;
+    return abs(cr - r) <= 10 && abs(cg - g) <= 10 && abs(cb - b) <= 10;
+}
+static void wh_file(const char *iso_name, const char *name, int want_clut_y)
+{
+    uint32_t lba, size;
+    if (wh.n_files >= 3 || (!cd_find_file(iso_name, &lba, &size) && !cd_find_file(name, &lba, &size))) return;
+    if (size > 0x100000) return;
+    uint8_t *data = malloc(size + 2048);
+    if (!data) return;
+    for (uint32_t s = 0; s * 2048 < size; s++)
+        if (!cd_read_sector(lba + s, data + s * 2048)) { free(data); return; }
+    for (uint32_t t = 0; t + 0x220 < size; t += 4) { /* each 8-bit TIM with a CLUT: magic 0x10, flags 9 */
+        if (data[t] != 0x10 || data[t + 1] || data[t + 2] || data[t + 3] || (data[t + 4] & 0xF) != 9) continue;
+        uint32_t clut_len = data[t + 8] | data[t + 9] << 8 | data[t + 10] << 16;
+        int cy = data[t + 14] | data[t + 15] << 8;
+        if (clut_len != 0x20C || (want_clut_y >= 0 && cy != want_clut_y)) continue;
+        const uint8_t *clut = data + t + 20;
+        uint32_t img = t + 8 + clut_len;
+        if (img + 12 + 128 * 128 > size) continue;
+        uint32_t w = (uint32_t)(data[img + 8] | data[img + 9] << 8) * 2, h = data[img + 10] | data[img + 11] << 8;
+        if (w != 128 || h != 128) continue;
+        const uint8_t *px = data + img + 12;
+        /* the strip: row 84 light (131, 139, 156) to row 87 dark (65, 74, 74), the same entry along each row */
+        int gray = px[84 * 128 + 40];
+        if (!wh_gray(clut, gray, 131, 139, 156) || !wh_gray(clut, px[87 * 128 + 40], 65, 74, 74)) continue;
+        int k = wh.n_files, n = 0;
+        for (int x = 0; x < 128; x++) {
+            if (px[84 * 128 + x] != gray) continue;
+            for (int r = 0; r < 4 && n < WH_PATCH_MAX; r++) {
+                wh.f[k].off[n] = img + 12 + (uint32_t)((84 + r) * 128 + x);
+                wh.f[k].val[n++] = px[(78 + r) * 128 + x];
+            }
+        }
+        wh.f[k].lba = lba, wh.f[k].n = (uint32_t)n;
+        wh.n_files++;
+        if (M.trace || getenv("TM2PC_WARTHOG_DEBUG")) fprintf(stderr, "vplus: warthog's strip in %s, %d pixels\n", name, n);
+        break;
+    }
+    free(data);
+}
+static void wh_disc_sector(uint32_t lba, uint8_t *sec)
+{
+    if (!vp_on(VP_WARTHOG_TRIM)) return;
+    if (!wh.ready) {
+        wh.ready = 1;
+        wh_file("\\TMS\\WH.TMS;1", "TMS/WH.TMS", -1);
+        wh_file("\\SHELLDB1\\CARSEL.TMS;1", "SHELLDB1/CARSEL.TMS", 23 + 2);
+        wh_file("\\SHELLDB1\\AICARSEL.TMS;1", "SHELLDB1/AICARSEL.TMS", 23 + 2);
+    }
+    for (int k = 0; k < wh.n_files; k++)
+        for (uint32_t i = 0; i < wh.f[k].n; i++)
+            if (lba == wh.f[k].lba + wh.f[k].off[i] / 2048) sec[wh.f[k].off[i] % 2048] = wh.f[k].val[i];
+}
 void vp_disc_sector(uint32_t lba, uint8_t *sec)
 {
+    wh_disc_sector(lba, sec);
     if (!vp_on(VP_AXEL_EYES)) return;
     if (!axel.ready) axel_find();
     if (axel.ready < 0) return;
