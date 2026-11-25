@@ -797,8 +797,8 @@ void killcam_frame(int battle) /* each SetFrameStart (hle.c), before the game's 
         if (getenv("TM2PC_KILLCAM_SHOTS")) sscanf(getenv("TM2PC_KILLCAM_SHOTS"), "%d,%d,%d", &shots[0], &shots[1], &shots[2]); /* tests */
         fprintf(stderr, "final kill cam: shots %s, %s, %s\n", shot_names[shots[0] % SHOT_COUNT], shot_names[shots[1] % SHOT_COUNT],
                 shot_names[shots[2] % SHOT_COUNT]);
-        fprintf(stderr, "final kill cam: replaying frames %llu..%llu\n", (unsigned long long)(kill_frame - BEFORE),
-                (unsigned long long)(kill_frame + AFTER));
+        fprintf(stderr, "final kill cam: replaying frames %llu..%llu (at VBlank %llu)\n", (unsigned long long)(kill_frame - BEFORE),
+                (unsigned long long)(kill_frame + AFTER), (unsigned long long)M.vblanks); /* (VBlank: tests cut the state log there) */
         start_pass();
     }
 }
