@@ -13,7 +13,14 @@ enum { RUN_MAX = 32, ACKS_MAX = 128, ACK_QUEUE = 1024, HOLD_MAX = 256, CHUNK = 1
        PACKET_MAX = 1400, PEND_MAX = 128,
        REL_WINDOW = HOLD_MAX, /* reliable messages in flight at most past the oldest not acked: what the other side can
                                * hold behind a lost one (more is sent only to be dropped and sent again) */
-       REL_BURST = 64 /* reliable messages sent a ses_send, a machine (a state: thousands of chunks) */ };
+       REL_BURST = 64, /* reliable messages sent a ses_send, a machine (a state: thousands of chunks) */
+       /* the reliable messages in flight to a machine, by what its acks show the way there takes (TCP's congestion window):
+        * CWND_START at first, one more an ack while below the threshold (doubling each round trip), then one more a
+        * round trip; a message lost twice (sent a third time: the way there full, not a packet lost now and then, which
+        * a lossy line drops all the time) halves it, at most once a round trip, never under CWND_MIN. A match's
+        * start sent each machine its state at once at the full REL_WINDOW (6 states, 7.5 MB, from a home connection):
+        * one machine heard nothing more for 40 s and was dropped (SkullServant's, Ryupichu hosting, 2026-11-25) */
+       CWND_START = 64, CWND_MIN = 32 };
 
 typedef struct { uint16_t id; uint8_t *data; int len; uint32_t sent_ms; uint8_t tries; } RelOut;
 typedef struct { uint16_t id; uint8_t *data; int len; } RelIn;
@@ -47,6 +54,9 @@ typedef struct {
                                     * the host's state replaced it (a machine coming back, a resync) */
     uint32_t rate;                 /* reliable bytes a second to it at most (0: no limit; a relayed machine's: the relay's) */
     uint32_t budget, budget_ms;    /* (its pacing: bytes it may send now, refilled with time) */
+    uint16_t cwnd, ssthresh, cwnd_acc; /* its reliable messages in flight at most (0: not started, CWND_START), the slow
+                                        * start's end, the acks toward the next one more */
+    uint32_t cut_ms;               /* (the window last halved: once a round trip) */
     uint32_t voice_ms;             /* (host) its last voice frame (the 8 speakers at once) */
     uint32_t kick_ms;              /* (host) removed then (gone a moment later, once told) */
     uint32_t load_ms;              /* (host) no input of its own yet (loading the match) since then (0: in, or not looked) */
@@ -140,6 +150,11 @@ static void rel_acked(Peer *p, uint16_t id, uint32_t now_ms)
             if (p->out[i].tries == 1) { /* (sent once: its round trip, a sample) */
                 uint32_t rtt = now_ms - p->out[i].sent_ms;
                 if (rtt < 10000) p->srtt = p->srtt ? (p->srtt * 7 + rtt) / 8 : rtt;
+                /* (and the window grows: fast below the threshold, then one a round trip) */
+                if (!p->cwnd) p->cwnd = CWND_START, p->ssthresh = REL_WINDOW;
+                if (p->cwnd < p->ssthresh) p->cwnd++;
+                else if (++p->cwnd_acc >= p->cwnd) p->cwnd_acc = 0, p->cwnd++;
+                if (p->cwnd > REL_WINDOW) p->cwnd = REL_WINDOW;
             }
             free(p->out[i].data);
             memmove(&p->out[i], &p->out[i + 1], sizeof *p->out * (size_t)(p->out_n - i - 1)); /* (kept in order: the oldest
@@ -156,6 +171,7 @@ static void rel_reset(Peer *p)
     p->out_n = p->hold_n = p->ack_n = 0;
     p->out_id = p->in_id = 0;
     p->srtt = 0;
+    p->cwnd = p->ssthresh = p->cwnd_acc = 0;
 }
 
 static void handle_rel(Session *s, int from, const uint8_t *m, int len, uint32_t now_ms);
@@ -834,10 +850,18 @@ static void send_to(Session *s, int to, uint32_t now_ms)
      * connection's acks take longer: sooner only floods it with copies), within REL_WINDOW of the oldest */
     uint32_t rto = p->srtt ? p->srtt + p->srtt / 2 + 30 : RTO_MS;
     rto = rto < RTO_MS ? RTO_MS : rto > RTO_MAX ? RTO_MAX : rto;
+    if (!p->cwnd) p->cwnd = CWND_START, p->ssthresh = REL_WINDOW;
     for (int i = 0, burst = 0; i < p->out_n && burst < REL_BURST; i++) {
         RelOut *o = &p->out[i];
-        if ((uint16_t)(o->id - p->out[0].id) >= REL_WINDOW) break;
+        if ((uint16_t)(o->id - p->out[0].id) >= p->cwnd) break;
         if (o->sent_ms && now_ms - o->sent_ms < (o->tries > 1 ? rto * 2 : rto)) continue; /* (again: longer) */
+        if (o->sent_ms && o->tries >= 2 && now_ms - p->cut_ms > rto) { /* lost twice: the way there full: half the window */
+            p->ssthresh = p->cwnd / 2 < CWND_MIN ? CWND_MIN : p->cwnd / 2;
+            p->cwnd = p->ssthresh;
+            p->cwnd_acc = 0;
+            p->cut_ms = now_ms;
+            if ((uint16_t)(o->id - p->out[0].id) >= p->cwnd) break;
+        }
         if (p->rate && p->budget < (uint32_t)o->len + 16) break; /* (paced: the rest at the next send) */
         if (p->rate) p->budget -= (uint32_t)o->len + 16;
         burst++;
