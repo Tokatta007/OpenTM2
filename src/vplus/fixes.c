@@ -2003,7 +2003,8 @@ void killcam_new_round(void); /* killcam.c */
 static uint64_t watch_at[CARS_HUMANS_MAX]; /* VBlank human i starts watching (0: not waiting) */
 static uint64_t spectate_at;   /* 1 player, out: VBlank the spectating starts (0: not waiting) */
 static uint32_t death_delay;   /* the death's event delay (VBlanks), for duo_player_out */
-static void boss_round_start(void); static int boss_hold(void); static int boss_coming(void); static void boss_frame(void); static void survival_clock_stop(void); /* (below, with Survival's waves) */
+static void boss_round_start(void); static int boss_hold(void); static int boss_coming(void);
+static int sd_seconds_left(void); static void sd_frame(void); /* (sudden death, below) */ static void boss_frame(void); static void survival_clock_stop(void); /* (below, with Survival's waves) */
 static uint64_t test_round_gv;    /* the round's start on the gameplay clock (kept with the network states: a machine that
                                    * took the host's has the host's; tests: TM2PC_TEST_ROUND_KILLS) */
 static uint32_t test_round_fired;
@@ -2649,6 +2650,7 @@ void vp_lives_frame(void)
     spawn_check_frame();
     versus_frame();
     test_kills();
+    sd_frame();
     round_test_kills();
     stage_clear_test();
     { /* (any game: coop_out is co-op's only) a player out, watching (co-op, 3-4 players): their HUD's lives 0, not one below it (the
@@ -5492,12 +5494,14 @@ static void timer_print(CPU *c, int p, int x, int y)
 {
     const MatchSetup *m = battle_match();
     int up = ui_survival() && surv_clock_start; /* Survival: the run's time, counting up */
-    if (!up && (!vp_dm() || m->time_limit <= 0 || dm_ended)) return;
+    int sd = sd_seconds_left(); /* (Last Car Standing's sudden death: its countdown) */
+    if (!up && sd < 0 && (!vp_dm() || m->time_limit <= 0 || dm_ended)) return;
     if (settings_video.hud_no_messages) return;
     uint64_t total = 3600ull * (uint64_t)m->time_limit, gone = vp_gv() - dm_start;
-    int secs = up ? vp_survival_seconds() : gone >= total ? 0 : (int)((total - gone + 59) / 60);
-    char text[16], st[48];
-    snprintf(text, sizeof text, "%02d:%02d", secs / 60, secs % 60);
+    int secs = up ? vp_survival_seconds() : sd >= 0 ? sd : gone >= total ? 0 : (int)((total - gone + 59) / 60);
+    char text[32], st[48];
+    if (sd >= 0) snprintf(text, sizeof text, "SUDDEN DEATH %d:%02d", secs / 60, secs % 60);
+    else snprintf(text, sizeof text, "%02d:%02d", secs / 60, secs % 60);
     if (mode_status(p, st, sizeof st) && !mode_is(MODE_JUGGERNAUT) && !mode_is(MODE_ODDBALL) && !mode_is(MODE_KING_OF_THE_HILL))
         y += 12; /* (under the mode's line; these three show theirs in the bar: right under it, the user's) */
     const uint32_t buf = DM_TEXT + 0xC0, ot = DM_TEXT + 0x660, sprites = 0x80DF6000u;
@@ -6644,6 +6648,68 @@ void vp_human_back(int h)
     respawn_human(h);
     fprintf(stderr, "lives: player %d is back in the match\n", h + 1);
 }
+/* ---- Sudden death (Last Car Standing, the game type's; the user's 2026-11-25) ----
+ * Two cars left (a car with lives still to come back counts): a countdown of the game type's seconds, on screen under the
+ * message bar; at zero the car with less of its own full health left explodes (a shield or not), a tie by the gameplay
+ * random numbers; with lives it loses one and, two cars still in, the countdown starts again. Gameplay: every machine
+ * the same (kept with the network states). */
+static uint64_t sd_start; /* (the countdown's start, gameplay VBlanks + 1; 0 none) */
+static int sd_on(void)
+{
+    const GameType *t = battle_rules();
+    return t && t->sudden_death > 0 && t->mode == MODE_LAST_CAR && !ui_survival() && !vp_dm() && !killcam_replaying;
+}
+static int sd_left(int *car, int n_max) /* the cars still in (their ids: a player's 1.., a computer car's 50 + k) */
+{
+    int n = 0, H = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    if (H < 0 || H > CARS_HUMANS_MAX) H = 0;
+    for (int h = 0; h < H; h++)
+        if (!coop_out[h] && (!mem_r8(&M.cpu, HUMAN_REC(h) + 0x9C) || life[h].at)) { if (n < n_max) car[n] = h + 1; n++; }
+    for (int k = 0; k < ais && k < cars_ai_max(); k++)
+        if ((boss_first < 0 || k < boss_first || boss_state == 3) && (ai_alive(k) || ai_life_pending(k))) {
+            if (n < n_max) car[n] = 50 + k;
+            n++;
+        }
+    return n;
+}
+static int sd_share(int id) /* a car's health, in thousandths of its full health (gone, coming back: full) */
+{
+    int h = id < 50 ? id - 1 : -1, k = id >= 50 ? id - 50 : -1;
+    uint32_t rec = h >= 0 ? HUMAN_REC(h) : AI_REC(k);
+    int hp = (int32_t)mem_r32(&M.cpu, rec + (h >= 0 ? 0x1F0u : 0x5A0u)), max = (int16_t)mem_r16(&M.cpu, rec + (h >= 0 ? 0x186u : 0x536u));
+    if (max <= 0) max = 100;
+    if (h >= 0 ? mem_r8(&M.cpu, rec + 0x9C) != 0 : !ai_alive(k)) return 1000;
+    return hp <= 0 ? 0 : hp * 1000 / max;
+}
+static int sd_seconds_left(void) /* (the countdown on screen: -1 none) */
+{
+    if (!sd_start || !sd_on()) return -1;
+    uint64_t total = 60ull * (uint64_t)battle_rules()->sudden_death, gone = vp_gv() - (sd_start - 1);
+    return gone >= total ? 0 : (int)((total - gone + 59) / 60);
+}
+static void sd_frame(void)
+{
+    if (!sd_on()) { sd_start = 0; return; }
+    int car[CARS_HUMANS_MAX + CARS_MAX], n = sd_left(car, (int)(sizeof car / sizeof car[0]));
+    if (n != 2) { sd_start = 0; return; }
+    if (!sd_start) {
+        sd_start = vp_gv() + 1;
+        snprintf(flash_text, sizeof flash_text, "SUDDEN DEATH");
+        flash_until = vp_gv() + 150;
+        fprintf(stderr, "sudden death: two cars left (%d, %d): %d seconds\n", car[0], car[1], battle_rules()->sudden_death);
+        return;
+    }
+    if (vp_gv() - (sd_start - 1) < 60ull * (uint64_t)battle_rules()->sudden_death) return;
+    sd_start = 0; /* (two still in after it: again) */
+    int a = sd_share(car[0]), b = sd_share(car[1]);
+    int out = a < b ? car[0] : b < a ? car[1] : car[(int)(vp_rand() & 1)];
+    fprintf(stderr, "sudden death: time up: car %d (%d/1000) and car %d (%d/1000): car %d explodes\n", car[0], a, car[1], b, out);
+    uint32_t rec = out < 50 ? HUMAN_REC(out - 1) : AI_REC(out - 50);
+    mem_w8(&M.cpu, rec + (out < 50 ? 0xAAu : 0x7Au), 0); /* (its shield down: state +0x0E) */
+    if (out < 50) mem_w8(&M.cpu, rec + 0x1F4, 1); /* (and damageable) */
+    guest_call5(GA(0x800E5628u), (uint32_t)out, 1000, 0, 0, (uint32_t)-1); /* carApplyDamage: out, no one's kill */
+    if (out >= 50) mem_w32(&M.cpu, rec + 0x5A0, 0); /* (a computer car: aiCarDamageUpdate destroys it, as the tests') */
+}
 static void duo_round_start(void)
 {
     versus.round_gv = vp_gv();
@@ -6831,7 +6897,7 @@ void vp_keep_register(void)
 #define KEEP(v) killcam_keep(&(v), sizeof(v))
     KEEP(spawn_taken); KEEP(spawn_count); KEEP(spawn_recent); KEEP(spawn_recent_at); KEEP(spawn_recent_n); KEEP(roulette_count); KEEP(roulette_w); KEEP(life); KEEP(lives_round); KEEP(vp_port_event);
     KEEP(spectating); KEEP(coop_out); KEEP(ai_life);
-    KEEP(boss_first); KEEP(boss_state); KEEP(boss_until);
+    KEEP(boss_first); KEEP(boss_state); KEEP(boss_until); KEEP(sd_start);
     KEEP(surv_clock_start); KEEP(surv_clock_end);
     KEEP(surv_round); KEEP(surv_state); KEEP(surv_until); KEEP(surv_down); KEEP(dm_start); KEEP(dm_ended);
     KEEP(gun_seq); KEEP(gun_count); KEEP(specials); KEEP(special_n); KEEP(hunted_team); KEEP(hunted_tick); KEEP(mode_retarget);

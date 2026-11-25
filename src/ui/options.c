@@ -1589,7 +1589,14 @@ enum { GT_INFINITE, GT_HEALTH, GT_TURBO, GT_RESPAWN, GT_SPECIALS, GT_RECHARGE, G
        GT_ROULETTE_COUNT, GT_ROULETTE_ADD, GT_FALLOFF, GT_SPECIAL_AMMO, GT_AI_TARGETS, GT_FRIENDLY_FIRE, GT_CAR_RESPAWN,
        GT_SPAWN_SHIELD, GT_JUGG_HEALTH, GT_JUGG_HEAL, GT_JUGG_WEAPON, GT_JUGG_RAM, GT_JUGG_INFINITE, GT_JUGG_FORCE, GT_JUGG_CAR,
        GT_GUN_ORDER, GT_GUN_INFINITE, GT_GUN_AMMO, GT_HUNTED_COUNT, GT_HUNTED_ATTACK, GT_KOTH_MOVE,
-       GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES };
+       GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES, GT_SUDDEN,
+       GT_SUDDEN_END };
+/* Last Car Standing's sudden death: its countdown once two cars are left (the user's 2026-11-25) */
+enum { SUDDEN_STEPS = 8 };
+static const int sudden_steps[SUDDEN_STEPS] = {0, 15, 30, 45, 60, 90, 120, 180};
+static const char *const sudden_values[SUDDEN_STEPS] = {"OFF", "15 SECONDS", "30 SECONDS", "45 SECONDS", "1 MINUTE", "90 SECONDS",
+                                                       "2 MINUTES", "3 MINUTES"};
+static const char *const sudden_end_values[SUDDEN_END_COUNT] = {"LOWER HEALTH EXPLODES"};
 static const char *const koth_move_values[6] = {"NEVER", "1 MINUTE", "2 MINUTES", "3 MINUTES", "4 MINUTES", "5 MINUTES"};
 static const char *const gun_order_values[2] = {"WEAKEST FIRST", "STRONGEST FIRST"};
 static const char *const one_to_20[20] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
@@ -1648,6 +1655,8 @@ static int get_gt_flag(int a)
            : a == GT_FRIENDLY_FIRE ? edit_gt.friendly_fire
            : a == GT_CAR_RESPAWN ? step_of(respawn_steps, RESPAWN_STEPS, edit_gt.respawn)
            : a == GT_SPAWN_SHIELD ? step_of(shield_steps, SHIELD_STEPS, edit_gt.spawn_shield)
+           : a == GT_SUDDEN ? step_of(sudden_steps, SUDDEN_STEPS, edit_gt.sudden_death)
+           : a == GT_SUDDEN_END ? edit_gt.sudden_death_end
            : a == GT_JUGG_HEALTH ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_health)
            : a == GT_JUGG_HEAL ? edit_gt.jugg_full_heal
            : a == GT_JUGG_WEAPON ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_weapon)
@@ -1679,6 +1688,8 @@ static void set_gt_flag(int a, int v)
     else if (a == GT_FRIENDLY_FIRE) edit_gt.friendly_fire = v;
     else if (a == GT_CAR_RESPAWN) edit_gt.respawn = respawn_steps[v % RESPAWN_STEPS];
     else if (a == GT_SPAWN_SHIELD) edit_gt.spawn_shield = shield_steps[v % SHIELD_STEPS];
+    else if (a == GT_SUDDEN) edit_gt.sudden_death = sudden_steps[v % SUDDEN_STEPS], rebuild_page = 1;
+    else if (a == GT_SUDDEN_END) edit_gt.sudden_death_end = v % SUDDEN_END_COUNT;
     else if (a == GT_JUGG_HEALTH) edit_gt.jugg_health = pct_steps[v % PCT_STEPS];
     else if (a == GT_JUGG_HEAL) edit_gt.jugg_full_heal = v;
     else if (a == GT_JUGG_WEAPON) edit_gt.jugg_weapon = pct_steps[v % PCT_STEPS];
@@ -2025,6 +2036,14 @@ static void build_battle(PageId page)
             add_page("Hunted", PAGE_BATTLE_HUNTED, "How many targets, and whether they may fire.");
         if (t->mode == MODE_KING_OF_THE_HILL)
             add_page("King of the Hill", PAGE_BATTLE_KOTH, "The hills: how many, where, and when they move.");
+        if (t->mode == MODE_LAST_CAR) {
+            add_choice("Sudden death", "Once two cars are left, a countdown starts on screen. Off: no countdown.", get_gt_flag,
+                       set_gt_flag, GT_SUDDEN, sudden_values, SUDDEN_STEPS);
+            if (t->sudden_death)
+                add_choice("Sudden death end", "What happens when the countdown reaches zero: the car with less health left "
+                           "(its share of its own full health) explodes.", get_gt_flag, set_gt_flag, GT_SUDDEN_END,
+                           sudden_end_values, SUDDEN_END_COUNT);
+        }
         add_choice("Respawn time", t->mode == MODE_LAST_CAR ? "With lives (the match's Lives): extra time before a destroyed "
                    "car comes back, after it finishes burning." : "Extra time before a destroyed car comes back, after it finishes "
                    "burning.", get_gt_flag, set_gt_flag, GT_CAR_RESPAWN, respawn_values, RESPAWN_STEPS);

@@ -62,7 +62,10 @@ typedef struct {
                                         * teams may have targets), 1 swap team (the targets all on one team; a kill of one by
                                         * another team: the killer and others of its team at random the targets) */
     int jugg_invisible;                /* the Juggernaut shimmers, barely seen (the game's invisibility fade, held) */
+    int sudden_death;                  /* Last Car Standing: two cars left, a countdown of this many seconds (0 off) */
+    int sudden_death_end;              /* what its end does: SUDDEN_x */
 } GameType;
+enum { SUDDEN_LOWER_HEALTH, SUDDEN_END_COUNT }; /* sudden death's end: the car with less health (by its share) explodes */
 /* Gun Game's levels: the pickup weapons, weakest first; then a ram kill and the machine gun, last */
 enum { GUN_FIRE, GUN_HOMING, GUN_RICOCHET, GUN_REMOTE, GUN_LIGHTNING, GUN_NAPALM, GUN_POWER, GUN_RAM, GUN_MG, GUN_COUNT,
        GUN_WEAPONS = GUN_RAM };
