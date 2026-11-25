@@ -71,6 +71,8 @@ typedef struct {
     int want_full;                 /* (host) it asked for the whole state (its base gone: another battle's) */
     uint32_t due_ms;               /* (host) a state owed to it since then, waiting for its base (base_wait_ms at most) */
     uint32_t ask_ms;               /* (host) a resync's: its base asked for then (RESYNC_BASE_MS at most, then whole) */
+    int32_t ask_step;              /* (host) the step its base is asked of (the host keeps its own state of that step:
+                                    * the delta between the same step's two states; -1 none) */
     int away;                      /* (host) what it said it is doing: SES_AWAY_* (not stepping: a replay, between screens) */
 } Peer;
 
@@ -96,6 +98,8 @@ struct Session {
     uint8_t *tx;                   /* a state to send */
     uint32_t base_wait_ms;         /* (host) a state owed waits this long for the machine's base (0: never: whole) */
     int base_asked;                /* (a machine) the host asked for its base (a resync's): ses_base_asked */
+    int32_t base_ask_step;         /* (a machine) of that step (-1: now, an older host's ask) */
+    int32_t made_at;               /* (host) the step of the state the game just made, when not the one asked (-1) */
     const uint8_t *cur_base;       /* (host) while the game makes a state: the machine's base (ses_state_base) */
     int cur_base_len;
     SesVoiceFn voice;
@@ -256,24 +260,47 @@ static void send_state(Session *s, int to, uint32_t now_ms)
         if (now_ms - pt->due_ms < s->base_wait_ms) { pt->state_due = 1; return; }
     }
     if (resync && s->base_wait_ms && !pt->base_new && !pt->want_full) {
+        int32_t lead = (int32_t)(pt->rtt / SES_STEP_MS) + 3; /* (the ask there and back, and a little: the step ahead) */
+        if (lead > 40) lead = 40;
         if (!pt->ask_ms) {
             pt->ask_ms = now_ms ? now_ms : 1;
-            uint8_t m[1] = {R_BASE_ASK};
-            rel_send(s, to, m, 1);
+            /* (of a step a little ahead, the same for every machine asked meanwhile: the machine's base then, the host's
+             * own state then (game: ses_snap_step); the delta between the two states of one step is what really
+             * differs, not everything that moved between two steps: the user's 2026-11-25) */
+            int32_t t = rb_now(s->rb) + lead;
+            for (int o = 0; o < SES_MAX_NODES; o++)
+                if (o != to && s->peer[o].present && s->peer[o].ask_step > rb_now(s->rb)) t = s->peer[o].ask_step;
+            pt->ask_step = t;
+            uint8_t m[5], *w = m;
+            w = p8(w, R_BASE_ASK); w = p32(w, (uint32_t)t);
+            rel_send(s, to, m, (int)(w - m));
         }
-        if (now_ms - pt->ask_ms < RESYNC_BASE_MS) { pt->state_due = 1; return; }
+        uint32_t waited = now_ms - pt->ask_ms;
+        if (waited < 8000u && (waited < RESYNC_BASE_MS + 2u * (uint32_t)lead * SES_STEP_MS ||
+                               (pt->ask_step >= 0 && rb_now(s->rb) < pt->ask_step + lead))) { /* (by the steps too: on a slow
+                                                                    * link the game itself runs slow; 8 s at most) */
+            pt->state_due = 1;
+            return;
+        }
     }
     if (!s->one_step) rb_catch_up(s->rb); /* (a game rolls back only between two steps of its own: ses_step) */
     int32_t step = rb_confirmed(s->rb) + 1;
     int use_base = pt->base_new && !pt->want_full;
     s->cur_base = use_base ? pt->base : NULL;
     s->cur_base_len = use_base ? pt->base_len : 0;
+    s->made_at = -1;
     int len = s->game.serialize(s->game.rb.ctx, step, s->tx, s->game.state_max);
+    if (len > 0 && s->made_at >= 0) step = s->made_at; /* (the state of the asked step, kept by the game: older) */
+    s->made_at = -1;
     s->cur_base = NULL;
     s->cur_base_len = 0;
     pt->state_due = len <= 0; /* (not now: again at the next send) */
     if (len <= 0) return;
     pt->base_new = pt->want_full = 0, pt->due_ms = pt->ask_ms = 0; /* (a base: once) */
+    pt->ask_step = -1;
+    if (resync) /* (the state of a step older than what the machine said it knows: the inputs from that step on sent
+                 * again, its known lowered; its reports after it, of older steps, only raise them again) */
+        for (int i = 0; i < RB_MAX_SLOTS; i++) if (pt->known[i] >= step) pt->known[i] = step - 1;
     if (s->peer[to].resync_wait) s->peer[to].resync_id = (uint16_t)(s->peer[to].out_id + (len + CHUNK - 1) / CHUNK - 1);
     for (int off = 0; off < len || off == 0; off += CHUNK) {
         int n = len - off < CHUNK ? len - off : CHUNK;
@@ -337,6 +364,7 @@ static void handle_rel(Session *s, int from, const uint8_t *m, int len, uint32_t
         }
     } else if (kind == R_BASE_ASK && s->host != s->node) { /* (a machine) its base, for a resync's state */
         s->base_asked = 1;
+        s->base_ask_step = len >= 5 ? (int32_t)g32(&q) : -1;
     } else if (kind == R_BASE && len >= 9 && from >= 0 && from < SES_MAX_NODES) { /* (host) a machine's base, in pieces */
         Peer *pb = &s->peer[from];
         uint32_t total = g32(&q), off = g32(&q), n = (uint32_t)len - 9;
@@ -475,8 +503,11 @@ static Session *alloc_session(int node, int host, const NetTransport *net, const
     s->tx = malloc((size_t)game->state_max);
     s->rb = rb_new(&game->rb, 0, delay, SES_HASH_EVERY);
     if (!s->rx || !s->tx || !s->rb) { ses_free(s); return NULL; }
-    for (int n = 0; n < SES_MAX_NODES; n++)
+    for (int n = 0; n < SES_MAX_NODES; n++) {
         for (int i = 0; i < RB_MAX_SLOTS; i++) s->peer[n].known[i] = -1;
+        s->peer[n].ask_step = -1;
+    }
+    s->base_ask_step = s->made_at = -1;
     s->kick.target = -1;
     memset(s->vote.choice, -1, sizeof s->vote.choice);
     return s;
@@ -1067,8 +1098,15 @@ void ses_set_one_step(Session *s, int on) { s->one_step = on != 0; }
 int ses_behind(const Session *s) { return s->behind && s->host != s->node; }
 int ses_state_owed(const Session *s)
 {
-    for (int n = 0; n < SES_MAX_NODES; n++)
-        if (n != s->node && s->peer[n].present && s->peer[n].state_due) return 1;
+    for (int n = 0; n < SES_MAX_NODES; n++) {
+        const Peer *p = &s->peer[n];
+        if (n == s->node || !p->present || !p->state_due) continue;
+        if (p->ask_step >= 0 && !p->base_new && rb_now(s->rb) < p->ask_step - 1) continue; /* (a resync's base asked of a step
+              * ahead: play goes on as usual until the step before it; then no step past the inputs, so the host's state
+              * of that step, kept as it starts, is the confirmed one. Held from the ask, a slow link crawled: 500 ms
+              * each way, the step never came before the wait ran out, the whole state sent) */
+        return 1;
+    }
     return 0;
 }
 void ses_set_lockstep(Session *s, int on)
@@ -1124,6 +1162,15 @@ void ses_set_base_wait(Session *s, uint32_t ms) { s->base_wait_ms = ms; }
 void ses_set_watchers(Session *s, uint32_t nodes) { s->watchers = nodes; }
 const uint8_t *ses_state_base(const Session *s, int *len) { if (len) *len = s->cur_base_len; return s->cur_base; }
 int ses_base_asked(Session *s) { int a = s->base_asked; s->base_asked = 0; return a; }
+int32_t ses_base_ask_step(const Session *s) { return s->base_ask_step; }
+int32_t ses_snap_step(const Session *s) /* (host) a step whose state the game keeps (a resync's base asked of it), -1 none */
+{
+    int32_t t = -1;
+    for (int n = 0; n < SES_MAX_NODES; n++)
+        if (n != s->node && s->peer[n].present && s->peer[n].resync_wait && s->peer[n].ask_step >= 0) t = s->peer[n].ask_step;
+    return t;
+}
+void ses_state_made_at(Session *s, int32_t step) { s->made_at = step; }
 void ses_send_base(Session *s, const uint8_t *base, int len) /* (a machine) to the host, in pieces (len 0: the whole state) */
 {
     if (s->host == s->node || s->host < 0 || len < 0 || len > BASE_MAX) return;

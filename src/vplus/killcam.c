@@ -274,6 +274,16 @@ static void load(const Snap *s)
 enum { NET_STATE_MAGIC = 0x53324D54u, NET_STATE_VERSION = 1 }; /* "TM2S" */
 #define NET_STATE_FIXED (8 + RAM_SIZE + 1024 + sizeof(CPU) + sizeof(double) + 3 * 8 + 4 * 4 + sizeof(((Snap *)0)->events) + 8 * 3 + 4 * 3)
 size_t killcam_state_size(void) { return NET_STATE_FIXED + keep_bytes; }
+int killcam_state_keep_at(size_t off, size_t *size) /* the kept block at a state offset (-1: none; tests' logs) */
+{
+    if (off < NET_STATE_FIXED) return -1;
+    size_t at = NET_STATE_FIXED;
+    for (int i = 0; i < keep_n; i++) {
+        if (off < at + keep[i].n) { if (size) *size = keep[i].n; return i; }
+        at += keep[i].n;
+    }
+    return -1;
+}
 static uint8_t *put(uint8_t *w, const void *p, size_t n) { memcpy(w, p, n); return w + n; }
 static const uint8_t *get(const uint8_t *r, void *p, size_t n) { memcpy(p, r, n); return r + n; }
 size_t killcam_state_save(uint8_t *out, size_t cap)
