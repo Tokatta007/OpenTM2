@@ -3647,6 +3647,16 @@ static void friends_rows(void)
         rows[row_count - 1].text = status[i];
     }
 }
+/* the friend requests waiting (the master's list, fetched while in Network Play, Online): "1 REQUEST", "3 REQUESTS"; NULL
+ * none. Shown on the rows that lead to Friends (the user's 2026-11-25: players did not know they had one) */
+static const char *friend_requests_text(void)
+{
+    static char t[24];
+    int n = friends_my_id() ? friends_count(1) : 0;
+    if (n <= 0) return NULL;
+    snprintf(t, sizeof t, "%d REQUEST%s", n, n == 1 ? "" : "S");
+    return t;
+}
 static void net_player_rows(void)
 {
     if (net_target < 0) return;
@@ -4412,9 +4422,11 @@ static void build(PageId page)
         break;
     }
     case PAGE_NETWORK:
-        add_page("Online", PAGE_ACTION, "Play over the internet: join a server, or host one.");
+        add_page("Online", PAGE_ACTION, friend_requests_text() ? "Play over the internet: join a server, or host one. "
+                 "Someone asked to be your friend: see Friends." : "Play over the internet: join a server, or host one.");
         rows[row_count - 1].act = ACT_NET_MODE;
         rows[row_count - 1].arg = 0;
+        rows[row_count - 1].text = friend_requests_text();
         add_page("LAN", PAGE_ACTION, "Play on this network: join a server, or host one.");
         rows[row_count - 1].act = ACT_NET_MODE;
         rows[row_count - 1].arg = 1;
@@ -4424,7 +4436,11 @@ static void build(PageId page)
         add_page("Host Server", PAGE_NET_HOST, "Make a server: its game, its rules, then wait for players.");
         add_page("Join by address", PAGE_ACTION, "Type a server's address (its IP, and :port if not the usual 27520).");
         rows[row_count - 1].act = ACT_NET_ADDRESS;
-        if (!net_lan) add_page("Friends", PAGE_FRIENDS, "Your friends: who is online, and in which server (join them).");
+        if (!net_lan) {
+            add_page("Friends", PAGE_FRIENDS, friend_requests_text() ? "Your friends, and the players who asked to be one: "
+                     "accept or decline them there." : "Your friends: who is online, and in which server (join them).");
+            rows[row_count - 1].text = friend_requests_text();
+        }
         break;
     case PAGE_FRIENDS:
         friends_rows();
@@ -4460,6 +4476,10 @@ static void build(PageId page)
     }
     case PAGE_NET_BROWSER:
         if (!net_lan) netplay_friends_page(1); /* (the servers your friends are in) */
+        if (!net_lan && friend_requests_text()) { /* (a request while looking for a server: there, at the top) */
+            add_page("Friend requests", PAGE_FRIENDS, "Players who asked to be your friend: accept or decline them.");
+            rows[row_count - 1].text = friend_requests_text();
+        }
         net_browser_rows();
         break;
     case PAGE_NET_FILTERS:
@@ -9324,6 +9344,16 @@ static int run(PageId start)
                     scroll = 0;
                     dirty = 1;
                 }
+            }
+        }
+        { /* a friend request arriving (or answered): the rows that show it built again */
+            static int requests_seen = -1;
+            int nr = friends_my_id() ? friends_count(1) : 0;
+            if (nr != requests_seen) {
+                if (requests_seen >= 0 && (page == PAGE_NETWORK || page == PAGE_NET_MODE || page == PAGE_NET_BROWSER))
+                    rebuild_page = 1;
+                if (nr > requests_seen && requests_seen >= 0) fprintf(stderr, "friends: a new request (%d now)\n", nr);
+                requests_seen = nr;
             }
         }
         if (page == PAGE_FRIENDS) { /* (the friends' news: the page again each second) */

@@ -112,8 +112,22 @@ void friends_poll(uint32_t now_ms, int active, int in_server)
     while ((n = udp_poll(F.u, &from, addr, &port, buf, sizeof buf)) > 0) friends_packet(buf, n);
 }
 
-int friends_count(int requests) { return F.n[requests & 1]; }
-const Friend *friends_get(int requests, int i) { return i >= 0 && i < F.n[requests & 1] ? &F.list[requests & 1][i] : NULL; }
+static int test_requests(void) /* tests: TM2PC_TEST_FRIEND_REQUESTS=N, N made-up requests (the notice's pictures) */
+{
+    static int n = -1;
+    if (n < 0) n = getenv("TM2PC_TEST_FRIEND_REQUESTS") ? atoi(getenv("TM2PC_TEST_FRIEND_REQUESTS")) : 0;
+    return n;
+}
+int friends_count(int requests) { return (requests & 1) && test_requests() ? test_requests() : F.n[requests & 1]; }
+const Friend *friends_get(int requests, int i)
+{
+    if ((requests & 1) && test_requests()) {
+        static Friend fake;
+        snprintf(fake.name, sizeof fake.name, "TESTER %d", i + 1);
+        return i >= 0 && i < test_requests() ? &fake : NULL;
+    }
+    return i >= 0 && i < F.n[requests & 1] ? &F.list[requests & 1][i] : NULL;
+}
 int friends_is(const uint8_t id[MASTER_ID_BYTES])
 {
     static int all = -1; /* tests (TM2PC_TEST_ALL_FRIENDS): every other player a friend (the marks' pictures) */
