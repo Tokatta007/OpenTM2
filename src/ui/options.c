@@ -4454,6 +4454,7 @@ static void build(PageId page)
         break;
     }
     case PAGE_NETWORK:
+        { void netplay_friends_peek(void); netplay_friends_peek(); } /* (the requests: shown here too) */
         add_page("Online", PAGE_ACTION, friend_requests_text() ? "Play over the internet: join a server, or host one. "
                  "Someone asked to be your friend: see Friends." : "Play over the internet: join a server, or host one.");
         rows[row_count - 1].act = ACT_NET_MODE;
@@ -4469,6 +4470,7 @@ static void build(PageId page)
         add_page("Join by address", PAGE_ACTION, "Type a server's address (its IP, and :port if not the usual 27520).");
         rows[row_count - 1].act = ACT_NET_ADDRESS;
         if (!net_lan) {
+            { void netplay_friends_peek(void); netplay_friends_peek(); } /* (the requests: fetched here too) */
             add_page("Friends", PAGE_FRIENDS, friend_requests_text() ? "Your friends, and the players who asked to be one: "
                      "accept or decline them there." : "Your friends: who is online, and in which server (join them).");
             rows[row_count - 1].text = friend_requests_text();

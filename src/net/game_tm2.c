@@ -1327,6 +1327,16 @@ static void friends_setup(void)
     friends_masters(internet && netplay_master_known() ? net_masters() : "", net_loopback());
 }
 void netplay_friends_page(int on) { friends_page = on; if (on) friends_setup(); } /* (ui/options.c: the Friends page, the browser) */
+void netplay_friends_peek(void) /* (ui/options.c: Network Play's first pages, before Online or LAN is chosen) the requests
+                                 * fetched through the masters, so "1 REQUEST" shows there (before: only once the Friends
+                                 * page or the server list had been opened) */
+{
+    uint8_t id[8], secret[16];
+    friends_page = 1;
+    if (profile_online_identity(id, secret)) friends_identity(id, secret, profile_name());
+    else friends_identity(NULL, NULL, NULL);
+    friends_masters(netplay_master_known() ? net_masters() : "", net_loopback());
+}
 void netplay_masters_changed(void) { friends_setup(); } /* (Online Services: another list) */
 void netplay_internet(int on) { internet = on || getenv("TM2PC_NET_INTERNET"); friends_setup(); } /* (tests: always) */
 static void use_master(void)
