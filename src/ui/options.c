@@ -10575,6 +10575,7 @@ static int versus_cpu[BATTLE_OPPONENT_SLOTS], versus_cpu_n; /* (versus) the firs
                                        * every stage after it (from the host's state: every machine the same) */
 static MatchSetup tour_match;          /* the stage being played (battle_match() while trun.on) */
 static int tour_returning;             /* the tournament is over: back to its page */
+int ui_custom_tour_on(void) { return battle_live && trun.on && !trun.versus; } /* (its duel too: a tournament's rules, not a match's) */
 int ui_tour_on(void) { return battle_live && trun.on && !trun.duel && !trun.versus; } /* the players one side (the duel, versus: each their own) */
 static int tour_start_lives(void) /* as the tournament's: 3 (3 players: 2, 4 players: 1, as Vanilla Plus's lives per level) */
 {

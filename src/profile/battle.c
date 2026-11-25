@@ -123,6 +123,7 @@ int battle_type_playable(const GameType *t)
 /* ---- built-in game types ---- */
 static GameType builtin[16];
 static const char *builtin_descs[16];
+static char builtin_desc_text[16][192];
 static int builtin_count;
 /* each change to a list of game types (built-in, the profile's, the other players'): battle_type_named's answer
  * found again */
@@ -135,7 +136,11 @@ static GameType *add_builtin(const char *name, int mode, const char *desc)
     /* the built-in types (the user's, 2026-10-30): no invisibility, Minion's volley or napalm energy attacks */
     t->energy &= ~(1u << ENERGY_INVISIBILITY | 1u << ENERGY_VOLLEY | 1u << ENERGY_NAPALM);
     snprintf(t->name, sizeof t->name, "%s", name);
-    builtin_descs[builtin_count++] = desc;
+    /* (said, so the secret ones off are not taken for a bug: the user's 2026-11-25) */
+    snprintf(builtin_desc_text[builtin_count], sizeof builtin_desc_text[0], "%s Napalm, volley and invisibility energy attacks are off.",
+             desc);
+    builtin_descs[builtin_count] = builtin_desc_text[builtin_count];
+    builtin_count++;
     types_gen++;
     return t;
 }
