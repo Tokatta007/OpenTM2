@@ -5965,15 +5965,21 @@ static int team_clut_upload(uint32_t pal, int group)
  * of the paint colors they share with the rest, in entries freed by merging near-identical colors; so the
  * paint can be recolored whole (Sweet Tooth's dots, not his head; Outlaw's panels, not its lights). The
  * body texture (image 0): its CLUT at body, then its pixel block (bnum, x, y, w, h; 8-bit pixels). */
+static void team_split_pixels(int car, uint32_t body, uint32_t pix, int w, int h);
 static void team_split_apply(uint32_t buf, int n)
 {
     int team = team_of_group(n), car = car_of_group(n);
     if (team < 0 || car < 0 || car > 13) return;
-    const TeamSplit *sp = &team_split[car];
-    if (!sp->n_merge && !sp->n_copy) return;
     uint32_t body = buf + 4u * (4u + mem_r32(&M.cpu, buf + 12) + 1u + 5u);
     uint32_t pblk = body - 12 + mem_r32(&M.cpu, body - 12), pix = pblk + 12;
     int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
+    team_split_pixels(car, body, pix, w, h);
+}
+/* a body texture's pixels (128 x 128, 8-bit) and its palette (body): the painted pixels moved to their own entries */
+static void team_split_pixels(int car, uint32_t body, uint32_t pix, int w, int h)
+{
+    const TeamSplit *sp = &team_split[car];
+    if (!sp->n_merge && !sp->n_copy) return;
     if (w != 128 || h != 128) { fprintf(stderr, "team colors: car %d's texture is %dx%d, not split\n", car, w, h); return; }
     uint8_t map[256], cp[256];
     for (int i = 0; i < 256; i++) map[i] = cp[i] = (uint8_t)i;
@@ -5998,6 +6004,32 @@ static void team_split_apply(uint32_t buf, int n)
         }
     if (getenv("TM2PC_TEAM_DEBUG")) fprintf(stderr, "team colors: car %d split (%d merged, %d copies)\n", car, sp->n_merge, sp->n_copy);
 }
+/* tests: TM2PC_TEST_CS_TEAM=T (0 red .. 3 yellow), the car select's spinning cars in team T's colors (CARSEL.TMS: each
+ * car's body palette at (768, 23 + car) and its 128 x 128 pixels the same as the battle's, decomp TEAM_COLORS.md 5.1):
+ * the battle's split and recolor applied to the file before it is uploaded. A preview for the team colors' art only. */
+static void team_carsel_test(uint32_t buf)
+{
+    static int team = -2;
+    if (team == -2) team = getenv("TM2PC_TEST_CS_TEAM") ? atoi(getenv("TM2PC_TEST_CS_TEAM")) % BATTLE_TEAM_COLORS : -1;
+    if (team < 0) return;
+    for (uint32_t a = buf; a < buf + 0x100000u; a += 4) { /* (each image's palette block: 0x20C bytes, at 768, 23..35, 256 x 1) */
+        if (mem_r32(&M.cpu, a) != 0x20Cu || mem_r32(&M.cpu, a + 8) != 0x10100u) continue;
+        uint32_t xy = mem_r32(&M.cpu, a + 4);
+        int car = (int)(xy >> 16) - 23;
+        if ((xy & 0xFFFF) != 768 || car < 0 || car > 12) continue;
+        uint32_t body = a + 12, pblk = a + 0x20C, pix = pblk + 12;
+        int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
+        team_split_pixels(car, body, pix, w, h);
+        for (int i = 0; i < 256; i++) {
+            uint16_t e = mem_r16(&M.cpu, body + 2u * (uint32_t)i);
+            if (axel_eye_entry(car, i)) continue;
+            if (team_paint[car][i >> 3] & (1 << (i & 7))) e = team_recolor(e, team_hue[team], car);
+            else e = team_accent_color(e, i, car, team);
+            mem_w16(&M.cpu, body + 2u * (uint32_t)i, e);
+        }
+        fprintf(stderr, "team colors: car select car %d in team %d's colors (test)\n", car, team);
+    }
+}
 void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
 {
     uint32_t buf = c->r[4];
@@ -6007,6 +6039,7 @@ void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
     const unsigned char *mod_car_team_paint(int number);
     int mod_number = buf == 0x80019C40u && n >= 1 ? mod_cars_group_number(n) : -1;
     if (buf == 0x80019C40u && n >= 1 && mod_number < 0) team_split_apply(buf, n); /* (a mod's texture: not the base's layout) */
+    if (buf == 0x80019C40u && n == 0) team_carsel_test(buf);
     F_80121A2C_orig(c);
     void hdtex_arena_parsed(uint32_t buf);
     if (buf == 0x80019C40u && n == 0) hdtex_arena_parsed(buf); /* (the arena's textures: the PC's sharper ones) */
