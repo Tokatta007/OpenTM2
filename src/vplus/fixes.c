@@ -4661,6 +4661,23 @@ int vp_mode_damage(int victim_slot, int attacker_slot, int ram, int amount)
         jugg_damage[attacker_slot] += amount;
     return amount;
 }
+/* carGroundEffects (800ED128, decomp car_wheels.c): lava takes 3 HP every 61 ticks straight from the record, outside
+ * carApplyDamage: the Juggernaut's toughness on it too, as on the burning (profile/feat_hooks.c). Sinking in deep water
+ * (its HP drained as the car goes under) is left as it is: a way out of the arena, not damage. */
+void F_800ED128_orig(CPU *c);
+void vp_GroundEffects(CPU *c) /* carGroundEffects(car, human) */
+{
+    uint32_t rec = c->r[4];
+    int human = (c->r[5] & 0xFF) != 0;
+    uint32_t hp_at = rec + (human ? 0x1F0u : 0x5A0u), sink_at = rec + (human ? 0xC0u : 0x90u); /* (stats +0xA4, state +0x24) */
+    int32_t before = (int32_t)mem_r32(c, hp_at);
+    int sinking = mem_r8(c, sink_at);
+    F_800ED128_orig(c);
+    int32_t now = (int32_t)mem_r32(c, hp_at);
+    if (now >= before || sinking || mem_r8(c, sink_at) || !mode_is(MODE_JUGGERNAUT)) return;
+    int taken = vp_mode_damage((int16_t)mem_r16(c, rec + (human ? 4u : 6u)), -1, 0, before - now);
+    if (taken != before - now) mem_w32(c, hp_at, (uint32_t)(before - taken));
+}
 static char kill_text[CARS_HUMANS_MAX][40];       /* (the kill feed's, below) */
 static uint64_t kill_until[CARS_HUMANS_MAX];
 static int flash_skip;

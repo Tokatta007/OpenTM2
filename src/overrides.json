@@ -44,6 +44,7 @@
   "800DC88C": "wrap:vp_HumanCarTick",
   "800D181C": "wrap:vp_ScheduleEvent",
   "8010C160": "wrap:feat_GroundFires",
+  "800ED128": "wrap:vp_GroundEffects",
   "8011BBD4": "wrap:vp_AiCarDamageUpdate",
   "8011C248": "wrap:vp_AiCountRemaining",
   "8011E16C": "wrap:vp_AiCountAlive",
