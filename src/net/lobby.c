@@ -877,6 +877,10 @@ void lobby_poll(Lobby *l, uint32_t now_ms)
                 if (n2 != l->node && l->view.m[n2].present) ses_app_send(l->ses, n2, m, (int)sizeof m);
         }
     } else if (l->status == LOBBY_IN || l->status == LOBBY_CONNECTING) {
+        uint32_t watchers = 0; /* (the spectators' machines: the next host only if no player's is left, session.c) */
+        for (int n2 = 0; n2 < SES_MAX_NODES; n2++)
+            if (l->view.m[n2].present && l->view.m[n2].spectate) watchers |= 1u << n2;
+        ses_set_watchers(l->ses, watchers);
         int h = ses_host(l->ses);
         if (h != l->host_node) { /* the host left: the machine there longest carries on as the host (session.c) */
             int old = l->host_node;

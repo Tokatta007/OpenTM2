@@ -103,6 +103,8 @@ int ses_host(const Session *s);
 /* a machine's start from the host's state, only what differs from its own (the game's base: its state's block hashes,
  * made as its battle loaded): the host waits up to ms for a machine's base, then sends the whole state */
 void ses_set_base_wait(Session *s, uint32_t ms);
+/* the machines (bits) whose players only watch: chosen as the new host last (the lobby's list, the same on every machine) */
+void ses_set_watchers(Session *s, uint32_t nodes);
 void ses_send_base(Session *s, const uint8_t *base, int len); /* (a machine) its base to the host (len 0: the whole, please) */
 const uint8_t *ses_state_base(const Session *s, int *len);  /* (host, in the game's serialize) the machine's base, or NULL */
 int ses_ready(const Session *s);              /* in the match (a joiner: once the host's state arrived) */

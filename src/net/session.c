@@ -78,6 +78,7 @@ struct Session {
     int node, host, delay, ready, migrating, lockstep, one_step, idle;
     int behind;                    /* (one_step) this machine 2 steps or more behind the host's: the game may catch up */
     uint16_t magic;                /* MAGIC, or with a match's tag (ses_set_tag): another match's packets dropped */
+    uint32_t watchers;             /* the machines of spectators (ses_set_watchers): a new host only if no other is left */
     uint32_t migrate_ms, departed; /* (a new host) the slots of the host that left: ended once the inputs are in */
     uint32_t send_all_until;       /* (a machine, the host moved) every slot's inputs to the new host until then */
     uint32_t offer;                /* (host) slots a joining machine may take */
@@ -566,10 +567,13 @@ static void node_left(Session *s, int n, uint32_t now_ms)
         return;
     }
     if (n != s->host) return;
-    /* the host left: the machine there longest (the lowest number) carries on as the host */
-    int next = s->node;
-    for (int o = 0; o < SES_MAX_NODES; o++)
-        if (o != n && (o == s->node || s->peer[o].present)) { next = o; break; }
+    /* the host left: the machine there longest (the lowest number) carries on as the host; a spectators' machine only
+     * when no player's is left (every machine has the same list from the lobby: the same choice everywhere) */
+    int next = -1;
+    for (int pass = 0; pass < 2 && next < 0; pass++)
+        for (int o = 0; o < SES_MAX_NODES; o++)
+            if (o != n && (o == s->node || s->peer[o].present) && (pass || !((s->watchers >> o) & 1))) { next = o; break; }
+    if (next < 0) next = s->node;
     s->host = next;
     s->st.migrations++;
     if (next == s->node) {
@@ -703,8 +707,9 @@ static int resync_held(Session *s)
         if (n == s->node || !p->resync_wait || p->state_due) continue; /* (not made yet: held once it goes, of its step then) */
         int out = 0;
         for (int i = 0; p->present && i < p->out_n && !out; i++) out = (int16_t)(p->out[i].id - p->resync_id) <= 0;
-        if (out) held = 1;
-        else p->resync_wait = 0;
+        if (out && p->slots) held = 1; /* (a spectators' machine: no inputs of its own, nobody waits for it; it takes the
+                                        * state and catches up alone, as a machine joining) */
+        else if (!out) p->resync_wait = 0;
     }
     return held;
 }
@@ -1116,6 +1121,7 @@ int ses_rel_pending(const Session *s, int node, int *state_got)
 }
 
 void ses_set_base_wait(Session *s, uint32_t ms) { s->base_wait_ms = ms; }
+void ses_set_watchers(Session *s, uint32_t nodes) { s->watchers = nodes; }
 const uint8_t *ses_state_base(const Session *s, int *len) { if (len) *len = s->cur_base_len; return s->cur_base; }
 int ses_base_asked(Session *s) { int a = s->base_asked; s->base_asked = 0; return a; }
 void ses_send_base(Session *s, const uint8_t *base, int len) /* (a machine) to the host, in pieces (len 0: the whole state) */
