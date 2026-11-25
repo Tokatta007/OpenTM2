@@ -5033,7 +5033,8 @@ static void build(PageId page)
             js->small = 1;
             js->locked = !bind_jump_combo(p);
         }
-        add_choice("Easy Energy Attacks", "Up freeze, Down rear fire, Left mines, Right shield. Steer with the stick.",
+        add_choice("Easy Energy Attacks", "Up freeze, Down rear fire, Left mines, Right shield. Steer with the stick, or move the attacks to other "
+                   "buttons below to steer with the D-pad.",
                    get_easy_energy, set_easy_energy, p, onoff_values, 2)->small = 1;
         add_choice("Layout", "The game's button layout. Changing it resets this player's controller buttons.",
                    get_keypad, set_keypad, p, keypad_values, 4)->small = 1; /* (last: right above the buttons it sets, the user's) */

@@ -328,7 +328,15 @@ static uint16_t player_pad_bits(int p)
                                     (x < -STICK_DEADZONE && !(own & 4) ? PSX_LEFT : 0) | (x > STICK_DEADZONE && !(own & 8) ? PSX_RIGHT : 0));
         if (!bind_easy_energy(p) || !feats_in_battle() || (bits & PSX_SELECT)) return bits | stick; /* (menus, car select: the
                                                      * D-pad and the stick steer them; Select held: Select + the D-pad) */
-        bits &= (uint16_t)~(PSX_UP | PSX_DOWN | PSX_LEFT | PSX_RIGHT); /* energy attacks on the D-pad: the stick drives */
+        /* energy attacks on the D-pad: the directions an attack is on (Controls; by default all four) are not steering, the
+         * stick drives; a direction with no attack on it steers again (Jean Alter's: the D-pad lost all steering) */
+        static const uint16_t dir[4] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT};
+        uint16_t used = 0;
+        for (int i = 0; i < BIND_ENERGY; i++) {
+            int e = bind_energy_button(p, i);
+            if (e >= 5 && e <= 8) used |= dir[e - 5];
+        }
+        bits &= (uint16_t)~used;
         return bits | stick;
     }
     return bits;
