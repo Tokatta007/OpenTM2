@@ -1394,6 +1394,7 @@ static void rejoin_check(void) /* (host, a match on) a machine in the lobby, not
         /* a machine watching a Versus Tournament: its players in during the stage it watches, playing from the next one
          * in their own cars (new records, after the others, every machine loading them; the user's 2026-11-11); one
          * machine at a time */
+        if (v->m[k].spectate) continue; /* (a spectators' machine: watching from the start, never brought in) */
         if (f == 0xFF && ng.watch_id[k] == v->m[k].id && !ng.offered && ui_net_join_next_stage() && ng.battle_steps >= 8 &&
             ses_present(ng.ses, k) && /* (in, watching, first: its view on the cars meanwhile) */
             ng.humans + v->m[k].count <= NG_PLAYERS) {
@@ -1525,7 +1526,8 @@ int netplay_match_begin(void)
     ng.node = lobby_node(lob);
     ng.host = lobby_host_node(lob);
     ng.tag = (uint16_t)(v->start.seed ^ (v->start.seed >> 16));
-    int watch = ng.node >= 0 && v->start.first[ng.node] == 0xFF && lobby_rejoining(lob); /* (in to watch: no players) */
+    int watch = ng.node >= 0 && v->start.first[ng.node] == 0xFF && (lobby_rejoining(lob) || lobby_spectating(lob)); /* (in
+                                                                         * to watch: no players; a spectator: every match) */
     if (ng.node < 0 || (v->start.first[ng.node] == 0xFF && !watch)) return 0;
     uint32_t slots[SES_MAX_NODES] = {0};
     ng.nodes = 0;

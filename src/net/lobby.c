@@ -40,6 +40,7 @@ struct Lobby {
     Session *ses;
     LobbyView view;
     int count;                                  /* this machine's players */
+    int spectate;                               /* this machine's players only watch (lobby_set_spectate) */
     LobbyPlayer mine[LOBBY_LOCAL_MAX];
     uint32_t hello_ms, hello_first_ms;          /* (a machine) the handshake's tries */
     uint32_t pending_ms[SES_MAX_NODES];         /* (host) nodes given out, not in the session yet */
@@ -168,6 +169,7 @@ static void send_state(Lobby *l) /* (host) the whole lobby to every machine */
         w = put32(w, mc->id);
         for (int i = 0; i < 2; i++) *w++ = (uint8_t)mc->region[i];
         for (int i = 0; i < 3; i++) *w++ = (uint8_t)mc->plat[i];
+        *w++ = mc->spectate;
     }
     *w++ = l->view.match_on;
     for (int n = 0; n < SES_MAX_NODES; n++)
@@ -196,7 +198,7 @@ static void got_state(Lobby *l, const uint8_t *r, int len) /* (a machine) the ho
         mc->ping = ping;
         mc->present = *r++;
         mc->count = *r++;
-        if (mc->count > LOBBY_LOCAL_MAX || end - r < mc->count * PLAYER_BYTES + 27) return;
+        if (mc->count > LOBBY_LOCAL_MAX || end - r < mc->count * PLAYER_BYTES + 28) return;
         for (int i = 0; i < mc->count; i++) r = get_player(r, &mc->p[i]);
         memcpy(mc->addr, r, 16);
         mc->addr[15] = 0;
@@ -206,6 +208,7 @@ static void got_state(Lobby *l, const uint8_t *r, int len) /* (a machine) the ho
         mc->id = get32(&r);
         get_where(r, mc);
         r += 5;
+        mc->spectate = *r++;
     }
     v.match_on = end - r >= 1 ? *r++ : 0;
     if (getenv("TM2PC_NET_DEBUG") && v.match_on != l->view.match_on) fprintf(stderr, "lobby: the host in a match: %d (%d bytes left)\n", v.match_on, (int)(end - r));
@@ -272,11 +275,12 @@ static void get_where(const uint8_t *r, LobbyMachine *mc)
 }
 static void send_info(Lobby *l) /* (a machine) its players, once in */
 {
-    uint8_t m[2 + LOBBY_LOCAL_MAX * PLAYER_BYTES + 5], *w = m;
+    uint8_t m[2 + LOBBY_LOCAL_MAX * PLAYER_BYTES + 6], *w = m;
     *w++ = L_INFO;
     *w++ = (uint8_t)l->count;
     for (int i = 0; i < l->count; i++) w = put_player(w, &l->mine[i]);
     w = put_where(w); /* (where it plays from) */
+    *w++ = (uint8_t)(l->spectate != 0); /* (its players only watch) */
     ses_app_send(l->ses, l->host_node, m, (int)(w - m));
 }
 static void on_app(void *ctx, int from, const uint8_t *d, int len)
@@ -294,6 +298,7 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
         r = d + 2;
         for (int i = 0; i < count; i++) r = get_player(r, &mc->p[i]);
         if (len >= 2 + count * PLAYER_BYTES + 5) get_where(r, mc);
+        if (len >= 2 + count * PLAYER_BYTES + 6) mc->spectate = r[5] != 0;
         l->dirty = 1;
     } else if (l->host && d[0] == L_SET && len >= 5 && from != l->node && from < SES_MAX_NODES) {
         LobbyMachine *mc = &l->view.m[from];
@@ -460,6 +465,7 @@ Lobby *lobby_join(const char *host, uint16_t port, int loopback, int count, cons
     l->node = -1;
     l->loopback = loopback;
     l->status = LOBBY_CONNECTING;
+    l->spectate = getenv("TM2PC_TEST_SPECTATE") != NULL; /* tests: this machine's players spectators from the start */
     l->udp = udp_open(0, loopback ? UDP_LOOPBACK : 0);
     if (!l->udp || !udp_set_node(l->udp, 0, host, port)) { lobby_free(l); return NULL; }
     return l;
@@ -895,6 +901,18 @@ void lobby_poll(Lobby *l, uint32_t now_ms)
 }
 
 /* ---- this machine's choices; the host's ---- */
+void lobby_set_spectate(Lobby *l, int on)
+{
+    l->spectate = on != 0;
+    if (l->host) {
+        if (l->node >= 0 && l->node < SES_MAX_NODES) l->view.m[l->node].spectate = (uint8_t)l->spectate;
+        l->dirty = 1;
+    } else if (l->ses && l->node >= 0) {
+        if (l->node < SES_MAX_NODES) l->view.m[l->node].spectate = (uint8_t)l->spectate; /* (shown at once) */
+        send_info(l);
+    }
+}
+int lobby_spectating(const Lobby *l) { return l->spectate; }
 void lobby_set_player(Lobby *l, int i, int car, int team, int ready)
 {
     if (i < 0 || i >= l->count) return;
@@ -994,8 +1012,8 @@ void lobby_start(Lobby *l, uint32_t seed, int delay, const int8_t car[SES_MAX_NO
     s.delay = (uint8_t)delay;
     memset(s.first, 0xFF, sizeof s.first);
     int h = 0;
-    for (int n = 0; n < SES_MAX_NODES; n++)
-        if (l->view.m[n].present && l->view.m[n].count) { s.first[n] = (uint8_t)h; h += l->view.m[n].count; }
+    for (int n = 0; n < SES_MAX_NODES; n++) /* (a spectators' machine: none of the start's players; it watches) */
+        if (l->view.m[n].present && l->view.m[n].count && !l->view.m[n].spectate) { s.first[n] = (uint8_t)h; h += l->view.m[n].count; }
     s.humans = (uint8_t)h;
     memcpy(s.car, car, SES_MAX_NODES);
     memset(s.skin, -1, sizeof s.skin);

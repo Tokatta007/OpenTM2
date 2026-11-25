@@ -2599,6 +2599,16 @@ static void set_net_filter(int a, int v)
     else net_filter.sort = v;
 }
 static int get_net_voice(int a) { (void)a; return net_voice_mode; }
+/* a machine joining: its players spectators (watching every match: no car, no team, not on the scoreboard; the user's
+ * 2026-11-25) or players */
+static int get_net_spectate(int a) { (void)a; return netplay_lobby() ? lobby_spectating(netplay_lobby()) : 0; }
+static void set_net_spectate(int a, int v)
+{
+    (void)a;
+    if (netplay_lobby()) lobby_set_spectate(netplay_lobby(), v);
+    fprintf(stderr, "network: %s\n", v ? "spectating: watching every match" : "playing again (from the next match)");
+    rebuild_page = 1;
+}
 static void set_net_voice(int a, int v) { (void)a; net_voice_mode = v; }
 static int net_cars_offered(void) /* the cars a player may pick (car-select order): the regular 12, then those unlocked */
 {
@@ -3687,6 +3697,9 @@ static void net_player_rows(void)
     if (c->kind == LC_PLAYER) { /* your car (as Triangle in the lobby: the user's 2026-11-01, for whoever misses it),
                                  * controls, voice; your team: car select */
         int p = c->local - 1;
+        if (netplay_lobby() && !lobby_is_host(netplay_lobby()) && c->local == 1)
+            add_choice("Spectate", "On: watch every match instead of playing (no car, no team, not on the scoreboard). "
+                       "Off: play from the next match.", get_net_spectate, set_net_spectate, 0, onoff_values, 2);
         add_page("Car select", PAGE_ACTION, "Car select for every player on this PC, as Triangle in the lobby.");
         rows[row_count - 1].act = ACT_NET_CAR;
         add_page("Set car to random", PAGE_ACTION, "A car at random when the match starts (one the game type allows)."); /* (always:
@@ -7802,13 +7815,17 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             TextColor tink = c->local ? ORANGE : WHITE;
             if (!c->local && pc >= 0) { memcpy(tink.top, pc_colors[pc % PC_COLORS], 3); memcpy(tink.bottom, pc_colors[pc % PC_COLORS], 3); }
             int show_tag = *tag != 0, show_friend = c->friend != 0, show_mic = talking || c->muted;
+            /* (a spectator: SPECTATOR in READY's place, the user's 2026-11-25) */
+            int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? lobby_spectating(netplay_lobby())
+                       : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].spectate : 0);
+            const char *rtext = spec ? "SPECTATOR" : c->ready ? "READY" : NULL;
             int ts = S(v, 7), gap = S(v, 5);
             for (;;) {
                 int total = 0;
                 if (show_tag) total += text_width(tag, ts) + gap;
                 if (c->kind == LC_CPU) total += text_width("CPU", ts) + gap;
                 if (c->host) total += text_width("HOST", ts) + gap;
-                if (c->ready) total += text_width("READY", ts) + gap;
+                if (rtext) total += text_width(rtext, ts) + gap;
                 if (show_friend) total += S(v, 10) + S(v, 4);
                 if (show_mic) total += S(v, 12);
                 else if (total) total -= gap;
@@ -7823,7 +7840,7 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             if (show_tag) { text_draw(v->c, tag, ux, uy + S(v, 3), ts, tink); ux += text_width(tag, ts) + gap; }
             if (c->kind == LC_CPU) { text_draw(v->c, "CPU", ux, uy + S(v, 3), ts, PALE); ux += text_width("CPU", ts) + gap; }
             if (c->host) { text_draw(v->c, "HOST", ux, uy + S(v, 3), ts, COPPER); ux += text_width("HOST", ts) + gap; }
-            if (c->ready) { text_draw(v->c, "READY", ux, uy + S(v, 3), ts, READY_GREEN); ux += text_width("READY", ts) + gap; }
+            if (rtext) { text_draw(v->c, rtext, ux, uy + S(v, 3), ts, spec ? PALE : READY_GREEN); ux += text_width(rtext, ts) + gap; }
             if (show_friend) { draw_person(v, ux, uy + S(v, 6), S(v, 10), CUSTOM); ux += S(v, 10) + S(v, 4); }
             if (show_mic) draw_mic(v, ux, uy, S(v, 12), c->muted ? (const uint8_t *)line : green, c->muted);
         }
@@ -16732,7 +16749,8 @@ static void scoreboard_frame(void)
             rect[nr * 4] = X(&v, bx), rect[nr * 4 + 1] = Y(&v, by), rect[nr * 4 + 2] = S(&v, bw), rect[nr * 4 + 3] = S(&v, bh);
             nr++;
             if (wp < 0 && watching && nr < 4) { /* in to watch (joined mid-match): when they play, above the banner */
-                const char *note = trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
+                const char *note = netplay_lobby() && lobby_spectating(netplay_lobby()) ? "SPECTATOR: SPECTATE OFF IN THE LOBBY TO PLAY"
+                                 : trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
                 float nh = 22, ny = by - nh - 6;
                 lettering();
                 int ns = S(&v, 12), nw = text_width(note, ns) + S(&v, 28), nx = X(&v, 320) - nw / 2;
@@ -16762,7 +16780,19 @@ static void scoreboard_frame(void)
     /* drawn again only when what it shows changes (every frame at a high resolution: the game at 1 FPS behind it) */
     uint32_t key = 2166136261u;
 #define SB_MIX(x) (key = (key ^ (uint32_t)(x)) * 16777619u)
+    /* the server's spectators (not on the board): their names in a line under it (the user's 2026-11-25) */
+    char specs[200] = "";
+    if (netplay_lobby()) {
+        const LobbyView *lv = lobby_view(netplay_lobby());
+        for (int n = 0; n < SES_MAX_NODES; n++)
+            for (int i = 0; lv->m[n].present && lv->m[n].spectate && i < lv->m[n].count; i++) {
+                size_t at = strlen(specs);
+                snprintf(specs + at, sizeof specs - at, "%s%s", at ? ", " : "SPECTATORS: ", lv->m[n].p[i].name);
+            }
+        upper(specs);
+    }
     SB_MIX(size.w); SB_MIX(size.h); SB_MIX(match_cars());
+    for (const char *q = specs; *q; q++) SB_MIX(*q);
     for (int i = 0; i < match_cars(); i++) {
         const MatchCar *m = match_car(i);
         SB_MIX(m->kills); SB_MIX(m->deaths); SB_MIX(m->damage); SB_MIX(m->points); SB_MIX(m->lives); SB_MIX(m->place);
@@ -16782,8 +16812,21 @@ static void scoreboard_frame(void)
     int hgt = scoreboard_height(60, 420), y = 240 - hgt / 2, x0, x1;
     scoreboard_span(&v, &x0, &x1);
     draw_scoreboard(&v, x0, y, x1, y + hgt, 0);
-    int rect[4] = {X(&v, x0), Y(&v, y), S(&v, x1 - x0), S(&v, hgt)};
-    overlay_with_lines(&sb, rect, 1);
+    int rect[8] = {X(&v, x0), Y(&v, y), S(&v, x1 - x0), S(&v, hgt)}, nr = 1;
+    if (specs[0]) { /* (under the board, its width) */
+        static const uint8_t panel[3] = {8, 8, 10};
+        float sy = (float)(y + hgt + 6), sh = 20;
+        lettering();
+        int ss = S(&v, 11);
+        char fit[200];
+        fit_text(fit, sizeof fit, specs, S(&v, x1 - x0 - 20), ss);
+        draw_fill(&sb, X(&v, x0), Y(&v, sy), S(&v, x1 - x0), S(&v, sh), panel, 255);
+        text_draw(&sb, fit, X(&v, x0 + 10), text_top_for_center(Y(&v, sy + sh / 2), ss), ss, PALE);
+        plain_text();
+        rect[4] = X(&v, x0), rect[5] = Y(&v, sy), rect[6] = S(&v, x1 - x0), rect[7] = S(&v, sh);
+        nr = 2;
+    }
+    overlay_with_lines(&sb, rect, nr);
     static int board_shot;
     if (getenv("TM2PC_NET_MENU_SHOT") && board_shot < 2) { /* tests: the scoreboard, as BMPs */
         char path[512];

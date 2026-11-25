@@ -43,7 +43,9 @@ typedef struct {
     uint16_t ping;      /* its round trip to the host, ms, as the host measures it (the host: 0; 0 too: not known yet) */
     char region[3];     /* its continent, 2 letters (NA, SA, EU, AF, AS, OC; "" not known): from its Windows region */
     char plat[4];       /* its platform, up to 3 letters (PC) */
+    uint8_t spectate;   /* its players only watch: in no match's start (no car, no team, not on the scoreboard) */
 } LobbyMachine;
+
 /* this PC's continent (lobby_region: its Windows region's country, as a continent; "" not known) and platform */
 const char *lobby_region(void);
 const char *lobby_platform(void);
@@ -67,6 +69,9 @@ typedef struct {
 } LobbyView;
 
 typedef struct Lobby Lobby;
+/* this machine's players: spectators (watching every match, never playing) or players; and as it is now */
+void lobby_set_spectate(Lobby *l, int on);
+int lobby_spectating(const Lobby *l);
 /* names: count of LOBBY_NAME-byte names (this machine's players); loopback: this PC only (tests: no firewall prompt) */
 Lobby *lobby_host(uint16_t port, int loopback, const char *server, int count, const char (*names)[LOBBY_NAME]);
 Lobby *lobby_join(const char *host, uint16_t port, int loopback, int count, const char (*names)[LOBBY_NAME]);
