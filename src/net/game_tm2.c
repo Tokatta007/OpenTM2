@@ -87,6 +87,8 @@ static struct {
     uint32_t last_ms;                    /* the last step's end (a gap: a kill cam's replay) */
     uint32_t gone;                       /* the humans whose machine left (bits): their cars out */
     uint32_t back;                       /* the humans whose machine came back (bits; leaving again clears it) */
+    uint32_t told_gone;                  /* the leaves told (log, notice): once, a step run again too (not rollback's state:
+                                          * a leave learned while steps ran again was never told) */
     int quiet_gone;                      /* (a machine coming back) the players gone already: known, not told again */
     uint32_t join_ask;                   /* (a machine coming back) its slots, asked for once its battle has begun */
     int join_wait;                       /* (its battle's own start first: the frames before the ask) */
@@ -466,7 +468,7 @@ static int devices_load(const uint8_t *r, size_t len)
  * the joiner puts them over its base: the host's state, byte for byte. A base not come (an old build, a host just
  * moved): the whole state after BASE_WAIT_MS; a delta made from another base (another battle's): the whole one asked */
 #include "miniz.h"
-enum { BASE_BLOCK = 16384, BASE_WAIT_MS = 15000 };
+enum { BASE_BLOCK = 4096, BASE_WAIT_MS = 15000 };
 static const uint32_t BASE_MAGIC = 0x31424D54u; /* "TMB1" */
 static uint8_t *base_raw, *work;  /* (a joiner) its own state as its battle loaded; (both) the delta's bytes, unpacked */
 static size_t base_len, work_cap;
@@ -496,7 +498,7 @@ static int base_send(void) /* (a joiner, its battle loaded) its own state kept, 
     n += devices_save(base_raw + n);
     uint32_t nb = (uint32_t)((n + BASE_BLOCK - 1) / BASE_BLOCK);
     size_t len = 12 + 8 * (size_t)nb;
-    if (len > 65536 || !work_room(len) || getenv("TM2PC_NET_NO_BASE")) { /* (too big: the whole state; tests: always) */
+    if (len > 131072 || !work_room(len) || getenv("TM2PC_NET_NO_BASE")) { /* (too big: the whole state; tests: always) */
         ses_send_base(ng.ses, NULL, 0);
         return 1;
     }
@@ -736,7 +738,7 @@ static int match_open(const NetTransport *net, const uint32_t slots[SES_MAX_NODE
     ng.pend_len = 0;
     ng.migrations_seen = ses_stats(ng.ses)->migrations;
     ng.migrated_ms = ng.last_ms = 0;
-    ng.gone = ng.back = ng.offered = 0;
+    ng.gone = ng.back = ng.offered = ng.told_gone = 0;
     memset(ng.watch_id, 0, sizeof ng.watch_id); /* (host: a new match, every machine asked again) */
     ng.quiet_gone = rejoin;
     ng.join_ask = ng.watch ? SES_WATCH : rejoin ? slots[ng.node] : 0;
@@ -912,6 +914,7 @@ static void slot_events(int32_t f)
         if (a > 0 && b == RB_NEVER && f >= a && !((ng.back >> h) & 1)) { /* back: from its step on, its car in again */
             ng.back |= 1u << h;
             ng.gone &= ~(1u << h);
+            ng.told_gone &= ~(1u << h); /* (a leave again: told again) */
             ng.offered &= ~(1u << h);
             if (lob) { /* (its button table as the lobby has it now: one copied as it was told of may be older) */
                 const LobbyView *lv = lobby_view(lob);
@@ -938,14 +941,16 @@ static void slot_events(int32_t f)
         ng.gone |= 1u << h;
         ng.back &= ~(1u << h);
         if (ng.quiet_gone) continue; /* (a machine coming back: gone before it came, its state has it so) */
-        if (!rbs_resimulating) fprintf(stderr, "network: player %d (%s) left the match at step %d\n", h + 1, ng.names[h], (int)f);
+        int tell = !((ng.told_gone >> h) & 1); /* (the first time it runs, live or again) */
+        ng.told_gone |= 1u << h;
+        if (tell) fprintf(stderr, "network: player %d (%s) left the match at step %d\n", h + 1, ng.names[h], (int)f);
         int in = 0;
         for (int o = 0; o < ng.humans; o++) in += !((ng.gone >> o) & 1);
         int cpu = ui_net_spot_cpu(in) && vp_human_handover(h); /* (the user's rule: a CPU / OPEN spot a computer car takes over) */
         if (!cpu)
             vp_human_left(h);
         rbs_dmd_again();
-        if (rbs_resimulating) continue; /* (a step run again: told the first time) */
+        if (!tell) continue; /* (told once) */
         if (cpu) fprintf(stderr, "network: player %d's spot was CPU / OPEN: a computer car drives on\n", h + 1);
         char t[40];
         notice_fit(t, sizeof t, ng.names[h][0] ? ng.names[h] : "A PLAYER", cpu ? " LEFT: CPU DRIVES ON" : " LEFT THE MATCH", cpu ? ": CPU" : " LEFT");
@@ -1006,6 +1011,7 @@ static void frame_body(void)
         ng.join_ask = 0;
         ng.want_base = !getenv("TM2PC_NET_NO_DELTA"); /* (after the ask: the host takes nothing before it) */
     }
+    if (ses_base_asked(ng.ses) && !getenv("TM2PC_NET_NO_DELTA")) ng.want_base = 1; /* (a resync's: this step's) */
     if (ng.want_base && ses_host(ng.ses) != ng.node && base_send()) ng.want_base = 0; /* (this machine's battle loaded) */
     state_apply(); /* (a state that came early: this is its step) */
     RbInput local[RB_MAX_SLOTS];
@@ -1321,6 +1327,16 @@ static void friends_setup(void)
     friends_masters(internet && netplay_master_known() ? net_masters() : "", net_loopback());
 }
 void netplay_friends_page(int on) { friends_page = on; if (on) friends_setup(); } /* (ui/options.c: the Friends page, the browser) */
+void netplay_friends_peek(void) /* (ui/options.c: Network Play's first pages, before Online or LAN is chosen) the requests
+                                 * fetched through the masters, so "1 REQUEST" shows there (before: only once the Friends
+                                 * page or the server list had been opened) */
+{
+    uint8_t id[8], secret[16];
+    friends_page = 1;
+    if (profile_online_identity(id, secret)) friends_identity(id, secret, profile_name());
+    else friends_identity(NULL, NULL, NULL);
+    friends_masters(netplay_master_known() ? net_masters() : "", net_loopback());
+}
 void netplay_masters_changed(void) { friends_setup(); } /* (Online Services: another list) */
 void netplay_internet(int on) { internet = on || getenv("TM2PC_NET_INTERNET"); friends_setup(); } /* (tests: always) */
 static void use_master(void)
@@ -1388,6 +1404,7 @@ static void rejoin_check(void) /* (host, a match on) a machine in the lobby, not
         /* a machine watching a Versus Tournament: its players in during the stage it watches, playing from the next one
          * in their own cars (new records, after the others, every machine loading them; the user's 2026-11-11); one
          * machine at a time */
+        if (v->m[k].spectate) continue; /* (a spectators' machine: watching from the start, never brought in) */
         if (f == 0xFF && ng.watch_id[k] == v->m[k].id && !ng.offered && ui_net_join_next_stage() && ng.battle_steps >= 8 &&
             ses_present(ng.ses, k) && /* (in, watching, first: its view on the cars meanwhile) */
             ng.humans + v->m[k].count <= NG_PLAYERS) {
@@ -1519,7 +1536,8 @@ int netplay_match_begin(void)
     ng.node = lobby_node(lob);
     ng.host = lobby_host_node(lob);
     ng.tag = (uint16_t)(v->start.seed ^ (v->start.seed >> 16));
-    int watch = ng.node >= 0 && v->start.first[ng.node] == 0xFF && lobby_rejoining(lob); /* (in to watch: no players) */
+    int watch = ng.node >= 0 && v->start.first[ng.node] == 0xFF && (lobby_rejoining(lob) || lobby_spectating(lob)); /* (in
+                                                                         * to watch: no players; a spectator: every match) */
     if (ng.node < 0 || (v->start.first[ng.node] == 0xFF && !watch)) return 0;
     uint32_t slots[SES_MAX_NODES] = {0};
     ng.nodes = 0;

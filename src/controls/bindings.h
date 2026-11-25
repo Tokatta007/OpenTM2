@@ -56,7 +56,7 @@ void bind_set_extra_key(int i, int scancode);
 
 /* Each player's energy attacks on buttons of their own (the user's, 2026-10-28): a controller button (1..16, 0
  * none) and, for players 1-2, a key; they work with "Easy Energy Attacks" on (input_easy_buttons). */
-#define BIND_ENERGY 6   /* freeze, rear fire, mines, shield, invisibility, jump (none by default: L1 + R1 or its code) */
+#define BIND_ENERGY 9   /* freeze, rear fire, mines, shield, invisibility, jump, napalm, volley, rear freeze (none by default) */
 extern const char *const bind_energy_names[BIND_ENERGY];
 int bind_energy_button(int player, int i);
 void bind_set_energy_button(int player, int i, int button);

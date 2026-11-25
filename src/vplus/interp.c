@@ -323,7 +323,11 @@ static uint32_t car_object_of_motion(uint32_t src)
 /* every object and camera as the blend of two steps' poses (each as it is where they cannot be blended) */
 static void apply(const Poses *a, const Poses *b, double t)
 {
-    for (int i = 0; i < a->n && i < b->n; i++) {
+    /* (only objects the pool has now, and only bodies still the table's: what the redraw saves and puts back; after a
+     * mid-session load, the boss phases', captures of the battle before wrote for good into the new files: decomp
+     * request 122's lead, Dark Tooth's and Minion's broken meshes at 60 FPS / uncapped) */
+    int used = pool_used();
+    for (int i = 0; i < a->n && i < b->n && i < used; i++) {
         uint32_t o = POOL + OBJ * (uint32_t)i;
         int is_cam = 0;
         for (int k = 0; k < CAMS; k++) if (b->cam[k] == o) is_cam = 1;
@@ -385,7 +389,7 @@ static void apply(const Poses *a, const Poses *b, double t)
     /* the car bodies (and with them their shadows) */
     for (int i = 0; i < car_body_count(); i++) {
         const FxBody *p = &ea->body[i], *q = &eb->body[i];
-        if (!q->node || p->node != q->node) continue;
+        if (!q->node || p->node != q->node || q->node != mem_r32(&M.cpu, CAR_BODIES + 4u * (uint32_t)i)) continue;
         double d = 0;
         for (int k = 0; k < 3; k++) d += ((double)q->t[k] - p->t[k]) * ((double)q->t[k] - p->t[k]);
         if (d > 400.0 * 400.0) continue;

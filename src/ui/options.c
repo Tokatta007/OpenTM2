@@ -724,8 +724,8 @@ static int pad_kind(int player)
 static int glyph_kind = 1; /* for the page being drawn */
 
 /* next / previous song rows: the button (0 none .. 16 R3) */
-static int get_energy_button(int a) { return bind_energy_button(a / 8, a % 8); }
-static void set_energy_button(int a, int v) { bind_set_energy_button(a / 8, a % 8, v); changed |= SAVE_CONTROLS; }
+static int get_energy_button(int a) { return bind_energy_button(a / 16, a % 16); } /* (a: player * 16 + row) */
+static void set_energy_button(int a, int v) { bind_set_energy_button(a / 16, a % 16, v); changed |= SAVE_CONTROLS; }
 static int get_extra_button(int a) { return bind_extra_button(a); }
 static void set_extra_button(int a, int v) { bind_set_extra_button(a, v); changed |= SAVE_CONTROLS; }
 
@@ -1589,7 +1589,14 @@ enum { GT_INFINITE, GT_HEALTH, GT_TURBO, GT_RESPAWN, GT_SPECIALS, GT_RECHARGE, G
        GT_ROULETTE_COUNT, GT_ROULETTE_ADD, GT_FALLOFF, GT_SPECIAL_AMMO, GT_AI_TARGETS, GT_FRIENDLY_FIRE, GT_CAR_RESPAWN,
        GT_SPAWN_SHIELD, GT_JUGG_HEALTH, GT_JUGG_HEAL, GT_JUGG_WEAPON, GT_JUGG_RAM, GT_JUGG_INFINITE, GT_JUGG_FORCE, GT_JUGG_CAR,
        GT_GUN_ORDER, GT_GUN_INFINITE, GT_GUN_AMMO, GT_HUNTED_COUNT, GT_HUNTED_ATTACK, GT_KOTH_MOVE,
-       GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES };
+       GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES, GT_SUDDEN,
+       GT_SUDDEN_END };
+/* Last Car Standing's sudden death: its countdown once two cars are left (the user's 2026-11-25) */
+enum { SUDDEN_STEPS = 8 };
+static const int sudden_steps[SUDDEN_STEPS] = {0, 15, 30, 45, 60, 90, 120, 180};
+static const char *const sudden_values[SUDDEN_STEPS] = {"OFF", "15 SECONDS", "30 SECONDS", "45 SECONDS", "1 MINUTE", "90 SECONDS",
+                                                       "2 MINUTES", "3 MINUTES"};
+static const char *const sudden_end_values[SUDDEN_END_COUNT] = {"LOWER HEALTH EXPLODES"};
 static const char *const koth_move_values[6] = {"NEVER", "1 MINUTE", "2 MINUTES", "3 MINUTES", "4 MINUTES", "5 MINUTES"};
 static const char *const gun_order_values[2] = {"WEAKEST FIRST", "STRONGEST FIRST"};
 static const char *const one_to_20[20] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
@@ -1648,6 +1655,8 @@ static int get_gt_flag(int a)
            : a == GT_FRIENDLY_FIRE ? edit_gt.friendly_fire
            : a == GT_CAR_RESPAWN ? step_of(respawn_steps, RESPAWN_STEPS, edit_gt.respawn)
            : a == GT_SPAWN_SHIELD ? step_of(shield_steps, SHIELD_STEPS, edit_gt.spawn_shield)
+           : a == GT_SUDDEN ? step_of(sudden_steps, SUDDEN_STEPS, edit_gt.sudden_death)
+           : a == GT_SUDDEN_END ? edit_gt.sudden_death_end
            : a == GT_JUGG_HEALTH ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_health)
            : a == GT_JUGG_HEAL ? edit_gt.jugg_full_heal
            : a == GT_JUGG_WEAPON ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_weapon)
@@ -1679,6 +1688,8 @@ static void set_gt_flag(int a, int v)
     else if (a == GT_FRIENDLY_FIRE) edit_gt.friendly_fire = v;
     else if (a == GT_CAR_RESPAWN) edit_gt.respawn = respawn_steps[v % RESPAWN_STEPS];
     else if (a == GT_SPAWN_SHIELD) edit_gt.spawn_shield = shield_steps[v % SHIELD_STEPS];
+    else if (a == GT_SUDDEN) edit_gt.sudden_death = sudden_steps[v % SUDDEN_STEPS], rebuild_page = 1;
+    else if (a == GT_SUDDEN_END) edit_gt.sudden_death_end = v % SUDDEN_END_COUNT;
     else if (a == GT_JUGG_HEALTH) edit_gt.jugg_health = pct_steps[v % PCT_STEPS];
     else if (a == GT_JUGG_HEAL) edit_gt.jugg_full_heal = v;
     else if (a == GT_JUGG_WEAPON) edit_gt.jugg_weapon = pct_steps[v % PCT_STEPS];
@@ -2025,6 +2036,14 @@ static void build_battle(PageId page)
             add_page("Hunted", PAGE_BATTLE_HUNTED, "How many targets, and whether they may fire.");
         if (t->mode == MODE_KING_OF_THE_HILL)
             add_page("King of the Hill", PAGE_BATTLE_KOTH, "The hills: how many, where, and when they move.");
+        if (t->mode == MODE_LAST_CAR) {
+            add_choice("Sudden death", "Once two cars are left, a countdown starts on screen. Off: no countdown.", get_gt_flag,
+                       set_gt_flag, GT_SUDDEN, sudden_values, SUDDEN_STEPS);
+            if (t->sudden_death)
+                add_choice("Sudden death end", "What happens when the countdown reaches zero: the car with less health left "
+                           "(its share of its own full health) explodes.", get_gt_flag, set_gt_flag, GT_SUDDEN_END,
+                           sudden_end_values, SUDDEN_END_COUNT);
+        }
         add_choice("Respawn time", t->mode == MODE_LAST_CAR ? "With lives (the match's Lives): extra time before a destroyed "
                    "car comes back, after it finishes burning." : "Extra time before a destroyed car comes back, after it finishes "
                    "burning.", get_gt_flag, set_gt_flag, GT_CAR_RESPAWN, respawn_values, RESPAWN_STEPS);
@@ -2366,7 +2385,19 @@ static const ProfileSave *net_tour_save_loaded(void) /* (host) the save being co
     if (!test_load && getenv("TM2PC_TEST_TOUR_LOAD")) test_load = 1, net_tour_loading = 1, net_tour_slot = atoi(getenv("TM2PC_TEST_TOUR_LOAD")) - 1;
     net_tour_load = net_tour_loading && net_tour_slot >= 0 && net_tour_slot < PROFILE_SAVES && !net_tour_slot_why(net_tour_slot)
                         ? net_tour_slot : -1;
-    return net_tour_load >= 0 ? profile_tournament_save(net_tour_load) : NULL;
+    const ProfileSave *sv = net_tour_load >= 0 ? profile_tournament_save(net_tour_load) : NULL;
+    const char *test_cars = sv ? getenv("TM2PC_TEST_TOUR_CARS") : NULL; /* tests: the save's drivers ("14,13") */
+    if (test_cars) {
+        static ProfileSave copy;
+        copy = *sv;
+        for (int p = 0; p < copy.players && p < PROFILE_SAVE_PLAYERS && *test_cars; p++) {
+            copy.cars[p] = atoi(test_cars);
+            test_cars += strcspn(test_cars, ",");
+            if (*test_cars) test_cars++;
+        }
+        return &copy;
+    }
+    return sv;
 }
 static int net_tour_load_level(void) { return net_tour_save_loaded() ? net_tour_save_loaded()->level : 1; }
 static struct { int game, room, mods, ping, hide_private, sort; } net_filter = {0, 0, 0, 0, 0, 0}; /* game: the mode filter's */
@@ -2568,6 +2599,16 @@ static void set_net_filter(int a, int v)
     else net_filter.sort = v;
 }
 static int get_net_voice(int a) { (void)a; return net_voice_mode; }
+/* a machine joining: its players spectators (watching every match: no car, no team, not on the scoreboard; the user's
+ * 2026-11-25) or players */
+static int get_net_spectate(int a) { (void)a; return netplay_lobby() ? lobby_spectating(netplay_lobby()) : 0; }
+static void set_net_spectate(int a, int v)
+{
+    (void)a;
+    if (netplay_lobby()) lobby_set_spectate(netplay_lobby(), v);
+    fprintf(stderr, "network: %s\n", v ? "spectating: watching every match" : "playing again (from the next match)");
+    rebuild_page = 1;
+}
 static void set_net_voice(int a, int v) { (void)a; net_voice_mode = v; }
 static int net_cars_offered(void) /* the cars a player may pick (car-select order): the regular 12, then those unlocked */
 {
@@ -3445,11 +3486,11 @@ static void net_balance_teams(Lobby *l)
     if (teams < 2) return;
     const LobbyView *v = lobby_view(l);
     int size[BATTLE_TEAM_COLORS] = {0};
-    for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && i < v->m[n].count; i++)
+    for (int n = 0; n < SES_MAX_NODES; n++) /* (spectators: no team) */
+        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++)
             if (v->m[n].p[i].team >= 0 && v->m[n].p[i].team < teams) size[v->m[n].p[i].team]++;
     for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && i < v->m[n].count; i++) {
+        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++) {
             int t = v->m[n].p[i].team;
             if (t >= 0 && t < teams) continue;
             int best = 0;
@@ -3635,6 +3676,16 @@ static void friends_rows(void)
         rows[row_count - 1].text = status[i];
     }
 }
+/* the friend requests waiting (the master's list, fetched while in Network Play, Online): "1 REQUEST", "3 REQUESTS"; NULL
+ * none. Shown on the rows that lead to Friends (the user's 2026-11-25: players did not know they had one) */
+static const char *friend_requests_text(void)
+{
+    static char t[24];
+    int n = friends_my_id() ? friends_count(1) : 0;
+    if (n <= 0) return NULL;
+    snprintf(t, sizeof t, "%d REQUEST%s", n, n == 1 ? "" : "S");
+    return t;
+}
 static void net_player_rows(void)
 {
     if (net_target < 0) return;
@@ -3646,6 +3697,9 @@ static void net_player_rows(void)
     if (c->kind == LC_PLAYER) { /* your car (as Triangle in the lobby: the user's 2026-11-01, for whoever misses it),
                                  * controls, voice; your team: car select */
         int p = c->local - 1;
+        if (netplay_lobby() && !lobby_is_host(netplay_lobby()) && c->local == 1)
+            add_choice("Spectate", "On: watch every match instead of playing (no car, no team, not on the scoreboard). "
+                       "Off: play from the next match.", get_net_spectate, set_net_spectate, 0, onoff_values, 2);
         add_page("Car select", PAGE_ACTION, "Car select for every player on this PC, as Triangle in the lobby.");
         rows[row_count - 1].act = ACT_NET_CAR;
         add_page("Set car to random", PAGE_ACTION, "A car at random when the match starts (one the game type allows)."); /* (always:
@@ -3738,8 +3792,8 @@ static int net_host_start(void)
     int8_t cars[SES_MAX_NODES];
     memset(cars, -1, sizeof cars);
     int humans = 0;
-    for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && i < v->m[n].count; i++, humans++)
+    for (int n = 0; n < SES_MAX_NODES; n++) /* (in the start's order: a spectators' machine none, as lobby_start) */
+        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++, humans++)
             if (humans < SES_MAX_NODES) cars[humans] = n == lobby_node(l) ? (int8_t)net_car[i] : v->m[n].p[i].car;
     if (humans < 2) { net_chat_add("SERVER", "Waiting for another player to join."); return NET_REBUILD; }
     if (humans > 16) { net_chat_add("SERVER", "A match takes 16 players at most."); return NET_REBUILD; }
@@ -3762,7 +3816,7 @@ static int net_host_start(void)
         unsigned char ids[SES_MAX_NODES][8];
         int map[PROFILE_SAVE_PLAYERS], h = 0;
         for (int n = 0; n < SES_MAX_NODES; n++)
-            for (int i = 0; v->m[n].present && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
+            for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
                 snprintf(names[h], sizeof names[h], "%s", v->m[n].p[i].name);
                 memcpy(ids[h], v->m[n].p[i].online_id, 8);
             }
@@ -4400,7 +4454,9 @@ static void build(PageId page)
         break;
     }
     case PAGE_NETWORK:
-        add_page("Online", PAGE_ACTION, "Play over the internet: join a server, or host one.");
+        { void netplay_friends_peek(void); netplay_friends_peek(); } /* (the requests fetched early: Online's Friends row) */
+        add_page("Online", PAGE_ACTION, "Play over the internet: join a server, or host one."); /* (no notice here: the
+                                                                         * Friends row's only, the user's 2026-11-25) */
         rows[row_count - 1].act = ACT_NET_MODE;
         rows[row_count - 1].arg = 0;
         add_page("LAN", PAGE_ACTION, "Play on this network: join a server, or host one.");
@@ -4412,7 +4468,12 @@ static void build(PageId page)
         add_page("Host Server", PAGE_NET_HOST, "Make a server: its game, its rules, then wait for players.");
         add_page("Join by address", PAGE_ACTION, "Type a server's address (its IP, and :port if not the usual 27520).");
         rows[row_count - 1].act = ACT_NET_ADDRESS;
-        if (!net_lan) add_page("Friends", PAGE_FRIENDS, "Your friends: who is online, and in which server (join them).");
+        if (!net_lan) {
+            { void netplay_friends_peek(void); netplay_friends_peek(); } /* (the requests: fetched here too) */
+            add_page("Friends", PAGE_FRIENDS, friend_requests_text() ? "Your friends, and the players who asked to be one: "
+                     "accept or decline them there." : "Your friends: who is online, and in which server (join them).");
+            rows[row_count - 1].text = friend_requests_text();
+        }
         break;
     case PAGE_FRIENDS:
         friends_rows();
@@ -4448,6 +4509,10 @@ static void build(PageId page)
     }
     case PAGE_NET_BROWSER:
         if (!net_lan) netplay_friends_page(1); /* (the servers your friends are in) */
+        if (!net_lan && friend_requests_text()) { /* (a request while looking for a server: there, at the top) */
+            add_page("Friend requests", PAGE_FRIENDS, "Players who asked to be your friend: accept or decline them.");
+            rows[row_count - 1].text = friend_requests_text();
+        }
         net_browser_rows();
         break;
     case PAGE_NET_FILTERS:
@@ -5021,7 +5086,8 @@ static void build(PageId page)
             js->small = 1;
             js->locked = !bind_jump_combo(p);
         }
-        add_choice("Easy Energy Attacks", "Up freeze, Down rear fire, Left mines, Right shield. Steer with the stick.",
+        add_choice("Easy Energy Attacks", "Up freeze, Down rear fire, Left mines, Right shield. Steer with the stick, or move the attacks to other "
+                   "buttons below to steer with the D-pad.",
                    get_easy_energy, set_easy_energy, p, onoff_values, 2)->small = 1;
         add_choice("Layout", "The game's button layout. Changing it resets this player's controller buttons.",
                    get_keypad, set_keypad, p, keypad_values, 4)->small = 1; /* (last: right above the buttons it sets, the user's) */
@@ -5041,9 +5107,14 @@ static void build(PageId page)
         Row *eh = add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
-        for (int i = 0; i < BIND_ENERGY; i++) {
-            Row *r = add_choice(bind_energy_names[i], "Only works with Easy Energy Attacks turned on.",
-                                get_energy_button, set_energy_button, p * 8 + i, bind_button_names, BIND_BUTTONS_ALL + 1);
+        static const int energy_order[BIND_ENERGY] = {0, 8, 1, 2, 3, 6, 4, 7, 5}; /* napalm and volley: their own rows, none by
+                                                                          * default (Gibbers's), as the Energy page's order */
+        for (int k = 0; k < BIND_ENERGY; k++) {
+            int i = energy_order[k];
+            Row *r = add_choice(bind_energy_names[i], i == 8 ? "Only works with Easy Energy Attacks turned on. The freeze, "
+                                "fired behind you." : i >= 6 ? "Only works with Easy Energy Attacks turned on, and with "
+                                "this energy attack on in the game type." : "Only works with Easy Energy Attacks turned on.",
+                                get_energy_button, set_energy_button, p * 16 + i, bind_button_names, BIND_BUTTONS_ALL + 1);
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
@@ -5607,7 +5678,15 @@ static int skin_portrait(Image *c, int number, int n, int x, int y, int w, int h
 static const char *car_label(int number);
 static void draw_car_portrait(const View *v, int car, int n, int x, int y, int w, int h)
 {
-    if (car < PROFILE_CHARACTERS) { draw_portrait_image(v, car * PROFILE_PORTRAITS + n, x, y, w, h); return; }
+    if (car < PROFILE_CHARACTERS) {
+        /* Sweet Tooth or Minion unlocked by their car select code (the game's flag, not the profile's ending): their
+         * picture, not the locked "?" (the user's 2026-11-24) */
+        int any = portrait_any;
+        if ((car == 12 || car == 13) && M.ram && mem_r8(&M.cpu, GA(car == 12 ? 0x80180D04u : 0x80180D05u))) portrait_any = 1;
+        draw_portrait_image(v, car * PROFILE_PORTRAITS + n, x, y, w, h);
+        portrait_any = any;
+        return;
+    }
     static const uint8_t black[3] = {0, 0, 0};
     draw_fill(v->c, x, y, w, h, black, 255);
     if (car >= 0x20 && skin_portrait(v->c, car, n, x, y, w, h)) return; /* (a mod character: its own pictures) */
@@ -7674,7 +7753,16 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             int bt = 2 * t;
             draw_fill(v->c, X(v, plx) - bt, Y(v, ply) - bt, S(v, plw) + 2 * bt, S(v, plh) + 2 * bt, PLAYER_COLOR_BASE[c->local - 1], 255);
         } else draw_fill(v->c, X(v, plx) - t, Y(v, ply) - t, S(v, plw) + 2 * t, S(v, plh) + 2 * t, line, 255);
-        draw_plate_car(v, car, X(v, plx), Y(v, ply), S(v, plw), S(v, plh));
+        /* a spectator: no car, the plate black with SPECTATOR across it (the user's 2026-11-25) */
+        int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? lobby_spectating(netplay_lobby())
+                   : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].spectate : 0);
+        if (spec) {
+            draw_fill(v->c, X(v, plx), Y(v, ply), S(v, plw), S(v, plh), black, 255);
+            int ss = S(v, 8);
+            while (ss > S(v, 4) && text_width("SPECTATOR", ss) > S(v, plw - 4)) ss--;
+            text_draw(v->c, "SPECTATOR", X(v, plx + plw / 2) - text_width("SPECTATOR", ss) / 2,
+                      text_top_for_center(Y(v, ply + plh / 2), ss), ss, WHITE);
+        } else draw_plate_car(v, car, X(v, plx), Y(v, ply), S(v, plw), S(v, plh));
         TextColor ink = WHITE;
         if (c->team >= 0) {
             memcpy(ink.top, tc, 3);
@@ -7701,6 +7789,11 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             char cont[4] = "", plat[4] = "";
             if (online && c->kind == LC_REMOTE && !c->host && c->mach1 > 0 && netplay_lobby())
                 ms = lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].ping;
+            if (online && netplay_lobby() && (c->kind == LC_PLAYER || c->kind == LC_REMOTE)) { /* (where each machine plays) */
+                const LobbyMachine *lm = c->kind == LC_PLAYER ? NULL : &lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES];
+                snprintf(cont, sizeof cont, "%s", lm ? lm->region : lobby_region());
+                snprintf(plat, sizeof plat, "%s", lm ? lm->plat : lobby_platform());
+            }
             if (test_info && (c->kind == LC_PLAYER || c->kind == LC_REMOTE))
                 sscanf(test_info, "%d,%3[^,],%3s", &ms, cont, plat);
             char pt[16] = "";
@@ -7732,13 +7825,14 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             TextColor tink = c->local ? ORANGE : WHITE;
             if (!c->local && pc >= 0) { memcpy(tink.top, pc_colors[pc % PC_COLORS], 3); memcpy(tink.bottom, pc_colors[pc % PC_COLORS], 3); }
             int show_tag = *tag != 0, show_friend = c->friend != 0, show_mic = talking || c->muted;
+            const char *rtext = spec ? NULL : c->ready ? "READY" : NULL; /* (a spectator: on its plate) */
             int ts = S(v, 7), gap = S(v, 5);
             for (;;) {
                 int total = 0;
                 if (show_tag) total += text_width(tag, ts) + gap;
                 if (c->kind == LC_CPU) total += text_width("CPU", ts) + gap;
                 if (c->host) total += text_width("HOST", ts) + gap;
-                if (c->ready) total += text_width("READY", ts) + gap;
+                if (rtext) total += text_width(rtext, ts) + gap;
                 if (show_friend) total += S(v, 10) + S(v, 4);
                 if (show_mic) total += S(v, 12);
                 else if (total) total -= gap;
@@ -7753,7 +7847,7 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             if (show_tag) { text_draw(v->c, tag, ux, uy + S(v, 3), ts, tink); ux += text_width(tag, ts) + gap; }
             if (c->kind == LC_CPU) { text_draw(v->c, "CPU", ux, uy + S(v, 3), ts, PALE); ux += text_width("CPU", ts) + gap; }
             if (c->host) { text_draw(v->c, "HOST", ux, uy + S(v, 3), ts, COPPER); ux += text_width("HOST", ts) + gap; }
-            if (c->ready) { text_draw(v->c, "READY", ux, uy + S(v, 3), ts, READY_GREEN); ux += text_width("READY", ts) + gap; }
+            if (rtext) { text_draw(v->c, rtext, ux, uy + S(v, 3), ts, spec ? PALE : READY_GREEN); ux += text_width(rtext, ts) + gap; }
             if (show_friend) { draw_person(v, ux, uy + S(v, 6), S(v, 10), CUSTOM); ux += S(v, 10) + S(v, 4); }
             if (show_mic) draw_mic(v, ux, uy, S(v, 12), c->muted ? (const uint8_t *)line : green, c->muted);
         }
@@ -8015,7 +8109,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                     } else {
                         int button = r->extra || r->energy ? r->get(r->arg) : r->get(r->arg) + 1;
                         char key[64];
-                        int k = r->energy ? bind_energy_key(r->arg / 8, r->arg % 8)
+                        int k = r->energy ? bind_energy_key(r->arg / 16, r->arg % 16)
                               : r->extra ? bind_extra_key(r->extra - 1) : bind_key(r->arg / 16, r->arg % 16);
                         shorten(key, sizeof key, bind_key_name(k), 0);
                         if (i == sel) { /* both columns marked too: X, then a button or a key sets either (the user's) */
@@ -8670,7 +8764,7 @@ static int run(PageId start)
                     break;
                 }
             if (capturing >= 0 && key) {
-                if (cr->energy) bind_set_energy_key(cr->arg / 8, cr->arg % 8, key);
+                if (cr->energy) bind_set_energy_key(cr->arg / 16, cr->arg % 16, key);
                 else if (cr->extra) bind_set_extra_key(cr->extra - 1, key);
                 else bind_set_key(cr->arg / 16, cr->arg % 16, key);
                 changed |= SAVE_CONTROLS;
@@ -9298,6 +9392,16 @@ static int run(PageId start)
                     scroll = 0;
                     dirty = 1;
                 }
+            }
+        }
+        { /* a friend request arriving (or answered): the rows that show it built again */
+            static int requests_seen = -1;
+            int nr = friends_my_id() ? friends_count(1) : 0;
+            if (nr != requests_seen) {
+                if (requests_seen >= 0 && (page == PAGE_NET_MODE || page == PAGE_NET_BROWSER))
+                    rebuild_page = 1;
+                if (nr > requests_seen && requests_seen >= 0) fprintf(stderr, "friends: a new request (%d now)\n", nr);
+                requests_seen = nr;
             }
         }
         if (page == PAGE_FRIENDS) { /* (the friends' news: the page again each second) */
@@ -10526,6 +10630,7 @@ static uint32_t battle_start(int survival)
 }
 
 static int battle_results(int result, int mode);
+void vp_win_reset(void); /* vplus/fixes.c */
 /* ---- Custom Tournament: its stages played one after another as Challenge Matches (Last Car Standing), the cars
  * chosen once; each stage's arena and enemies from the setup (random ones rolled at the start), lives carried from
  * stage to stage (Vanilla Plus "lives per level": the setup's at each stage). A won stage: its results with NEXT
@@ -10549,6 +10654,7 @@ static int versus_cpu[BATTLE_OPPONENT_SLOTS], versus_cpu_n; /* (versus) the firs
                                        * every stage after it (from the host's state: every machine the same) */
 static MatchSetup tour_match;          /* the stage being played (battle_match() while trun.on) */
 static int tour_returning;             /* the tournament is over: back to its page */
+int ui_custom_tour_on(void) { return battle_live && trun.on && !trun.versus; } /* (its duel too: a tournament's rules, not a match's) */
 int ui_tour_on(void) { return battle_live && trun.on && !trun.duel && !trun.versus; } /* the players one side (the duel, versus: each their own) */
 static int tour_start_lives(void) /* as the tournament's: 3 (3 players: 2, 4 players: 1, as Vanilla Plus's lives per level) */
 {
@@ -12261,18 +12367,23 @@ static void name_sprites_off(void);
  * (Vanilla Plus "Hide locked drivers") without the secret ones still locked. */
 static int cs_available(int car);
 static int carsel_teams(void);
+static int bar_shows(int car) /* in the bars: a driver the match allows (a locked secret one: as the setting has it) */
+{
+    if (M.ram && battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
+    return !vp_on(VP_HIDE_LOCKED_DRIVERS) || car < 12 || cs_available(car);
+}
 static int bar_count(void)
 {
     int n = 0;
     for (int col = 0; col < roster_n(); col++)
-        n += !vp_on(VP_HIDE_LOCKED_DRIVERS) || grid_car(col) < 12 || cs_available(grid_car(col));
+        n += bar_shows(grid_car(col));
     return n;
 }
 static int bar_car(int i)
 {
     for (int col = 0; col < roster_n(); col++) {
         int car = grid_car(col);
-        if (vp_on(VP_HIDE_LOCKED_DRIVERS) && car >= 12 && !cs_available(car)) continue;
+        if (!bar_shows(car)) continue;
         if (i-- == 0) return car;
     }
     return 0;
@@ -12592,6 +12703,9 @@ static int cs_players = 2; /* how many choose in the live car select (3 and 4: t
 static int cs_available(int car)
 {
     if (!M.ram) return car >= 0 && car < 12; /* previews: the game is not running */
+    /* a Challenge Match (a server's too): only the drivers its game type has on (the others out of the bars and the
+     * cursor's way, the user's 2026-11-24; vp_CarAccept refuses them to the game as well) */
+    if (battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
     if (car == 12) return mem_r8(&M.cpu, GA(0x80180D04u)) != 0;
     if (car == 13) return mem_r8(&M.cpu, GA(0x80180D05u)) != 0;
     if (car == 14) return vp_dt_player_offered();
@@ -13609,7 +13723,8 @@ void ui_SceneBackground(CPU *c)
         int car = vp_carousel_car(), item = carsel_chosen_item();
         int st = (cl.on ? 1 + carsel_live_state() * 2
                         : 2 + (car + 1) * 4 + (item == ITEM_SELECT_CAR) * 2 + carsel_second * 256 + (int)(carsel_text_hash << 9)) ^
-                 (carsel_title_x[0] * 7919 + carsel_title_x[1] * 104729) ^ (names_as_sprites << 30);
+                 (carsel_title_x[0] * 7919 + carsel_title_x[1] * 104729) ^ (names_as_sprites << 30) ^
+                 (bar_count() << 24); /* (the bar's drivers too: Sweet Tooth's or Minion's code adds one, the user's 2026-11-24) */
         /* the other item's picture kept: SELECT CAR / CAR INFO flicked up and down swaps the two, not composed again each
          * time (each ~40 ms at 1280 x 960 and more with the overlay at the window's size: the user's stutter, 2026-11-03) */
         static Image other_img;
@@ -13618,6 +13733,8 @@ void ui_SceneBackground(CPU *c)
             Image t = *hdp;
             *hdp = other_img, other_img = t;
             other_state = hd_state, hd_state = st;
+            carsel_art_gen++; /* (the overlay's bar copied from it again: drawn the same frame from the one before, it
+                               * kept the last car's highlight, a slot off after Sweet Tooth's code: the user's 2026-11-24) */
         } else if (st != hd_state || !hdp->px) {
             if (hdp->px && hd_state != -1) { /* (the one shown kept as the other) */
                 Image t = other_img;
@@ -13653,7 +13770,7 @@ void ui_SceneBackground(CPU *c)
             static int base_state = -1; /* without the titles' slide: the overlay's parts only change with it */
             /* (and without the chosen item: the overlay's parts, the bottom bar, are the same for both) */
             int bs = (cl.on ? 1 + carsel_live_state() * 2 : 2 + (car + 1) * 4 + carsel_second * 256 + (int)(carsel_text_hash << 9)) ^
-                     (names_as_sprites << 30);
+                     (names_as_sprites << 30) ^ (bar_count() << 24);
             if (bs != base_state) { base_state = bs; carsel_art_gen++; }
         }
     composed:
@@ -14607,6 +14724,8 @@ void ui_MessageLines(CPU *c)
  * goes on; the others show WAITING FOR <host> there and go on with them (the host's count in its settings). draw(mode):
  * 0 the screen, 1 with the prompt, 2 with the waiting */
 enum { STORY_MIN = 120 };
+static uint16_t pm_prev[4]; /* (the online menu's held buttons, below) */
+static int pm_test_open; /* tests: TM2PC_TEST_STORY_MENU=N, the online menu opened after story screen N */
 static void story_wait(void (*draw)(int mode))
 {
     int online = net_tour_on && netplay_in_match();
@@ -14640,6 +14759,9 @@ static void story_wait(void (*draw)(int mode))
         prev = b;
         if (host && (pr & (B_CROSS | B_START | B_CIRCLE))) {
             fprintf(stderr, "story: screen %d: on (pressed)\n", story_idx);
+            for (int p = 0; p < 4; p++) pm_prev[p] = 0xFFFF;
+            if (getenv("TM2PC_TEST_STORY_MENU") && atoi(getenv("TM2PC_TEST_STORY_MENU")) == story_idx) pm_test_open = 1; /* (the press that went on, still held, does not open the
+                                                              * online menu in the next battle: Mohamed's Start, 2026-11-24) */
             if (online && l) {
                 net_story_n = story_idx;
                 net_send_settings();
@@ -16089,6 +16211,7 @@ static void pm_input(void)
         static int test_read;
         if (!test_read) { test_read = 1; test_at = getenv("TM2PC_NET_TEST_MENU_AT"); } /* tests: the menu opens then */
         if (test_at && p == 0 && pm_open < 0 && M.vblanks >= strtoull(test_at, NULL, 10)) { test_at = NULL; pressed = B_START; }
+        if (pm_test_open && p == 0 && pm_open < 0) { pm_test_open = 0; pressed = B_START; }
         if (pm_open < 0) {
             if (pressed & B_START) { /* the menu (a kick vote running: the Players list at once, to vote) */
                 pm_open = p; pm_sel = 0; pm_sub = -1; np_on = !vote; np_sel = 0; np_sure = 0;
@@ -16348,6 +16471,8 @@ static uint16_t qp_pad_prev; /* (the controllers too: D-pad / stick, Cross picks
 void ui_quit_ask(void)
 {
     if (qp_open) return;
+    load_art(); /* (the lettering: Escape during the intro movies, before any menu loaded it, showed an empty box;
+                 * LuKeStorm's report 2026-11-24) */
     const bool *k = SDL_GetKeyboardState(NULL);
     if (k) memcpy(qp_prev, k, sizeof qp_prev); /* (the Escape that opened it, still held, is not an answer) */
     qp_pad_prev = input_pad_buttons_raw(); /* (the button that opened it, still held, is not an answer) */
@@ -16423,12 +16548,121 @@ int ui_quit_frame(void) /* 1: quit now */
     return 0;
 }
 
+/* The winner's moment (the user's 2026-11-24): after the final kill cam, back on the cars, "<NAME> WINS" in the middle
+ * of the screen with the winner's picture above it (a team's win: its players' pictures side by side; a computer car:
+ * the words alone) until the results (vplus/fixes.c win_hold: the round's end that much later) */
+static int match_winner(int result, int mode, char *title, size_t n);
+static int win_frame(Image *sb, int *shown)
+{
+    int vp_win_value(void), killcam_busy(void);
+    int r = vp_win_value();
+    if (r < 0 || !battle_live || killcam_busy() || in_pause || !text_ready() || !(M.live_input || script)) return 0;
+    if (*shown == 4) return 1;
+    PsyzSize size = Psyz_VideoGetDisplaySize();
+    if (size.w <= 0 || size.h <= 0 || !image_resize(sb, size.w, size.h)) return 0;
+    if (*shown) { Psyz_VideoSetOverlay(NULL, 0, 0, NULL, 0); hudlay_overlay_ui(0); }
+    char title[64];
+    int team = match_winner(r, mem_r8(&M.cpu, SETTINGS_BLOCK), title, sizeof title), pics[16], np = 0;
+    if (strlen(title) + 1 < sizeof title) strcat(title, "!"); /* ("CBTEST WINS!": the moment's; the results keep theirs) */
+    for (int i = 0; i < match_cars() && np < 16; i++) {
+        const MatchCar *m = match_car(i);
+        if (m->human < 0 || (team >= 0 ? vp_team_of_human(m->human) != team : m != results_winner)) continue;
+        int pic = match_human_picture(m->human);
+        if (pic >= 0) pics[np++] = pic;
+    }
+    const char *test_pics = getenv("TM2PC_TEST_WIN_PICS"); /* tests: the first picture N times (a big team's layout) */
+    if (test_pics && np) for (int n = atoi(test_pics); np < n && np < 16; np++) pics[np] = pics[0];
+    memset(sb->px, 0, (size_t)sb->w * sb->h * 3);
+    View v = view_fit(sb);
+    static const uint8_t frame[3] = {188, 188, 196};
+    lettering();
+    int ts = S(&v, 34);
+    /* the pictures: up to 8 a row, a second row past 8 (a team of 16 players: 8 and 8), smaller with two */
+    int rows = (np + 7) / 8, per = rows ? (np + rows - 1) / rows : 0;
+    float ph = !np ? 0 : rows > 1 ? 96.0f : 120.0f, pw = ph / 2, gap = 8, row = per ? per * pw + (per - 1) * gap : 0;
+    float tall = rows ? rows * ph + (rows - 1) * gap : 0;
+    float tw = text_width(title, ts) / v.s, bw = (tw > row ? tw : row) + 48, bh = (np ? tall + 16 : 0) + 64;
+    if (bw > 620) bw = 620;
+    float bx = 320 - bw / 2, by = 240 - bh / 2;
+    int t = S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1;
+    portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
+    for (int i = 0; i < np; i++) {
+        int r = i / per, in_row = r < rows - 1 ? per : np - per * (rows - 1), k = i - r * per;
+        float px = 320 - (in_row * pw + (in_row - 1) * gap) / 2 + k * (pw + gap), py = by + 16 + r * (ph + gap);
+        draw_fill(sb, X(&v, px) - t, Y(&v, py) - t, S(&v, pw) + 2 * t, S(&v, ph) + 2 * t, frame, 255);
+        draw_portrait_image(&v, pics[i], X(&v, px), Y(&v, py), S(&v, pw), S(&v, ph));
+    }
+    portrait_any = 0;
+    float ty = by + bh - 32;
+    { /* a dark edge around the words (not pure black: that is see-through), readable over anything: the black pixels
+       * within o of a letter's */
+        /* the words in the game's font of "CONGRATULATIONS!" (font 6, its red-orange: the tournament's message screens,
+         * msg_compose; the user's 2026-11-24), as large as there (2 window pixels a game pixel at 480 lines), smaller
+         * for a long name; the lettering if the font is missing */
+        static const uint8_t msg_rgb[3] = {115, 25, 8};
+        int tw_px, tx;
+        if (gfont_ready(6)) {
+            float gs = 2 * v.s, gw = (float)gfont_width(6, title);
+            if (gw * gs > 600 * v.s) gs = 600 * v.s / gw;
+            tw_px = (int)(gw * gs + 0.5f), tx = X(&v, 320) - tw_px / 2;
+            gfont_draw(sb, 6, title, (float)tx, (float)Y(&v, ty) + 8 * gs, gs, msg_rgb); /* (y: the letters' bottom) */
+        } else {
+            tw_px = text_width(title, ts), tx = X(&v, 320) - tw_px / 2;
+            text_draw(sb, title, tx, text_top_for_center(Y(&v, ty), ts), ts, TITLE);
+        }
+        int o = S(&v, 2) > 1 ? S(&v, 2) : 1, x0 = tx - o - 2, x1 = tx + tw_px + o + 2, y0 = Y(&v, ty) - ts * 2 - o, y1 = Y(&v, ty) + ts + o;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > sb->w) x1 = sb->w;
+        if (y1 > sb->h) y1 = sb->h;
+        int w = x1 - x0, h = y1 - y0;
+        uint8_t *lit = w > 0 && h > 0 ? calloc((size_t)w * h, 1) : NULL;
+        if (lit) {
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    const uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                    lit[(size_t)y * w + x] = (q[0] | q[1] | q[2]) != 0;
+                }
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    if (lit[(size_t)y * w + x]) continue;
+                    int near = 0;
+                    for (int dy = -o; dy <= o && !near; dy++)
+                        for (int dx = -o; dx <= o && !near; dx++) {
+                            int ax = x + dx, ay = y + dy;
+                            near = ax >= 0 && ay >= 0 && ax < w && ay < h && lit[(size_t)ay * w + ax];
+                        }
+                    if (near) {
+                        uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                        q[0] = 14, q[1] = 14, q[2] = 16;
+                    }
+                }
+            free(lit);
+        }
+    }
+    plain_text();
+    int rect[4] = {X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh)};
+    hudlay_overlay_ui(1);
+    Psyz_VideoSetOverlay(sb->px, sb->w, sb->h, NULL, 0);
+    Psyz_VideoSetOverlayBlend(rect, 1); /* (no box: the pictures and the words straight on the game, black see-through;
+                                         * the user's 2026-11-24) */
+    if (getenv("TM2PC_NET_MENU_SHOT")) { /* tests: the winner's moment, as a BMP */
+        char path[512];
+        snprintf(path, sizeof path, "%s/winner.bmp", getenv("TM2PC_NET_MENU_SHOT"));
+        image_save_bmp(sb, path);
+    }
+    fprintf(stderr, "winner: %s (%d picture%s)\n", title, np, np == 1 ? "" : "s");
+    *shown = 4;
+    return 1;
+}
+
 static void scoreboard_frame(void)
 {
     static int shown;
     static Image sb;
     if (qp_open) { shown = 0; return; } /* (Escape's question has the overlay) */
     if (battle_overlay_dropped) { battle_overlay_dropped = 0; shown = 0; }
+    if (win_frame(&sb, &shown)) return; /* (the match won: its winner, until the results) */
     if (pm_frame(&sb, &shown)) return; /* (online: the Players menu, a kick vote's note) */
     if (shown == 2) { Psyz_VideoSetOverlay(NULL, 0, 0, NULL, 0); shown = 0; hudlay_overlay_ui(0); }
     int live = feats_in_battle() && !in_pause && (M.live_input || script) && text_ready();
@@ -16522,7 +16756,8 @@ static void scoreboard_frame(void)
             rect[nr * 4] = X(&v, bx), rect[nr * 4 + 1] = Y(&v, by), rect[nr * 4 + 2] = S(&v, bw), rect[nr * 4 + 3] = S(&v, bh);
             nr++;
             if (wp < 0 && watching && nr < 4) { /* in to watch (joined mid-match): when they play, above the banner */
-                const char *note = trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
+                const char *note = netplay_lobby() && lobby_spectating(netplay_lobby()) ? "SPECTATOR: SPECTATE OFF IN THE LOBBY TO PLAY"
+                                 : trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
                 float nh = 22, ny = by - nh - 6;
                 lettering();
                 int ns = S(&v, 12), nw = text_width(note, ns) + S(&v, 28), nx = X(&v, 320) - nw / 2;
@@ -16552,7 +16787,19 @@ static void scoreboard_frame(void)
     /* drawn again only when what it shows changes (every frame at a high resolution: the game at 1 FPS behind it) */
     uint32_t key = 2166136261u;
 #define SB_MIX(x) (key = (key ^ (uint32_t)(x)) * 16777619u)
+    /* the server's spectators (not on the board): their names in a line under it (the user's 2026-11-25) */
+    char specs[200] = "";
+    if (netplay_lobby()) {
+        const LobbyView *lv = lobby_view(netplay_lobby());
+        for (int n = 0; n < SES_MAX_NODES; n++)
+            for (int i = 0; lv->m[n].present && lv->m[n].spectate && i < lv->m[n].count; i++) {
+                size_t at = strlen(specs);
+                snprintf(specs + at, sizeof specs - at, "%s%s", at ? ", " : "SPECTATORS: ", lv->m[n].p[i].name);
+            }
+        upper(specs);
+    }
     SB_MIX(size.w); SB_MIX(size.h); SB_MIX(match_cars());
+    for (const char *q = specs; *q; q++) SB_MIX(*q);
     for (int i = 0; i < match_cars(); i++) {
         const MatchCar *m = match_car(i);
         SB_MIX(m->kills); SB_MIX(m->deaths); SB_MIX(m->damage); SB_MIX(m->points); SB_MIX(m->lives); SB_MIX(m->place);
@@ -16572,8 +16819,21 @@ static void scoreboard_frame(void)
     int hgt = scoreboard_height(60, 420), y = 240 - hgt / 2, x0, x1;
     scoreboard_span(&v, &x0, &x1);
     draw_scoreboard(&v, x0, y, x1, y + hgt, 0);
-    int rect[4] = {X(&v, x0), Y(&v, y), S(&v, x1 - x0), S(&v, hgt)};
-    overlay_with_lines(&sb, rect, 1);
+    int rect[8] = {X(&v, x0), Y(&v, y), S(&v, x1 - x0), S(&v, hgt)}, nr = 1;
+    if (specs[0]) { /* (under the board, its width) */
+        static const uint8_t panel[3] = {8, 8, 10};
+        float sy = (float)(y + hgt + 6), sh = 20;
+        lettering();
+        int ss = S(&v, 11);
+        char fit[200];
+        fit_text(fit, sizeof fit, specs, S(&v, x1 - x0 - 20), ss);
+        draw_fill(&sb, X(&v, x0), Y(&v, sy), S(&v, x1 - x0), S(&v, sh), panel, 255);
+        text_draw(&sb, fit, X(&v, x0 + 10), text_top_for_center(Y(&v, sy + sh / 2), ss), ss, PALE);
+        plain_text();
+        rect[4] = X(&v, x0), rect[5] = Y(&v, sy), rect[6] = S(&v, x1 - x0), rect[7] = S(&v, sh);
+        nr = 2;
+    }
+    overlay_with_lines(&sb, rect, nr);
     static int board_shot;
     if (getenv("TM2PC_NET_MENU_SHOT") && board_shot < 2) { /* tests: the scoreboard, as BMPs */
         char path[512];
@@ -16628,18 +16888,10 @@ backdrop_done:;
         }
         card = &champ;
     }
-    int card_pic = card && card->human >= 0 ? match_human_picture(card->human) : -1, picw = ph / 2; /* (the winner's portrait
-                                                       * beside their car's card: players' wish, 2026-11-23) */
-    int total = (card ? pw + gap : 0) + (card_pic >= 0 ? picw + 4 : 0) + (int)(tw / v.s), x = 320 - total / 2;
+    int total = (card ? pw + gap : 0) + (int)(tw / v.s), x = 320 - total / 2;
     int ty = !trun.versus && !scoreboard_allowed() ? 120 : 56; /* (no scoreboard (Survival): lower, off the HUD's top line and
                                                               * clock, the user's 2026-11-01; with one: 56, under the
                                                               * HUD's info line, the user's 2026-11-02) */
-    if (card_pic >= 0) {
-        portrait_any = netplay_in_match(); /* (another player's: their own picture, as the lobby's cards) */
-        draw_portrait_image(&v, card_pic, X(&v, x), Y(&v, ty - ph / 2), S(&v, picw), S(&v, ph));
-        portrait_any = 0;
-        x += picw + 4;
-    }
     if (card) {
         draw_plate(&v, card, X(&v, x), Y(&v, ty - ph / 2), S(&v, pw), S(&v, ph));
         x += pw + gap;
@@ -16996,13 +17248,11 @@ static void versus_boss_intro(int w, int b, int boss_car)
     image_free(&canvas);
 }
 
-static int battle_results(int result, int mode)
+/* The match's winner (results_winner: a car, NULL for a team's win) and its title ("<NAME> WINS", "<TEAM> TEAM WINS");
+ * the team, -1 none. The results and the winner's moment before them (win_frame). */
+static int match_winner(int result, int mode, char *title, size_t n)
 {
-    static char title[64];
     int order[MATCH_MAX];
-    /* the battle's sounds (engines, flames) stopped as the pause stops them (the sound object at gp+500): only the music
-     * and the menu sounds over the results */
-    port_sounds_stop();
     scoreboard_order(order);
     results_winner = match_car(order[0]); /* the last car in (with several: the most kills) */
     int duo_h = -1, duo_ai = -1;
@@ -17019,12 +17269,23 @@ static int battle_results(int result, int mode)
     }
     char name[48] = "";
     if (results_winner) scoreboard_name(results_winner, name, sizeof name);
-    snprintf(title, sizeof title, "%s WINS", name);
+    snprintf(title, n, "%s WINS", name);
     int team = vp_teams_winner();
     if (team >= 0) { /* teams: the team's win */
-        snprintf(title, sizeof title, "%s TEAM WINS", team_values[team]);
+        snprintf(title, n, "%s TEAM WINS", team_values[team]);
         results_winner = NULL;
     }
+    return team;
+}
+
+static int battle_results(int result, int mode)
+{
+    static char title[64];
+    /* the battle's sounds (engines, flames) stopped as the pause stops them (the sound object at gp+500): only the music
+     * and the menu sounds over the results */
+    port_sounds_stop();
+    vp_win_reset(); /* (the winner's moment over: the results') */
+    int team = match_winner(result, mode, title, sizeof title);
     memset(results_lines, 0, sizeof results_lines);
     if (survival_on) {
         int vp_survival_seconds(void); /* vplus/fixes.c */
@@ -17397,6 +17658,18 @@ void ui_CardScreen(CPU *c)
     tournament_lineup();
 }
 
+/* rtScheduleEvent's round end (vplus/fixes.c win_hold): the match's last, its results next (as ui_MainLoop decides below;
+ * not a custom tournament's stage, Survival or the co-op duel) */
+int ui_round_ends_match(int r)
+{
+    if (!battle_live || trun.on || survival_on || duel_active || !(M.live_input || script)) return 0;
+    int mode = mem_r8(&M.cpu, SETTINGS_BLOCK);
+    if (!((mode == 3 && (r == 1 || r == 3)) || (mode == 4 && (r == 3 || r == 4)))) return 0;
+    int vp_lives_left(int p), p = mode == 4 ? (r == 3 ? 1 : 0) : 0;
+    if (!vp_deathmatch() && !vp_on(VP_NO_ROUND_RESTARTS) && (mode == 4 || r == 1) && vp_lives_left(p) > 1) return 0; /* (this life and more) */
+    return 1;
+}
+
 void ui_MainLoop(CPU *c) /* rtMainLoop: one round, its result */
 {
     if (!battle_live || battle_new_match) { /* a restarted round (a lost life) keeps the match's tally */
@@ -17410,6 +17683,13 @@ void ui_MainLoop(CPU *c) /* rtMainLoop: one round, its result */
     if (duel_active) fprintf(stderr, "co-op: the duel's round starts\n");
     wide_round(1); /* widescreen: the round shown stretched (its views squeezed, vplus/wide.c) */
     F_800D1318_orig(c); /* (the stretch stays on to the session's end: its end texts over the frozen battle, wide) */
+    { /* the battle's in-between frames forgotten: the boss phases load the arena and cars again next, and at 60 FPS /
+       * uncapped the redraws went on with the finished battle's poses over the files being replaced (decomp request
+       * 122: Dark Tooth's and Minion's broken meshes) */
+        void interp_snap(void), interp_frame_start(void); /* vplus/interp.c */
+        interp_snap();
+        interp_frame_start();
+    }
     if (duel_active) { /* the co-op duel: one round, then the runner quits */
         int dr = (int)c->r[2];
         fprintf(stderr, "co-op: the duel's round ended (%d)\n", dr);

@@ -314,6 +314,13 @@ void input_poll(void)
     M.pad_buttons[1] = M.pad_connected[1] ? (uint16_t)~one_direction(1, p2) : 0xFFFF;
 }
 
+/* Both L1 and R1, or both L2 and R2, held: the original's codes (god mode, infinite weapons: L1 + R1 or L2 + R2 held and
+ * the D-pad's directions typed) reach the game with energy attacks on the D-pad too, and the D-pad fires no energy
+ * attack meanwhile (GitHub #57: the cheats "didn't work" with Easy Energy Attacks on) */
+static int cheat_shoulders(uint16_t bits)
+{
+    return (bits & (PSX_L1 | PSX_R1)) == (PSX_L1 | PSX_R1) || (bits & (PSX_L2 | PSX_R2)) == (PSX_L2 | PSX_R2);
+}
 /* A player's controller in a battle: with energy attacks on the D-pad
  * (Controls), its D-pad is not steering (the stick is): input_easy_buttons. */
 int feats_in_battle(void); /* profile/feat_hooks.c: a match is running */
@@ -328,7 +335,16 @@ static uint16_t player_pad_bits(int p)
                                     (x < -STICK_DEADZONE && !(own & 4) ? PSX_LEFT : 0) | (x > STICK_DEADZONE && !(own & 8) ? PSX_RIGHT : 0));
         if (!bind_easy_energy(p) || !feats_in_battle() || (bits & PSX_SELECT)) return bits | stick; /* (menus, car select: the
                                                      * D-pad and the stick steer them; Select held: Select + the D-pad) */
-        bits &= (uint16_t)~(PSX_UP | PSX_DOWN | PSX_LEFT | PSX_RIGHT); /* energy attacks on the D-pad: the stick drives */
+        /* energy attacks on the D-pad: the directions an attack is on (Controls; by default all four) are not steering, the
+         * stick drives; a direction with no attack on it steers again (Jean Alter's: the D-pad lost all steering) */
+        static const uint16_t dir[4] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT};
+        if (cheat_shoulders(bits)) return bits | stick; /* (the original's codes: the D-pad to the game) */
+        uint16_t used = 0;
+        for (int i = 0; i < BIND_ENERGY; i++) {
+            int e = bind_energy_button(p, i);
+            if (e >= 5 && e <= 8) used |= dir[e - 5];
+        }
+        bits &= (uint16_t)~used;
         return bits | stick;
     }
     return bits;
@@ -397,20 +413,31 @@ int input_steer_amount_of(int p, int b) /* button b's amount for steering (0..40
     int a = (int)((v - from) * 4096L / (32767 - from));
     return a < 400 ? 400 : a > 4096 ? 4096 : a;
 }
-uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump) */
+uint16_t input_easy_buttons(int p) /* the D-pad of a player with energy attacks on it (PSX_UP.. bits; 0x100 invisibility, 0x1000 jump, 0x2000 napalm, 0x4000 volley) */
 {
+    /* tests: TM2PC_TEST_ENERGY=I:V, player 1's energy row I (bind_energy_names) held for 6 VBlanks from VBlank V */
+    static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100, 0x1000, 0x2000,
+                                             0x4000, 0x8000}; /* (0x1000 jump, 0x2000 napalm, 0x4000 volley, 0x8000 the
+                                                               * freeze fired behind) */
+    static int test_i = -2;
+    static long long test_v;
+    if (test_i == -2) {
+        const char *e = getenv("TM2PC_TEST_ENERGY");
+        test_i = e && sscanf(e, "%d:%lld", &test_i, &test_v) == 2 && test_i >= 0 && test_i < BIND_ENERGY ? test_i : -1;
+    }
+    if (test_i >= 0 && p == 0 && M.vblanks >= (uint64_t)test_v && M.vblanks < (uint64_t)test_v + 6) return as[test_i];
     if (p < 0 || p > 3 || !bind_easy_energy(p) || input_pads_off) return 0;
     uint16_t pad = pads[p] ? gamepad_bits(pads[p]) : 0;
     if (pad & PSX_SELECT) return 0; /* Select held: the D-pad is for Select's buttons */
+    int codes = cheat_shoulders(pad); /* (the shoulders for a code: the D-pad's directions are the code's) */
     uint16_t bits = 0;
     /* each attack's button (by default the D-pad's direction: bind_energy_button) and key (Controls) */
-    static const uint16_t as[BIND_ENERGY] = {PSX_UP, PSX_DOWN, PSX_LEFT, PSX_RIGHT, 0x100, 0x1000}; /* (0x1000 jump) */
     static const SDL_GamepadButton dpad[4] = {SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
                                               SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT};
     const bool *keys = input_keys(0);
     for (int i = 0; i < BIND_ENERGY; i++) {
         int b = bind_energy_button(p, i), k = bind_energy_key(p, i);
-        int held = b >= 5 && b <= 8 ? pads[p] && SDL_GetGamepadButton(pads[p], dpad[b - 5]) /* (the D-pad itself, not the stick) */
+        int held = b >= 5 && b <= 8 ? !codes && pads[p] && SDL_GetGamepadButton(pads[p], dpad[b - 5]) /* (the D-pad itself, not the stick) */
                  : b >= BIND_STICK && b <= BIND_LSTICK + 3 ? stick_held(pads[p], b) /* (the sticks) */
                                     : b && (pad & button_bits[b]);
         if (held || (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k])) bits |= as[i];

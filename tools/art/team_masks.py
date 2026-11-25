@@ -324,7 +324,9 @@ def main():
             body = next(tim.scan(cd.read(f"/TMS/{code}.TMS")))[1]
             idx = {body.pixels[y * body.width + x] for (x, y) in mask}
             idx = {i for i in idx if body.palettes[0][i] & 0x7FFF}
-            t = {"mask": mask, "split": [], "smin": t.get("smin", 0.35), "vgain": t.get("vgain", 1.0)}
+            pal = body.palettes[0]  # (the accents read it)
+            t = {"mask": mask, "split": [], "smin": t.get("smin", 0.35), "vgain": t.get("vgain", 1.0),
+                 "accents": t.get("accents", [])}  # (Twister's stripes: another hue for some teams, with a mask too)
         elif t or a.export:
             body = next(tim.scan(cd.read(f"/TMS/{code}.TMS")))[1]
             pal = body.palettes[0]

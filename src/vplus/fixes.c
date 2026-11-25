@@ -726,8 +726,74 @@ static int axel_eye_entry(int car, int i)
     return car == 9 && axel.ready > 0 && vp_on(VP_AXEL_EYES) && (i == axel.idx[0] || i == axel.idx[1]);
 }
 
+/* Warthog's side (Vanilla Plus "Warthog's side trim"): his body texture has a 4-row gray strip above the side view's
+ * windows (rows 84..87, a light gray to a dark one), drawn on the model above the side windows; the 1997 PC version's
+ * texture has the body's camo there instead (a mistake the PC version fixed: Gibbers's, 2026-11-25). The strip's pixels
+ * take the camo of rows 78..81 above them, in TMS\WH.TMS's body image and in the car selects' copies of it
+ * (SHELLDB1\CARSEL.TMS, AICARSEL.TMS: the image whose palette is at 768, 25), as the files are read (as Axel's eyes).
+ * Found by the strip's own colors, so another texture (a mod's, another disc's) is left alone. */
+enum { WH_PATCH_MAX = 4 * 128 };
+static struct { int ready; int n_files; struct { uint32_t lba, n; uint32_t off[WH_PATCH_MAX]; uint8_t val[WH_PATCH_MAX]; } f[3]; } wh;
+static int wh_gray(const uint8_t *clut, int i, int r, int g, int b) /* the palette entry is (r, g, b) give or take a step */
+{
+    uint16_t c = (uint16_t)(clut[i * 2] | clut[i * 2 + 1] << 8);
+    int cr = (c & 31) * 255 / 31, cg = ((c >> 5) & 31) * 255 / 31, cb = ((c >> 10) & 31) * 255 / 31;
+    return abs(cr - r) <= 10 && abs(cg - g) <= 10 && abs(cb - b) <= 10;
+}
+static void wh_file(const char *iso_name, const char *name, int want_clut_y)
+{
+    uint32_t lba, size;
+    if (wh.n_files >= 3 || (!cd_find_file(iso_name, &lba, &size) && !cd_find_file(name, &lba, &size))) return;
+    if (size > 0x100000) return;
+    uint8_t *data = malloc(size + 2048);
+    if (!data) return;
+    for (uint32_t s = 0; s * 2048 < size; s++)
+        if (!cd_read_sector(lba + s, data + s * 2048)) { free(data); return; }
+    for (uint32_t t = 0; t + 0x220 < size; t += 4) { /* each 8-bit TIM with a CLUT: magic 0x10, flags 9 */
+        if (data[t] != 0x10 || data[t + 1] || data[t + 2] || data[t + 3] || (data[t + 4] & 0xF) != 9) continue;
+        uint32_t clut_len = data[t + 8] | data[t + 9] << 8 | data[t + 10] << 16;
+        int cy = data[t + 14] | data[t + 15] << 8;
+        if (clut_len != 0x20C || (want_clut_y >= 0 && cy != want_clut_y)) continue;
+        const uint8_t *clut = data + t + 20;
+        uint32_t img = t + 8 + clut_len;
+        if (img + 12 + 128 * 128 > size) continue;
+        uint32_t w = (uint32_t)(data[img + 8] | data[img + 9] << 8) * 2, h = data[img + 10] | data[img + 11] << 8;
+        if (w != 128 || h != 128) continue;
+        const uint8_t *px = data + img + 12;
+        /* the strip: row 84 light (131, 139, 156) to row 87 dark (65, 74, 74), the same entry along each row */
+        int gray = px[84 * 128 + 40];
+        if (!wh_gray(clut, gray, 131, 139, 156) || !wh_gray(clut, px[87 * 128 + 40], 65, 74, 74)) continue;
+        int k = wh.n_files, n = 0;
+        for (int x = 0; x < 128; x++) {
+            if (px[84 * 128 + x] != gray) continue;
+            for (int r = 0; r < 4 && n < WH_PATCH_MAX; r++) {
+                wh.f[k].off[n] = img + 12 + (uint32_t)((84 + r) * 128 + x);
+                wh.f[k].val[n++] = px[(78 + r) * 128 + x];
+            }
+        }
+        wh.f[k].lba = lba, wh.f[k].n = (uint32_t)n;
+        wh.n_files++;
+        if (M.trace || getenv("TM2PC_WARTHOG_DEBUG")) fprintf(stderr, "vplus: warthog's strip in %s, %d pixels\n", name, n);
+        break;
+    }
+    free(data);
+}
+static void wh_disc_sector(uint32_t lba, uint8_t *sec)
+{
+    if (!vp_on(VP_WARTHOG_TRIM)) return;
+    if (!wh.ready) {
+        wh.ready = 1;
+        wh_file("\\TMS\\WH.TMS;1", "TMS/WH.TMS", -1);
+        wh_file("\\SHELLDB1\\CARSEL.TMS;1", "SHELLDB1/CARSEL.TMS", 23 + 2);
+        wh_file("\\SHELLDB1\\AICARSEL.TMS;1", "SHELLDB1/AICARSEL.TMS", 23 + 2);
+    }
+    for (int k = 0; k < wh.n_files; k++)
+        for (uint32_t i = 0; i < wh.f[k].n; i++)
+            if (lba == wh.f[k].lba + wh.f[k].off[i] / 2048) sec[wh.f[k].off[i] % 2048] = wh.f[k].val[i];
+}
 void vp_disc_sector(uint32_t lba, uint8_t *sec)
 {
+    wh_disc_sector(lba, sec);
     if (!vp_on(VP_AXEL_EYES)) return;
     if (!axel.ready) axel_find();
     if (axel.ready < 0) return;
@@ -1162,8 +1228,10 @@ int vp_draw_distance(void)
     if (test >= 0) return test;
     return netplay_in_match() ? 2 : settings_video.draw_distance % 3;
 }
+void vp_win_reset(void);
 void vp_battle_round(void)
 {
+    vp_win_reset(); /* (the winner's moment: the match's last round only) */
     render_stats_round();
     interp_snap(); /* a round's start: nothing to blend from */
     void interp_round_start(void);
@@ -1268,12 +1336,36 @@ void vp_EnergyAttack(CPU *c) /* weaponFireEnergyAttack(car, human) */
         int kind = (int8_t)mem_r8(c, car + (c->r[5] & 0xFF ? 0x7C8u : 0x808u) + 0x0C);
         static const int bit[7] = {ENERGY_FREEZE, ENERGY_MINES, ENERGY_NAPALM, ENERGY_SHIELD, -1, ENERGY_INVISIBILITY,
                                    ENERGY_VOLLEY};
-        if (kind >= 100 && kind <= 106 && bit[kind - 100] >= 0 && !((t->energy >> bit[kind - 100]) & 1)) {
+        /* only a request refused (ctl->fire_special: a human's +0xD0 + 0x1C, a computer car's +0x44 + 0x1C), as the game
+         * checks it first: the selected kind stays after its press, so the refusal (and its sound) came every step while
+         * the kind was one the game type has off, on and on until another attack replaced it (shuriken8147's Minion
+         * volley, 2026-11-24); the request then taken, as the game's own refusals do */
+        uint32_t req = car + (c->r[5] & 0xFF ? 0xECu : 0x60u);
+        /* a Custom Tournament: every energy attack, as the game's own tournament (the user's 2026-11-25); online still never
+         * the volley or invisibility */
+        int ui_custom_tour_on(void), netplay_in_match(void);
+        unsigned allowed = ui_custom_tour_on() ? ~(netplay_in_match() ? BATTLE_ONLINE_NEVER_ENERGY : 0u) : t->energy;
+        if (kind >= 100 && kind <= 106 && bit[kind - 100] >= 0 && !((allowed >> bit[kind - 100]) & 1) && mem_r8(c, req)) {
             if (c->r[5] & 0xFF) mem_w8(c, GA(0x80180A04u), 1); /* the "can't" sound, as the game's */
+            mem_w8(c, req, 0);
+            static int dbg = -1; /* (tests: TM2PC_MOVE_DEBUG, each refusal) */
+            if (dbg < 0) dbg = getenv("TM2PC_MOVE_DEBUG") != NULL;
+            if (dbg) fprintf(stderr, "controls: energy attack %d refused (off in the game type) at VBlank %llu\n", kind,
+                             (unsigned long long)M.vblanks);
             return;
         }
     }
+    uint32_t car = c->r[4];
+    int human = (c->r[5] & 0xFF) != 0, asked = human && mem_r8(c, car + 0xEC), rear = mem_r8(c, car + 0x7CD);
     F_801046FC_orig(c);
+    static int dbg = -1; /* (tests: TM2PC_MOVE_DEBUG, an energy attack fired behind: the rear fire flag taken by the launch) */
+    if (dbg < 0) dbg = getenv("TM2PC_MOVE_DEBUG") != NULL;
+    if (dbg && asked && rear && !mem_r8(c, car + 0xEC))
+        fprintf(stderr, "controls: energy attack %d with the rear fire flag: %s\n", (int8_t)mem_r8(c, car + 0x7D4),
+                mem_r8(c, car + 0x7CD) ? "not taken" : "fired behind");
+    /* a freeze asked for and now done or refused: the rear fire flag it may have carried (the rear freeze, above) not left
+     * for the next weapon (a launch clears it itself; a refusal, too little energy, did not) */
+    if (asked && !mem_r8(c, car + 0xEC) && (int8_t)mem_r8(c, car + 0x7D4) == 100) mem_w8(c, car + 0x7CD, 0);
 }
 
 /* A special from a pickup: the game takes the pickup away (as an id it does
@@ -1911,7 +2003,8 @@ void killcam_new_round(void); /* killcam.c */
 static uint64_t watch_at[CARS_HUMANS_MAX]; /* VBlank human i starts watching (0: not waiting) */
 static uint64_t spectate_at;   /* 1 player, out: VBlank the spectating starts (0: not waiting) */
 static uint32_t death_delay;   /* the death's event delay (VBlanks), for duo_player_out */
-static void boss_round_start(void); static int boss_hold(void); static void boss_frame(void); static void survival_clock_stop(void); /* (below, with Survival's waves) */
+static void boss_round_start(void); static int boss_hold(void); static int boss_coming(void);
+static int sd_seconds_left(void); static void sd_frame(void); /* (sudden death, below) */ static void boss_frame(void); static void survival_clock_stop(void); /* (below, with Survival's waves) */
 static uint64_t test_round_gv;    /* the round's start on the gameplay clock (kept with the network states: a machine that
                                    * took the host's has the host's; tests: TM2PC_TEST_ROUND_KILLS) */
 static uint32_t test_round_fired;
@@ -1981,14 +2074,30 @@ int vp_survival_player_down(void);
 static int coop_player_out(int i, uint32_t delay);
 
 void F_800D181C_orig(CPU *c);
+/* The winner's moment (the user's 2026-11-24): the match's last round end waits WIN_HOLD VBlanks more, the winner's name
+ * and picture over the cars once the final kill cam is over (ui/options.c win_frame). The replay's end the same wait, so
+ * the kill cam's replay schedules what the battle did. */
+#define WIN_HOLD 120
+int ui_round_ends_match(int value); /* ui/options.c */
+static int win_value = -1;
+static uint64_t win_end; /* (the round's end, VBlanks: the moment's overlay off 4 before it, so the results' picture of
+                          * the last frame is the battle's alone) */
+int vp_win_value(void) { return win_value >= 0 && vp_gv() + 4 < win_end ? win_value : -1; }
+void vp_win_reset(void) { win_value = -1; }
+static void win_hold(CPU *c, int replay)
+{
+    if (!ui_round_ends_match((int)c->r[4])) return;
+    c->r[5] += WIN_HOLD;
+    if (!replay) win_value = (int)c->r[4], win_end = vp_gv() + c->r[5];
+}
 static int duo_player_out(int i);
 static uint32_t burn_wait = 180; /* the game's wait before a destroyed player comes back (VBlanks): a respawn's burning */
 void vp_ScheduleEvent(CPU *c) /* rtScheduleEvent(value, delay) */
 {
     int value = (int)c->r[4], mode = mem_r8(c, GA(0x8016475Cu));
-    if (killcam_replaying) { vp_port_event = 0; F_800D181C_orig(c); return; } /* the kill cam's replay: the battle's end is the
+    if (killcam_replaying) { vp_port_event = 0; win_hold(c, 1); F_800D181C_orig(c); return; } /* the kill cam's replay: the battle's end is the
                                                                                * original's (the port's decision replayed: used up) */
-    if (vp_port_event) { vp_port_event = 0; killcam_round_end(); F_800D181C_orig(c); return; }
+    if (vp_port_event) { vp_port_event = 0; killcam_round_end(); win_hold(c, 0); F_800D181C_orig(c); return; }
     int duo = vp_duo();
     if (duo && value == 3) return; /* 2 players and computer cars: the round's end is the port's (vp_duo_frame) */
     if (value == 3 && ui_survival() && vp_survival_cleared()) { killcam_round_end(); return; } /* a wave cleared (its kill cam): the next one */
@@ -2036,6 +2145,7 @@ void vp_ScheduleEvent(CPU *c) /* rtScheduleEvent(value, delay) */
     }
     if (duo && value == 1) return; /* a player down: the port's rules go on */
     if (!(value == 1 && (mode == 1 || mode == 2))) killcam_round_end(); /* (not a tournament's lost life) */
+    win_hold(c, 0);
     F_800D181C_orig(c);
 }
 
@@ -2256,6 +2366,23 @@ static void test_handover(void) /* tests: TM2PC_TEST_HANDOVER="H@V": from VBlank
 static void test_kills(void) /* tests: TM2PC_TEST_KILL="1@2400,2@3000" destroys player P at VBlank V */
 {
     test_handover();
+    static int warp_at = -2, warp_idx, warp_h; /* tests: TM2PC_TEST_WARP=N,W,H, human H (0..) into teleporter W at the
+                                                * round's frame N (every machine the same: Boxes's Paris desync) */
+    if (warp_at == -2) {
+        warp_at = -1;
+        if (getenv("TM2PC_TEST_WARP")) sscanf(getenv("TM2PC_TEST_WARP"), "%d,%d,%d", &warp_at, &warp_idx, &warp_h);
+    }
+    if (warp_at >= 0 && vp_round_frames() == warp_at) {
+        guest_call(GA(0x8011566Cu), (uint32_t)warp_idx, HUMAN_REC(warp_h), 1, 0); /* worldWarpStart */
+        fprintf(stderr, "test: human %d into teleporter %d (round frame %d)\n", warp_h + 1, warp_idx, vp_round_frames());
+    }
+    static int eiffel_at = -2; /* tests: TM2PC_TEST_EIFFEL=N, Paris's tower falls at the round's frame N (every machine the
+                                * same, a step run again too: online desync tests, Boxes's 2026-11-25) */
+    if (eiffel_at == -2) eiffel_at = getenv("TM2PC_TEST_EIFFEL") ? atoi(getenv("TM2PC_TEST_EIFFEL")) : -1;
+    if (eiffel_at >= 0 && vp_round_frames() == eiffel_at && mem_r8(&M.cpu, GA(0x8016475Cu) + 24) == 3) { /* (Paris) */
+        guest_call(GA(0x800D6710u), 0, 0, 0, 0); /* eiffelTowerStartFall (a second call does nothing) */
+        fprintf(stderr, "test: the Eiffel tower falls (round frame %d)\n", vp_round_frames());
+    }
     static int flashed;
     if (!flashed && getenv("TM2PC_TEST_FLASH") && vp_gv() >= (getenv("TM2PC_TEST_FLASH_AT") ? strtoull(getenv("TM2PC_TEST_FLASH_AT"), 0, 10) : 2000)) { /* tests: a port message at VBlank 2000 */
         flashed = 1;
@@ -2516,13 +2643,39 @@ static void dt_ricochet_check(void)
     }
 }
 void vp_messages_clock_check(void); /* (below, with the kill feed) */
+/* The decomp's TM2_PORT_TEAM_LOCKS (request 123, PLAYTEST_ANSWERS.md 37.3): portCarTeam[car slot] = its team + 1 (0 none):
+ * Grasshopper's leap, Outlaw's taser and a computer car's player (aiGetTargetCar at -1) pass a teammate. Each step, from
+ * the match's teams (every machine the same); all 0 without teams (retail's pick) */
+enum { TEAM_LOCK_SLOTS = 64 }; /* (TM2_MAX_CAR_SLOTS: 2 x TM2_PORT_CARS_LOADED) */
+static void team_locks_frame(void)
+{
+    static uint32_t tab = 1;
+    if (tab == 1) tab = port_sym("portCarTeam");
+    if (!tab) return;
+    uint8_t t[TEAM_LOCK_SLOTS] = {0};
+    if (teams_on()) {
+        int H = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+        for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++) {
+            int s = (int16_t)mem_r16(&M.cpu, HUMAN_REC(h) + 4);
+            if (s >= 0 && s < TEAM_LOCK_SLOTS) t[s] = (uint8_t)(team_of_human(h) + 1);
+        }
+        for (int k = 0; k < ais && k < cars_ai_max(); k++) {
+            int s = (int16_t)mem_r16(&M.cpu, AI_REC(k) + 6);
+            if (s >= 0 && s < TEAM_LOCK_SLOTS) t[s] = (uint8_t)(team_of_ai(k) + 1);
+        }
+    }
+    for (int s = 0; s < TEAM_LOCK_SLOTS; s++)
+        if (mem_r8(&M.cpu, tab + (uint32_t)s) != t[s]) mem_w8(&M.cpu, tab + (uint32_t)s, t[s]);
+}
 void vp_lives_frame(void)
 {
+    team_locks_frame();
     vp_messages_clock_check();
     dt_ricochet_check();
     spawn_check_frame();
     versus_frame();
     test_kills();
+    sd_frame();
     round_test_kills();
     stage_clear_test();
     { /* (any game: coop_out is co-op's only) a player out, watching (co-op, 3-4 players): their HUD's lives 0, not one below it (the
@@ -2638,14 +2791,15 @@ void vp_AiCountRemaining(CPU *c) /* aiCarsRemaining = the cars with HP > 0: and 
 {
     F_8011C248_orig(c);
     if (teams_on()) mem_w32(c, AI_REMAINING, (uint32_t)enemies_left()); /* teams: only the other teams' cars */
-    else if (battle_rules()) mem_w32(c, AI_REMAINING, mem_r32(c, AI_REMAINING) + (uint32_t)(ai_pending() + vp_survival_waiting()));
+    else if (battle_rules())
+        mem_w32(c, AI_REMAINING, mem_r32(c, AI_REMAINING) + (uint32_t)(ai_pending() + vp_survival_waiting() + boss_coming()));
 }
 void F_8011E16C_orig(CPU *c);
 void vp_AiCountAlive(CPU *c) /* the HUD's "Enemies: N": the same */
 {
     F_8011E16C_orig(c);
     if (teams_on()) c->r[2] = (uint32_t)enemies_left();
-    else if (battle_rules()) c->r[2] += (uint32_t)(ai_pending() + vp_survival_waiting());
+    else if (battle_rules()) c->r[2] += (uint32_t)(ai_pending() + vp_survival_waiting() + boss_coming());
     int vp_versus_on(void);
     int no_cpu = battle_rules() && !ui_survival() && mem_r8(c, GA(0x8016475Cu)) == 4; /* (the game's mode 4: 2 players and no
                                     * computer cars, not vp_duo's 3: a 1v1 online read "Enemies Toasted!" from its start,
@@ -3256,6 +3410,16 @@ static int boss_hold(void) /* the others are out: 1 when the bosses come now (th
     boss_until = vp_gv() + 120;
     fprintf(stderr, "custom tournament: the boss is coming\n");
     return 1;
+}
+/* the bosses on their way in (the 2 seconds before boss_frame brings them): enemies still to come. Out of play until then,
+ * they were not counted, so the game's own won test fired again the next frame and the stage ended a few seconds after
+ * they came in (Kharmisle's and shuriken8147's custom tournaments, 2026-11-24) */
+static int boss_coming(void)
+{
+    if (boss_state != 2 || boss_first < 0) return 0;
+    int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    if (n > cars_ai_max()) n = cars_ai_max();
+    return n > boss_first ? n - boss_first : 0;
 }
 static void boss_frame(void)
 {
@@ -3934,11 +4098,42 @@ static uint32_t pickup_special_look(void) /* the special's look on this level (0
     if (at == 1) at = port_sym("portPickupSpecial");
     return at ? mem_r32(&M.cpu, at) : 0; /* (its +0: the model) */
 }
-static void pickup_reroll(int n)
+/* each slot's kind (+2) and look (its child) as the re-rolls left them, kept with the network states: those node fields
+ * are in no rollback state (the decomp's DMD list keeps a group's +0x14..+0x18 and an offset node's +0x04..+0x14), so a
+ * rollback over a pickup taken left the slot re-rolled: the step run again gave the new kind (Boxes's Moscow, v1.0.15:
+ * a napalm grabbed, a remote bomb after the rollback, the host's napalm), and a re-sync never put it back (the host's
+ * state has no such field): one desync after another. Written back after every state load (vp_pickups_restore) */
+static uint16_t pk_id[50];
+static uint32_t pk_child[50];
+static void pk_note(int n)
+{
+    uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
+    pk_id[n] = node ? mem_r16(&M.cpu, node + 2) : 0;
+    pk_child[n] = node ? mem_r32(&M.cpu, pickup_child_at(node)) : 0;
+}
+void vp_pickups_restore(void) /* net/rb_state.c: after a state is put in place */
+{
+    if (!pickup_models_ready) return;
+    for (int n = 0; n < 50; n++) {
+        uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
+        if (!node || node != pickup_node[n] || !pk_id[n]) continue;
+        if (mem_r16(&M.cpu, node + 2) != pk_id[n]) mem_w16(&M.cpu, node + 2, pk_id[n]);
+        if (pk_child[n] && mem_r32(&M.cpu, pickup_child_at(node)) != pk_child[n]) mem_w32(&M.cpu, pickup_child_at(node), pk_child[n]);
+    }
+}
+static void pickup_reroll_do(int n);
+static void pickup_reroll(int n) { pickup_reroll_do(n); pk_note(n); }
+static void pickup_reroll_do(int n)
 {
     uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
     if (!node || pickup_kind0[n] < 401 || pickup_kind0[n] > 430) return;
     int b = vp_pickup_id(pickup_kind0[n]), keep = b >= 440 ? 40 : 0, base = b - keep;
+    /* a turned-off kind's stand-in with no look on this level (each level loads only some pickups' models): another
+     * pick, up to 8, so the slot does not keep the old look (Holland's health pickup stayed one with health off, the
+     * user's 2026-11-25; it gave a weapon when taken). The picks draw vp_rand: every machine the same */
+    for (int tries = 0; tries < 8 && b != pickup_kind0[n] && base != PICKUP_SPECIAL && base >= 401 && base <= 430 &&
+                        !pickup_model[base - 400]; tries++)
+        b = vp_pickup_id(pickup_kind0[n]), keep = b >= 440 ? 40 : 0, base = b - keep;
     if (base == PICKUP_SPECIAL && pickup_special_look()) { /* a special: the globe (the slot keeps its kind) */
         mem_w16(&M.cpu, node + 2, (uint16_t)b);
         mem_w32(&M.cpu, pickup_child_at(node), pickup_special_look());
@@ -3979,7 +4174,7 @@ static void pickups_round(void)
     if (!pickup_model[17]) pickup_model[17] = pickup_model[18]; /* the two health pickups share one */
     if (!pickup_model[18]) pickup_model[18] = pickup_model[17];
     pickup_models_ready = 1;
-    for (int n = 0; n < 50; n++) pickup_reroll(n);
+    for (int n = 0; n < 50; n++) pickup_reroll(n); /* (each slot noted: pk_note, rolled or not) */
     if (pickup_debug())
         for (int n = 0; n < 50; n++) {
             uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
@@ -4104,7 +4299,15 @@ void vp_MoveCodes(CPU *c)
         mem_w32(c, rec + 0xF4, 0);
         if (rf == 0) { mem_w8(c, rec + 0x7CD, 0); mem_w8(c, rec + 0xEA, 0); }
     }
+    static int cheat_dbg = -1; /* (tests: TM2PC_MOVE_DEBUG, the codes typed and the god mode's switch) */
+    if (cheat_dbg < 0) cheat_dbg = getenv("TM2PC_MOVE_DEBUG") != NULL;
+    uint32_t code_was = cheat_dbg ? mem_r32(c, rec + 0xF4) : 0;
+    int god_was = cheat_dbg ? mem_r8(c, rec + 0x1F4) : 0;
     F_800DECA8_orig(c);
+    if (cheat_dbg && mem_r32(c, rec + 0xF4) != code_was)
+        fprintf(stderr, "controls: move code %08X\n", mem_r32(c, rec + 0xF4));
+    if (cheat_dbg && mem_r8(c, rec + 0x1F4) != god_was)
+        fprintf(stderr, "controls: damageable %d -> %d (the god mode code)\n", god_was, mem_r8(c, rec + 0x1F4));
     vp_msg_player = -1;
     int p = who;
     if (p < 0 || p > (on ? 15 : 3)) return;
@@ -4163,6 +4366,13 @@ void vp_MoveCodes(CPU *c)
     else if (pressed & 0x0100) special = 105; /* its own button (Controls): invisibility (the code Right, Down, Left, Up:
                                                * 105; 102 is Right, Left, Up, the energy napalm: Phoenix's "invisibility
                                                * key fires napalm", 2026-11-23) */
+    else if (pressed & 0x2000) special = 102; /* its own button (Controls, none by default): the energy napalm (Gibbers's) */
+    else if (pressed & 0x4000) special = 106; /* its own button (Controls, none by default): the volley */
+    else if (pressed & 0x8000) { /* its own button (Controls, none by default): the freeze fired behind (the launch
+                                  * follows the rear fire flag, weapon_launch.c's AIM; the user's 2026-11-25) */
+        special = 100;
+        mem_w8(c, rec + 0x7CD, 1);
+    }
     else if (pressed & 0x0040) { /* Down: fire behind (the move code 3-4-2) */
         mem_w8(c, rec + 0x7CD, 1);
         mem_w8(c, rec + 0xEA, 1);
@@ -4629,6 +4839,23 @@ int vp_mode_damage(int victim_slot, int attacker_slot, int ram, int amount)
     if (victim_slot == special_slot && attacker_slot >= 0 && attacker_slot < JUGG_SLOTS && attacker_slot != victim_slot)
         jugg_damage[attacker_slot] += amount;
     return amount;
+}
+/* carGroundEffects (800ED128, decomp car_wheels.c): lava takes 3 HP every 61 ticks straight from the record, outside
+ * carApplyDamage: the Juggernaut's toughness on it too, as on the burning (profile/feat_hooks.c). Sinking in deep water
+ * (its HP drained as the car goes under) is left as it is: a way out of the arena, not damage. */
+void F_800ED128_orig(CPU *c);
+void vp_GroundEffects(CPU *c) /* carGroundEffects(car, human) */
+{
+    uint32_t rec = c->r[4];
+    int human = (c->r[5] & 0xFF) != 0;
+    uint32_t hp_at = rec + (human ? 0x1F0u : 0x5A0u), sink_at = rec + (human ? 0xC0u : 0x90u); /* (stats +0xA4, state +0x24) */
+    int32_t before = (int32_t)mem_r32(c, hp_at);
+    int sinking = mem_r8(c, sink_at);
+    F_800ED128_orig(c);
+    int32_t now = (int32_t)mem_r32(c, hp_at);
+    if (now >= before || sinking || mem_r8(c, sink_at) || !mode_is(MODE_JUGGERNAUT)) return;
+    int taken = vp_mode_damage((int16_t)mem_r16(c, rec + (human ? 4u : 6u)), -1, 0, before - now);
+    if (taken != before - now) mem_w32(c, hp_at, (uint32_t)(before - taken));
 }
 static char kill_text[CARS_HUMANS_MAX][40];       /* (the kill feed's, below) */
 static uint64_t kill_until[CARS_HUMANS_MAX];
@@ -5317,12 +5544,14 @@ static void timer_print(CPU *c, int p, int x, int y)
 {
     const MatchSetup *m = battle_match();
     int up = ui_survival() && surv_clock_start; /* Survival: the run's time, counting up */
-    if (!up && (!vp_dm() || m->time_limit <= 0 || dm_ended)) return;
+    int sd = sd_seconds_left(); /* (Last Car Standing's sudden death: its countdown) */
+    if (!up && sd < 0 && (!vp_dm() || m->time_limit <= 0 || dm_ended)) return;
     if (settings_video.hud_no_messages) return;
     uint64_t total = 3600ull * (uint64_t)m->time_limit, gone = vp_gv() - dm_start;
-    int secs = up ? vp_survival_seconds() : gone >= total ? 0 : (int)((total - gone + 59) / 60);
-    char text[16], st[48];
-    snprintf(text, sizeof text, "%02d:%02d", secs / 60, secs % 60);
+    int secs = up ? vp_survival_seconds() : sd >= 0 ? sd : gone >= total ? 0 : (int)((total - gone + 59) / 60);
+    char text[32], st[48];
+    if (sd >= 0) snprintf(text, sizeof text, "SUDDEN DEATH %d:%02d", secs / 60, secs % 60);
+    else snprintf(text, sizeof text, "%02d:%02d", secs / 60, secs % 60);
     if (mode_status(p, st, sizeof st) && !mode_is(MODE_JUGGERNAUT) && !mode_is(MODE_ODDBALL) && !mode_is(MODE_KING_OF_THE_HILL))
         y += 12; /* (under the mode's line; these three show theirs in the bar: right under it, the user's) */
     const uint32_t buf = DM_TEXT + 0xC0, ot = DM_TEXT + 0x660, sprites = 0x80DF6000u;
@@ -5944,15 +6173,21 @@ static int team_clut_upload(uint32_t pal, int group)
  * of the paint colors they share with the rest, in entries freed by merging near-identical colors; so the
  * paint can be recolored whole (Sweet Tooth's dots, not his head; Outlaw's panels, not its lights). The
  * body texture (image 0): its CLUT at body, then its pixel block (bnum, x, y, w, h; 8-bit pixels). */
+static void team_split_pixels(int car, uint32_t body, uint32_t pix, int w, int h);
 static void team_split_apply(uint32_t buf, int n)
 {
     int team = team_of_group(n), car = car_of_group(n);
     if (team < 0 || car < 0 || car > 13) return;
-    const TeamSplit *sp = &team_split[car];
-    if (!sp->n_merge && !sp->n_copy) return;
     uint32_t body = buf + 4u * (4u + mem_r32(&M.cpu, buf + 12) + 1u + 5u);
     uint32_t pblk = body - 12 + mem_r32(&M.cpu, body - 12), pix = pblk + 12;
     int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
+    team_split_pixels(car, body, pix, w, h);
+}
+/* a body texture's pixels (128 x 128, 8-bit) and its palette (body): the painted pixels moved to their own entries */
+static void team_split_pixels(int car, uint32_t body, uint32_t pix, int w, int h)
+{
+    const TeamSplit *sp = &team_split[car];
+    if (!sp->n_merge && !sp->n_copy) return;
     if (w != 128 || h != 128) { fprintf(stderr, "team colors: car %d's texture is %dx%d, not split\n", car, w, h); return; }
     uint8_t map[256], cp[256];
     for (int i = 0; i < 256; i++) map[i] = cp[i] = (uint8_t)i;
@@ -5977,6 +6212,32 @@ static void team_split_apply(uint32_t buf, int n)
         }
     if (getenv("TM2PC_TEAM_DEBUG")) fprintf(stderr, "team colors: car %d split (%d merged, %d copies)\n", car, sp->n_merge, sp->n_copy);
 }
+/* tests: TM2PC_TEST_CS_TEAM=T (0 red .. 3 yellow), the car select's spinning cars in team T's colors (CARSEL.TMS: each
+ * car's body palette at (768, 23 + car) and its 128 x 128 pixels the same as the battle's, decomp TEAM_COLORS.md 5.1):
+ * the battle's split and recolor applied to the file before it is uploaded. A preview for the team colors' art only. */
+static void team_carsel_test(uint32_t buf)
+{
+    static int team = -2;
+    if (team == -2) team = getenv("TM2PC_TEST_CS_TEAM") ? atoi(getenv("TM2PC_TEST_CS_TEAM")) % BATTLE_TEAM_COLORS : -1;
+    if (team < 0) return;
+    for (uint32_t a = buf; a < buf + 0x100000u; a += 4) { /* (each image's palette block: 0x20C bytes, at 768, 23..35, 256 x 1) */
+        if (mem_r32(&M.cpu, a) != 0x20Cu || mem_r32(&M.cpu, a + 8) != 0x10100u) continue;
+        uint32_t xy = mem_r32(&M.cpu, a + 4);
+        int car = (int)(xy >> 16) - 23;
+        if ((xy & 0xFFFF) != 768 || car < 0 || car > 12) continue;
+        uint32_t body = a + 12, pblk = a + 0x20C, pix = pblk + 12;
+        int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
+        team_split_pixels(car, body, pix, w, h);
+        for (int i = 0; i < 256; i++) {
+            uint16_t e = mem_r16(&M.cpu, body + 2u * (uint32_t)i);
+            if (axel_eye_entry(car, i)) continue;
+            if (team_paint[car][i >> 3] & (1 << (i & 7))) e = team_recolor(e, team_hue[team], car);
+            else e = team_accent_color(e, i, car, team);
+            mem_w16(&M.cpu, body + 2u * (uint32_t)i, e);
+        }
+        fprintf(stderr, "team colors: car select car %d in team %d's colors (test)\n", car, team);
+    }
+}
 void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
 {
     uint32_t buf = c->r[4];
@@ -5986,6 +6247,7 @@ void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
     const unsigned char *mod_car_team_paint(int number);
     int mod_number = buf == 0x80019C40u && n >= 1 ? mod_cars_group_number(n) : -1;
     if (buf == 0x80019C40u && n >= 1 && mod_number < 0) team_split_apply(buf, n); /* (a mod's texture: not the base's layout) */
+    if (buf == 0x80019C40u && n == 0) team_carsel_test(buf);
     F_80121A2C_orig(c);
     void hdtex_arena_parsed(uint32_t buf);
     if (buf == 0x80019C40u && n == 0) hdtex_arena_parsed(buf); /* (the arena's textures: the PC's sharper ones) */
@@ -6436,6 +6698,75 @@ void vp_human_back(int h)
     respawn_human(h);
     fprintf(stderr, "lives: player %d is back in the match\n", h + 1);
 }
+/* ---- Sudden death (Last Car Standing, the game type's; the user's 2026-11-25) ----
+ * Two cars left (a car with lives still to come back counts): a countdown of the game type's seconds, on screen under the
+ * message bar; at zero the car with less of its own full health left explodes (a shield or not), a tie by the gameplay
+ * random numbers; with lives it loses one and, two cars still in, the countdown starts again. Gameplay: every machine
+ * the same (kept with the network states). */
+static uint64_t sd_start; /* (the countdown's start, gameplay VBlanks + 1; 0 none) */
+static int sd_secs(void) /* the game type's seconds (tests: TM2PC_TEST_SUDDEN=S, every machine's) */
+{
+    static int test = -2;
+    if (test == -2) test = getenv("TM2PC_TEST_SUDDEN") ? atoi(getenv("TM2PC_TEST_SUDDEN")) : -1;
+    const GameType *t = battle_rules();
+    return test >= 0 ? test : t ? t->sudden_death : 0;
+}
+static int sd_on(void)
+{
+    const GameType *t = battle_rules();
+    return t && sd_secs() > 0 && t->mode == MODE_LAST_CAR && !ui_survival() && !vp_dm() && !killcam_replaying;
+}
+static int sd_left(int *car, int n_max) /* the cars still in (their ids: a player's 1.., a computer car's 50 + k) */
+{
+    int n = 0, H = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    if (H < 0 || H > CARS_HUMANS_MAX) H = 0;
+    for (int h = 0; h < H; h++)
+        if (!coop_out[h] && (!mem_r8(&M.cpu, HUMAN_REC(h) + 0x9C) || life[h].at)) { if (n < n_max) car[n] = h + 1; n++; }
+    for (int k = 0; k < ais && k < cars_ai_max(); k++)
+        if ((boss_first < 0 || k < boss_first || boss_state == 3) && (ai_alive(k) || ai_life_pending(k))) {
+            if (n < n_max) car[n] = 50 + k;
+            n++;
+        }
+    return n;
+}
+static int sd_share(int id) /* a car's health, in thousandths of its full health (gone, coming back: full) */
+{
+    int h = id < 50 ? id - 1 : -1, k = id >= 50 ? id - 50 : -1;
+    uint32_t rec = h >= 0 ? HUMAN_REC(h) : AI_REC(k);
+    int hp = (int32_t)mem_r32(&M.cpu, rec + (h >= 0 ? 0x1F0u : 0x5A0u)), max = (int16_t)mem_r16(&M.cpu, rec + (h >= 0 ? 0x186u : 0x536u));
+    if (max <= 0) max = 100;
+    if (h >= 0 ? mem_r8(&M.cpu, rec + 0x9C) != 0 : !ai_alive(k)) return 1000;
+    return hp <= 0 ? 0 : hp * 1000 / max;
+}
+static int sd_seconds_left(void) /* (the countdown on screen: -1 none) */
+{
+    if (!sd_start || !sd_on()) return -1;
+    uint64_t total = 60ull * (uint64_t)sd_secs(), gone = vp_gv() - (sd_start - 1);
+    return gone >= total ? 0 : (int)((total - gone + 59) / 60);
+}
+static void sd_frame(void)
+{
+    if (!sd_on()) { sd_start = 0; return; }
+    int car[CARS_HUMANS_MAX + CARS_MAX], n = sd_left(car, (int)(sizeof car / sizeof car[0]));
+    if (n != 2) { sd_start = 0; return; }
+    if (!sd_start) {
+        sd_start = vp_gv() + 1;
+        snprintf(flash_text, sizeof flash_text, "SUDDEN DEATH");
+        flash_until = vp_gv() + 150;
+        fprintf(stderr, "sudden death: two cars left (%d, %d): %d seconds\n", car[0], car[1], sd_secs());
+        return;
+    }
+    if (vp_gv() - (sd_start - 1) < 60ull * (uint64_t)sd_secs()) return;
+    sd_start = 0; /* (two still in after it: again) */
+    int a = sd_share(car[0]), b = sd_share(car[1]);
+    int out = a < b ? car[0] : b < a ? car[1] : car[(int)(vp_rand() & 1)];
+    fprintf(stderr, "sudden death: time up: car %d (%d/1000) and car %d (%d/1000): car %d explodes\n", car[0], a, car[1], b, out);
+    uint32_t rec = out < 50 ? HUMAN_REC(out - 1) : AI_REC(out - 50);
+    mem_w8(&M.cpu, rec + (out < 50 ? 0xAAu : 0x7Au), 0); /* (its shield down: state +0x0E) */
+    if (out < 50) mem_w8(&M.cpu, rec + 0x1F4, 1); /* (and damageable) */
+    guest_call5(GA(0x800E5628u), (uint32_t)out, 1000, 0, 0, (uint32_t)-1); /* carApplyDamage: out, no one's kill */
+    if (out >= 50) mem_w32(&M.cpu, rec + 0x5A0, 0); /* (a computer car: aiCarDamageUpdate destroys it, as the tests') */
+}
 static void duo_round_start(void)
 {
     versus.round_gv = vp_gv();
@@ -6455,7 +6786,7 @@ static void vp_duo_frame(void)
             int ui_tour_on(void); /* ui/options.c: a custom tournament: the players together, as the tournament's co-op */
             side = teams ? 100 + team_of_human(h) : ui_tour_on() ? 300 : 200 + h;
         } else {
-            in = ai_alive(k) || ai_life_pending(k);
+            in = ai_alive(k) || ai_life_pending(k) || (boss_coming() && k >= boss_first); /* (a boss on its way in) */
             side = teams ? 100 + team_of_ai(k) : k;
         }
         if (!in) continue;
@@ -6623,7 +6954,7 @@ void vp_keep_register(void)
 #define KEEP(v) killcam_keep(&(v), sizeof(v))
     KEEP(spawn_taken); KEEP(spawn_count); KEEP(spawn_recent); KEEP(spawn_recent_at); KEEP(spawn_recent_n); KEEP(roulette_count); KEEP(roulette_w); KEEP(life); KEEP(lives_round); KEEP(vp_port_event);
     KEEP(spectating); KEEP(coop_out); KEEP(ai_life);
-    KEEP(boss_first); KEEP(boss_state); KEEP(boss_until);
+    KEEP(boss_first); KEEP(boss_state); KEEP(boss_until); KEEP(sd_start);
     KEEP(surv_clock_start); KEEP(surv_clock_end);
     KEEP(surv_round); KEEP(surv_state); KEEP(surv_until); KEEP(surv_down); KEEP(dm_start); KEEP(dm_ended);
     KEEP(gun_seq); KEEP(gun_count); KEEP(specials); KEEP(special_n); KEEP(hunted_team); KEEP(hunted_tick); KEEP(mode_retarget);
@@ -6638,6 +6969,7 @@ void vp_keep_register(void)
     KEEP(gu_target); KEEP(gu_node); KEEP(gu_points); KEEP(gu_hp); KEEP(gu_banned); KEEP(gu_best); KEEP(gu_until);
     KEEP(bf_last); KEEP(bf_ticks); KEEP(bf_refill_at); KEEP(bf_roulette_at); KEEP(win_at); KEEP(vs_at); KEEP(freeze_fired); KEEP(fired);
     KEEP(pickup_step); KEEP(pickup_taken_step); KEEP(pickup_kind0); KEEP(pickup_node); KEEP(pickup_model); KEEP(pickup_models_ready);
+    KEEP(pk_id); KEEP(pk_child); /* (the slots' kinds and looks: vp_pickups_restore) */
     KEEP(burn_wait); KEEP(jc_opp); /* (Deathmatch's computer cars wait the last death's burning: a machine in mid-match had 180, the
                                     * host 420; the Juggernaut car's parked record) */
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */

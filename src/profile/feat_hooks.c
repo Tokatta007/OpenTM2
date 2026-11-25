@@ -535,7 +535,12 @@ void feat_Pickup(CPU *c) /* sub_8010AFC8(car, human, id, map slot) */
 {
     int given = (int)c->r[6] >= 441 ? (int)c->r[6] - 40 : (int)c->r[6];
     if (given != 417 && given != 418 && given != 430 && given >= 401 && given <= 430) vp_gun_resupply(c->r[4], c->r[5] & 0xFF);
+    int asked = (int)c->r[6];
     c->r[6] = (uint32_t)vp_pickup_id((int)c->r[6]);
+    static int dbg = -1; /* (tests: TM2PC_PICKUP_DEBUG, each pickup taken: its kind and what it gave) */
+    if (dbg < 0) dbg = getenv("TM2PC_PICKUP_DEBUG") != NULL;
+    if (dbg) fprintf(stderr, "pickup: %s %d took kind %d at slot %d: gave %d\n", c->r[5] & 0xFF ? "player" : "computer car",
+                     r16s(c->r[4] + (c->r[5] & 0xFF ? 0u : 2u)), asked, (int)c->r[7], (int)c->r[6]);
     if (c->r[6] == 400 || c->r[6] == 440) c->r[6] = (uint32_t)vp_pickup_special(c->r[4], c->r[5] & 0xFF) + (c->r[6] == 440 ? 40 : 0);
     if (c->r[5] && in_battle) {
         int h = r16s(c->r[4]), id = (int)c->r[6];
@@ -699,12 +704,37 @@ void feat_GroundFires(CPU *c)
 {
     int32_t before[KEYS];
     int h = humans(), a = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    static long long burn_test = -2; /* tests: TM2PC_TEST_BURN=V, every computer car kept burning from VBlank V, their HP logged */
+    if (burn_test == -2) burn_test = getenv("TM2PC_TEST_BURN") ? atoll(getenv("TM2PC_TEST_BURN")) : -1;
+    if (burn_test >= 0 && in_battle && M.vblanks >= (uint64_t)burn_test) {
+        for (int k = 0; k < h; k++) { /* (the players too: state +0x9C + 0x1A burning, stats +0x14C + 0x22 its time) */
+            mem_w8(&M.cpu, human_rec(k) + 0xB6, 1);
+            mem_w16(&M.cpu, human_rec(k) + 0x16E, 0);
+            if (M.vblanks % 120 == 0) fprintf(stderr, "burn test: player %d (slot %d) hp %d\n", k + 1, r16s(human_rec(k) + 4),
+                                              r32s(human_rec(k) + 0x1F0));
+        }
+        for (int k = 0; k < a && k < AI_MAX; k++) {
+            mem_w8(&M.cpu, ai_rec(k) + 0x086, 1);
+            mem_w16(&M.cpu, ai_rec(k) + 0x51E, 0);
+            if (M.vblanks % 120 == 0) fprintf(stderr, "burn test: computer car %d (slot %d) hp %d\n", k, r16s(ai_rec(k) + 6),
+                                              r32s(ai_rec(k) + 0x5A0));
+        }
+    }
     for (int i = 0; i < HK + AI_MAX; i++)
         before[i] = i < HK ? (i < h ? r32s(human_rec(i) + 0x1F0) : 0) : (i - HK < a ? r32s(ai_rec(i - HK) + 0x5A0) : 0);
     F_8010C160_orig(c);
     if (!in_battle) return;
     for (int i = 0; i < HK + AI_MAX; i++) {
         int32_t now = i < HK ? (i < h ? r32s(human_rec(i) + 0x1F0) : 0) : (i - HK < a ? r32s(ai_rec(i - HK) + 0x5A0) : 0);
+        if (now < before[i]) { /* the Juggernaut's toughness on the burn too (it bypasses carApplyDamage, where
+                                * vp_mode_damage takes it: a 400% Juggernaut burned as fast as anyone, KinggzZ's 2026-11-24) */
+            uint32_t rec = i < HK ? human_rec(i) : ai_rec(i - HK);
+            int taken = vp_mode_damage(r16s(rec + (i < HK ? 4u : 6u)), -1, 0, before[i] - now);
+            if (taken != before[i] - now) {
+                now = before[i] - taken;
+                mem_w32(&M.cpu, rec + (i < HK ? 0x1F0u : 0x5A0u), (uint32_t)now);
+            }
+        }
         if (now < before[i] && igniter[i] > 0) match_damage(igniter[i] - 1, before[i] - now);
     }
 }

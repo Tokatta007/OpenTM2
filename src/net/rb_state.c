@@ -284,6 +284,8 @@ static void load_from(const State *s)
     void *p;
     size_t k;
     for (int i = 0; keep_block(i, &p, &k); i++) { memcpy(p, r, k); r += k; }
+    void vp_pickups_restore(void); /* vplus/fixes.c: the pickups' kinds and looks (node fields in no state) */
+    vp_pickups_restore();
 }
 
 /* Each machine's own, left out of the hash beside the table's "hash no" rows (decomp requests 57, 58): the objects its

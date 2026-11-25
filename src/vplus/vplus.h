@@ -72,6 +72,7 @@ typedef enum {
     VP_BAL_ROADKILL,        /* Roadkill's boomerang always caught on its way back (decomp request 95, portBalance bit 28) */
     VP_GLACIER_FIRE,        /* Antarctica's fire missile out of the mark that hides it (decomp request 120, RETAIL_BUGS.md); online always */
     VP_BAL_GUN_RANGE,       /* machine-gun bullets fly 25% farther (decomp request 121, BALANCE.md 25.2, portBalance bit 9) */
+    VP_WARTHOG_TRIM,        /* Warthog's side: the gray strip above his side windows as the body's camo, as the PC version */
     VP_COUNT
 } VpChangeId;
 

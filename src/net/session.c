@@ -7,13 +7,21 @@
 
 enum { MAGIC = 0x4E54, P_INPUT = 1, P_REL = 2, P_HASH = 3, P_VOICE = 4, P_BYE = 5 }; /* packets */
 enum { R_SLOT = 1, R_NODE = 2, R_STATE = 3, R_JOIN = 4, R_CHAT = 5, R_VOTE_START = 6, R_VOTE = 7, R_VOTE_TALLY = 8,
-       R_KICK_VOTE = 9, R_KICK_STATE = 10, R_KICKED = 11, R_APP = 12, R_BASE = 13 }; /* reliable messages */
-enum { BASE_MAX = 65536 }; /* a machine's base (ses_send_base): the game's block hashes of its own state */
+       R_KICK_VOTE = 9, R_KICK_STATE = 10, R_KICKED = 11, R_APP = 12, R_BASE = 13, R_BASE_ASK = 14 }; /* reliable messages */
+enum { BASE_MAX = 131072 }; /* a machine's base (ses_send_base): the game's block hashes of its own state */
 enum { RUN_MAX = 32, ACKS_MAX = 128, ACK_QUEUE = 1024, HOLD_MAX = 256, CHUNK = 1000, RTO_MS = 150, RTO_MAX = 1500,
        PACKET_MAX = 1400, PEND_MAX = 128,
        REL_WINDOW = HOLD_MAX, /* reliable messages in flight at most past the oldest not acked: what the other side can
                                * hold behind a lost one (more is sent only to be dropped and sent again) */
-       REL_BURST = 64 /* reliable messages sent a ses_send, a machine (a state: thousands of chunks) */ };
+       REL_BURST = 64, /* reliable messages sent a ses_send, a machine (a state: thousands of chunks) */
+       /* the reliable messages in flight to a machine, by what its acks show the way there takes (TCP's congestion window):
+        * CWND_START at first, one more an ack while below the threshold (doubling each round trip), then one more a
+        * round trip; a message lost twice (sent a third time: the way there full, not a packet lost now and then, which
+        * a lossy line drops all the time) halves it, at most once a round trip, never under CWND_MIN. A match's
+        * start sent each machine its state at once at the full REL_WINDOW (6 states, 7.5 MB, from a home connection):
+        * one machine heard nothing more for 40 s and was dropped (SkullServant's, Ryupichu hosting, 2026-11-25) */
+       CWND_START = 64, CWND_MIN = 32,
+       RESYNC_BASE_MS = 1000 /* (host) a resync waits this long for the machine's base (asked for), then sends the whole */ };
 
 typedef struct { uint16_t id; uint8_t *data; int len; uint32_t sent_ms; uint8_t tries; } RelOut;
 typedef struct { uint16_t id; uint8_t *data; int len; } RelIn;
@@ -47,6 +55,9 @@ typedef struct {
                                     * the host's state replaced it (a machine coming back, a resync) */
     uint32_t rate;                 /* reliable bytes a second to it at most (0: no limit; a relayed machine's: the relay's) */
     uint32_t budget, budget_ms;    /* (its pacing: bytes it may send now, refilled with time) */
+    uint16_t cwnd, ssthresh, cwnd_acc; /* its reliable messages in flight at most (0: not started, CWND_START), the slow
+                                        * start's end, the acks toward the next one more */
+    uint32_t cut_ms;               /* (the window last halved: once a round trip) */
     uint32_t voice_ms;             /* (host) its last voice frame (the 8 speakers at once) */
     uint32_t kick_ms;              /* (host) removed then (gone a moment later, once told) */
     uint32_t load_ms;              /* (host) no input of its own yet (loading the match) since then (0: in, or not looked) */
@@ -59,6 +70,7 @@ typedef struct {
     int base_new;                  /* (host) a whole base not yet used: the next state to it only what differs from it */
     int want_full;                 /* (host) it asked for the whole state (its base gone: another battle's) */
     uint32_t due_ms;               /* (host) a state owed to it since then, waiting for its base (base_wait_ms at most) */
+    uint32_t ask_ms;               /* (host) a resync's: its base asked for then (RESYNC_BASE_MS at most, then whole) */
     int away;                      /* (host) what it said it is doing: SES_AWAY_* (not stepping: a replay, between screens) */
 } Peer;
 
@@ -66,6 +78,7 @@ struct Session {
     int node, host, delay, ready, migrating, lockstep, one_step, idle;
     int behind;                    /* (one_step) this machine 2 steps or more behind the host's: the game may catch up */
     uint16_t magic;                /* MAGIC, or with a match's tag (ses_set_tag): another match's packets dropped */
+    uint32_t watchers;             /* the machines of spectators (ses_set_watchers): a new host only if no other is left */
     uint32_t migrate_ms, departed; /* (a new host) the slots of the host that left: ended once the inputs are in */
     uint32_t send_all_until;       /* (a machine, the host moved) every slot's inputs to the new host until then */
     uint32_t offer;                /* (host) slots a joining machine may take */
@@ -82,6 +95,7 @@ struct Session {
     int32_t rx_step;
     uint8_t *tx;                   /* a state to send */
     uint32_t base_wait_ms;         /* (host) a state owed waits this long for the machine's base (0: never: whole) */
+    int base_asked;                /* (a machine) the host asked for its base (a resync's): ses_base_asked */
     const uint8_t *cur_base;       /* (host) while the game makes a state: the machine's base (ses_state_base) */
     int cur_base_len;
     SesVoiceFn voice;
@@ -140,6 +154,11 @@ static void rel_acked(Peer *p, uint16_t id, uint32_t now_ms)
             if (p->out[i].tries == 1) { /* (sent once: its round trip, a sample) */
                 uint32_t rtt = now_ms - p->out[i].sent_ms;
                 if (rtt < 10000) p->srtt = p->srtt ? (p->srtt * 7 + rtt) / 8 : rtt;
+                /* (and the window grows: fast below the threshold, then one a round trip) */
+                if (!p->cwnd) p->cwnd = CWND_START, p->ssthresh = REL_WINDOW;
+                if (p->cwnd < p->ssthresh) p->cwnd++;
+                else if (++p->cwnd_acc >= p->cwnd) p->cwnd_acc = 0, p->cwnd++;
+                if (p->cwnd > REL_WINDOW) p->cwnd = REL_WINDOW;
             }
             free(p->out[i].data);
             memmove(&p->out[i], &p->out[i + 1], sizeof *p->out * (size_t)(p->out_n - i - 1)); /* (kept in order: the oldest
@@ -156,6 +175,7 @@ static void rel_reset(Peer *p)
     p->out_n = p->hold_n = p->ack_n = 0;
     p->out_id = p->in_id = 0;
     p->srtt = 0;
+    p->cwnd = p->ssthresh = p->cwnd_acc = 0;
 }
 
 static void handle_rel(Session *s, int from, const uint8_t *m, int len, uint32_t now_ms);
@@ -227,14 +247,25 @@ static void send_state(Session *s, int to, uint32_t now_ms)
     Peer *pt = &s->peer[to];
     int resync = pt->resync_wait;
     /* a machine's start (or a battle's): its base first, so only what differs goes (its own load is most of it): a
-     * while at most, then the whole state; a resync goes at once, whole (its base is a battle's start, gone by now) */
+     * while at most, then the whole state. A resync: its base asked for now (its state is the host's but for a few
+     * words: the blocks that differ, a tenth of the whole), RESYNC_BASE_MS at most, then the whole state (a resync was
+     * the whole 2.5 MB each time: 5 s a resync, every few steps when one kept coming back, the match held for
+     * everyone: Boxes's Paris, 2026-11-25) */
     if (!resync && s->base_wait_ms && !pt->base_new && !pt->want_full) {
         if (!pt->due_ms) pt->due_ms = now_ms ? now_ms : 1;
         if (now_ms - pt->due_ms < s->base_wait_ms) { pt->state_due = 1; return; }
     }
+    if (resync && s->base_wait_ms && !pt->base_new && !pt->want_full) {
+        if (!pt->ask_ms) {
+            pt->ask_ms = now_ms ? now_ms : 1;
+            uint8_t m[1] = {R_BASE_ASK};
+            rel_send(s, to, m, 1);
+        }
+        if (now_ms - pt->ask_ms < RESYNC_BASE_MS) { pt->state_due = 1; return; }
+    }
     if (!s->one_step) rb_catch_up(s->rb); /* (a game rolls back only between two steps of its own: ses_step) */
     int32_t step = rb_confirmed(s->rb) + 1;
-    int use_base = !resync && pt->base_new && !pt->want_full;
+    int use_base = pt->base_new && !pt->want_full;
     s->cur_base = use_base ? pt->base : NULL;
     s->cur_base_len = use_base ? pt->base_len : 0;
     int len = s->game.serialize(s->game.rb.ctx, step, s->tx, s->game.state_max);
@@ -242,7 +273,7 @@ static void send_state(Session *s, int to, uint32_t now_ms)
     s->cur_base_len = 0;
     pt->state_due = len <= 0; /* (not now: again at the next send) */
     if (len <= 0) return;
-    if (!resync) pt->base_new = pt->want_full = 0, pt->due_ms = 0; /* (a base: once) */
+    pt->base_new = pt->want_full = 0, pt->due_ms = pt->ask_ms = 0; /* (a base: once) */
     if (s->peer[to].resync_wait) s->peer[to].resync_id = (uint16_t)(s->peer[to].out_id + (len + CHUNK - 1) / CHUNK - 1);
     for (int off = 0; off < len || off == 0; off += CHUNK) {
         int n = len - off < CHUNK ? len - off : CHUNK;
@@ -304,6 +335,8 @@ static void handle_rel(Session *s, int from, const uint8_t *m, int len, uint32_t
             s->ready = 1;
             s->rx_step = -1;
         }
+    } else if (kind == R_BASE_ASK && s->host != s->node) { /* (a machine) its base, for a resync's state */
+        s->base_asked = 1;
     } else if (kind == R_BASE && len >= 9 && from >= 0 && from < SES_MAX_NODES) { /* (host) a machine's base, in pieces */
         Peer *pb = &s->peer[from];
         uint32_t total = g32(&q), off = g32(&q), n = (uint32_t)len - 9;
@@ -534,10 +567,13 @@ static void node_left(Session *s, int n, uint32_t now_ms)
         return;
     }
     if (n != s->host) return;
-    /* the host left: the machine there longest (the lowest number) carries on as the host */
-    int next = s->node;
-    for (int o = 0; o < SES_MAX_NODES; o++)
-        if (o != n && (o == s->node || s->peer[o].present)) { next = o; break; }
+    /* the host left: the machine there longest (the lowest number) carries on as the host; a spectators' machine only
+     * when no player's is left (every machine has the same list from the lobby: the same choice everywhere) */
+    int next = -1;
+    for (int pass = 0; pass < 2 && next < 0; pass++)
+        for (int o = 0; o < SES_MAX_NODES; o++)
+            if (o != n && (o == s->node || s->peer[o].present) && (pass || !((s->watchers >> o) & 1))) { next = o; break; }
+    if (next < 0) next = s->node;
     s->host = next;
     s->st.migrations++;
     if (next == s->node) {
@@ -671,8 +707,9 @@ static int resync_held(Session *s)
         if (n == s->node || !p->resync_wait || p->state_due) continue; /* (not made yet: held once it goes, of its step then) */
         int out = 0;
         for (int i = 0; p->present && i < p->out_n && !out; i++) out = (int16_t)(p->out[i].id - p->resync_id) <= 0;
-        if (out) held = 1;
-        else p->resync_wait = 0;
+        if (out && p->slots) held = 1; /* (a spectators' machine: no inputs of its own, nobody waits for it; it takes the
+                                        * state and catches up alone, as a machine joining) */
+        else if (!out) p->resync_wait = 0;
     }
     return held;
 }
@@ -834,10 +871,18 @@ static void send_to(Session *s, int to, uint32_t now_ms)
      * connection's acks take longer: sooner only floods it with copies), within REL_WINDOW of the oldest */
     uint32_t rto = p->srtt ? p->srtt + p->srtt / 2 + 30 : RTO_MS;
     rto = rto < RTO_MS ? RTO_MS : rto > RTO_MAX ? RTO_MAX : rto;
+    if (!p->cwnd) p->cwnd = CWND_START, p->ssthresh = REL_WINDOW;
     for (int i = 0, burst = 0; i < p->out_n && burst < REL_BURST; i++) {
         RelOut *o = &p->out[i];
-        if ((uint16_t)(o->id - p->out[0].id) >= REL_WINDOW) break;
+        if ((uint16_t)(o->id - p->out[0].id) >= p->cwnd) break;
         if (o->sent_ms && now_ms - o->sent_ms < (o->tries > 1 ? rto * 2 : rto)) continue; /* (again: longer) */
+        if (o->sent_ms && o->tries >= 2 && now_ms - p->cut_ms > rto) { /* lost twice: the way there full: half the window */
+            p->ssthresh = p->cwnd / 2 < CWND_MIN ? CWND_MIN : p->cwnd / 2;
+            p->cwnd = p->ssthresh;
+            p->cwnd_acc = 0;
+            p->cut_ms = now_ms;
+            if ((uint16_t)(o->id - p->out[0].id) >= p->cwnd) break;
+        }
         if (p->rate && p->budget < (uint32_t)o->len + 16) break; /* (paced: the rest at the next send) */
         if (p->rate) p->budget -= (uint32_t)o->len + 16;
         burst++;
@@ -1076,7 +1121,9 @@ int ses_rel_pending(const Session *s, int node, int *state_got)
 }
 
 void ses_set_base_wait(Session *s, uint32_t ms) { s->base_wait_ms = ms; }
+void ses_set_watchers(Session *s, uint32_t nodes) { s->watchers = nodes; }
 const uint8_t *ses_state_base(const Session *s, int *len) { if (len) *len = s->cur_base_len; return s->cur_base; }
+int ses_base_asked(Session *s) { int a = s->base_asked; s->base_asked = 0; return a; }
 void ses_send_base(Session *s, const uint8_t *base, int len) /* (a machine) to the host, in pieces (len 0: the whole state) */
 {
     if (s->host == s->node || s->host < 0 || len < 0 || len > BASE_MAX) return;

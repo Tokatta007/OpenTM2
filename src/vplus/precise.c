@@ -9,6 +9,7 @@
  * polygon goes to the order table whole, at its depth, as the far ones do. */
 #include <stdlib.h>
 #include "runtime/runtime.h"
+uint64_t vp_gv(void); /* vplus/fixes.c: the gameplay clock */
 
 #define NEAR_OTZ 0x1F800040u /* the emitter's near threshold (scratchpad) */
 
@@ -36,6 +37,19 @@ void vp_ModelEmit(CPU *c)
             if (!bad) {
                 uint32_t verts = mem_r32(c, mesh + 4), prims = mem_r32(c, mesh + 0xC);
                 bad = (verts && !mem_direct(c, verts, 8)) || (prims && !mem_direct(c, prims, 4));
+                /* a mesh's primitives follow its header (+0x2C; +0x58 for the longer one), on the disc and in every test
+                 * run (2026-11-25: the arenas, the cars, Minion's and Dark Tooth's phases): a pointer elsewhere, though in
+                 * memory, is a damaged mesh (request 122's word written over, an absolute value), and its garbage drawn
+                 * took the graphics driver down (Navi's and Terry's Minion phase, 2026-11-24). Left out and logged: the
+                 * step and the mesh, to find what wrote it */
+                if (!bad && prims && prims != mesh + 0x2C && prims != mesh + 0x58) {
+                    static int told;
+                    if (told++ < 20)
+                        fprintf(stderr, "emitter: mesh %08X damaged: prims %08X (%+d, not +44 or +88), verts %08X, at VBlank %llu, "
+                                "step %llu\n", mesh, prims, (int)(prims - mesh), verts, (unsigned long long)M.vblanks,
+                                (unsigned long long)vp_gv());
+                    bad = 1;
+                }
             }
             if (!bad) continue;
             if (said++ < 20)

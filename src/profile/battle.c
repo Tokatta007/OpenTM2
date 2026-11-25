@@ -113,6 +113,8 @@ int battle_type_playable(const GameType *t)
     a.hazards = b.hazards;             /* made: decomp request 38 (ARENA_SWITCHES.md; the hybrid's portArenaOptions) */
     a.destructibles = b.destructibles;
     a.jugg_invisible = b.jugg_invisible;
+    a.sudden_death = b.sudden_death;   /* made: sudden death (the user's 2026-11-25) */
+    a.sudden_death_end = b.sudden_death_end;
     a.koth_move = b.koth_move;
     a.respawn = b.respawn; /* made: every mode (Last Car Standing's: with lives) */
     if (a.mode != MODE_LAST_CAR) a.mode = b.mode; /* the modes with respawns: made */
@@ -123,6 +125,7 @@ int battle_type_playable(const GameType *t)
 /* ---- built-in game types ---- */
 static GameType builtin[16];
 static const char *builtin_descs[16];
+static char builtin_desc_text[16][192];
 static int builtin_count;
 /* each change to a list of game types (built-in, the profile's, the other players'): battle_type_named's answer
  * found again */
@@ -135,7 +138,11 @@ static GameType *add_builtin(const char *name, int mode, const char *desc)
     /* the built-in types (the user's, 2026-10-30): no invisibility, Minion's volley or napalm energy attacks */
     t->energy &= ~(1u << ENERGY_INVISIBILITY | 1u << ENERGY_VOLLEY | 1u << ENERGY_NAPALM);
     snprintf(t->name, sizeof t->name, "%s", name);
-    builtin_descs[builtin_count++] = desc;
+    /* (said, so the secret ones off are not taken for a bug: the user's 2026-11-25) */
+    snprintf(builtin_desc_text[builtin_count], sizeof builtin_desc_text[0], "%s Napalm, Minion's volley and invisibility energy attacks are off.",
+             desc);
+    builtin_descs[builtin_count] = builtin_desc_text[builtin_count];
+    builtin_count++;
     types_gen++;
     return t;
 }
@@ -418,6 +425,8 @@ static void type_key(GameType *t, const char *key, const char *val)
         {"koth_spots", offsetof(GameType, koth_spots), 0, 1},
         {"hunted_teams", offsetof(GameType, hunted_teams), 0, 1},
         {"jugg_invisible", offsetof(GameType, jugg_invisible), 0, 1},
+        {"sudden_death", offsetof(GameType, sudden_death), 0, 600},
+        {"sudden_death_end", offsetof(GameType, sudden_death_end), 0, SUDDEN_END_COUNT - 1},
     };
     static const struct { const char *key; size_t at; unsigned all; } masks[] = {
         {"drivers", offsetof(GameType, drivers), ALL_DRIVERS},
@@ -571,5 +580,6 @@ void battle_write(FILE *f)
         fprintf(f, "hunted_count = %d\nhunted_attack = %d\nkoth_move = %d\n", t->hunted_count, t->hunted_attack, t->koth_move);
         fprintf(f, "koth_hills = %d\nkoth_spots = %d\nhunted_teams = %d\njugg_invisible = %d\n", t->koth_hills, t->koth_spots,
                 t->hunted_teams, t->jugg_invisible);
+        fprintf(f, "sudden_death = %d\nsudden_death_end = %d\n", t->sudden_death, t->sudden_death_end);
     }
 }
