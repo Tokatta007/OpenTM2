@@ -6654,10 +6654,17 @@ void vp_human_back(int h)
  * random numbers; with lives it loses one and, two cars still in, the countdown starts again. Gameplay: every machine
  * the same (kept with the network states). */
 static uint64_t sd_start; /* (the countdown's start, gameplay VBlanks + 1; 0 none) */
+static int sd_secs(void) /* the game type's seconds (tests: TM2PC_TEST_SUDDEN=S, every machine's) */
+{
+    static int test = -2;
+    if (test == -2) test = getenv("TM2PC_TEST_SUDDEN") ? atoi(getenv("TM2PC_TEST_SUDDEN")) : -1;
+    const GameType *t = battle_rules();
+    return test >= 0 ? test : t ? t->sudden_death : 0;
+}
 static int sd_on(void)
 {
     const GameType *t = battle_rules();
-    return t && t->sudden_death > 0 && t->mode == MODE_LAST_CAR && !ui_survival() && !vp_dm() && !killcam_replaying;
+    return t && sd_secs() > 0 && t->mode == MODE_LAST_CAR && !ui_survival() && !vp_dm() && !killcam_replaying;
 }
 static int sd_left(int *car, int n_max) /* the cars still in (their ids: a player's 1.., a computer car's 50 + k) */
 {
@@ -6684,7 +6691,7 @@ static int sd_share(int id) /* a car's health, in thousandths of its full health
 static int sd_seconds_left(void) /* (the countdown on screen: -1 none) */
 {
     if (!sd_start || !sd_on()) return -1;
-    uint64_t total = 60ull * (uint64_t)battle_rules()->sudden_death, gone = vp_gv() - (sd_start - 1);
+    uint64_t total = 60ull * (uint64_t)sd_secs(), gone = vp_gv() - (sd_start - 1);
     return gone >= total ? 0 : (int)((total - gone + 59) / 60);
 }
 static void sd_frame(void)
@@ -6696,10 +6703,10 @@ static void sd_frame(void)
         sd_start = vp_gv() + 1;
         snprintf(flash_text, sizeof flash_text, "SUDDEN DEATH");
         flash_until = vp_gv() + 150;
-        fprintf(stderr, "sudden death: two cars left (%d, %d): %d seconds\n", car[0], car[1], battle_rules()->sudden_death);
+        fprintf(stderr, "sudden death: two cars left (%d, %d): %d seconds\n", car[0], car[1], sd_secs());
         return;
     }
-    if (vp_gv() - (sd_start - 1) < 60ull * (uint64_t)battle_rules()->sudden_death) return;
+    if (vp_gv() - (sd_start - 1) < 60ull * (uint64_t)sd_secs()) return;
     sd_start = 0; /* (two still in after it: again) */
     int a = sd_share(car[0]), b = sd_share(car[1]);
     int out = a < b ? car[0] : b < a ? car[1] : car[(int)(vp_rand() & 1)];
