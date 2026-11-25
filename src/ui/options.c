@@ -3486,11 +3486,11 @@ static void net_balance_teams(Lobby *l)
     if (teams < 2) return;
     const LobbyView *v = lobby_view(l);
     int size[BATTLE_TEAM_COLORS] = {0};
-    for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && i < v->m[n].count; i++)
+    for (int n = 0; n < SES_MAX_NODES; n++) /* (spectators: no team) */
+        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++)
             if (v->m[n].p[i].team >= 0 && v->m[n].p[i].team < teams) size[v->m[n].p[i].team]++;
     for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && i < v->m[n].count; i++) {
+        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++) {
             int t = v->m[n].p[i].team;
             if (t >= 0 && t < teams) continue;
             int best = 0;
@@ -3792,8 +3792,8 @@ static int net_host_start(void)
     int8_t cars[SES_MAX_NODES];
     memset(cars, -1, sizeof cars);
     int humans = 0;
-    for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && i < v->m[n].count; i++, humans++)
+    for (int n = 0; n < SES_MAX_NODES; n++) /* (in the start's order: a spectators' machine none, as lobby_start) */
+        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++, humans++)
             if (humans < SES_MAX_NODES) cars[humans] = n == lobby_node(l) ? (int8_t)net_car[i] : v->m[n].p[i].car;
     if (humans < 2) { net_chat_add("SERVER", "Waiting for another player to join."); return NET_REBUILD; }
     if (humans > 16) { net_chat_add("SERVER", "A match takes 16 players at most."); return NET_REBUILD; }
@@ -3816,7 +3816,7 @@ static int net_host_start(void)
         unsigned char ids[SES_MAX_NODES][8];
         int map[PROFILE_SAVE_PLAYERS], h = 0;
         for (int n = 0; n < SES_MAX_NODES; n++)
-            for (int i = 0; v->m[n].present && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
+            for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
                 snprintf(names[h], sizeof names[h], "%s", v->m[n].p[i].name);
                 memcpy(ids[h], v->m[n].p[i].online_id, 8);
             }
