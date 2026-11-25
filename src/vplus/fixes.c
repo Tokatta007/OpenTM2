@@ -3285,7 +3285,7 @@ static void watch_frame(void) /* the delayed starts of watching */
                                                                      * screen's spectator: watching, on every machine) */
         if (s < 0 || s >= 4 || wv[s].on || watch_at[i] || ((parked_started >> i) & 1)) continue;
         parked_started |= 1u << i;
-        fprintf(stderr, "watch: player %d parked out of the boss round: watching\n", i + 1);
+        fprintf(stderr, "watch: player %d parked out (a boss round, or a spectator): watching\n", i + 1);
         watch_begin(i);
     }
     for (int i = 0; i < CARS_HUMANS_MAX && i < humans; i++) {
