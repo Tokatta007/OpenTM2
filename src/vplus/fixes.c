@@ -4098,7 +4098,32 @@ static uint32_t pickup_special_look(void) /* the special's look on this level (0
     if (at == 1) at = port_sym("portPickupSpecial");
     return at ? mem_r32(&M.cpu, at) : 0; /* (its +0: the model) */
 }
-static void pickup_reroll(int n)
+/* each slot's kind (+2) and look (its child) as the re-rolls left them, kept with the network states: those node fields
+ * are in no rollback state (the decomp's DMD list keeps a group's +0x14..+0x18 and an offset node's +0x04..+0x14), so a
+ * rollback over a pickup taken left the slot re-rolled: the step run again gave the new kind (Boxes's Moscow, v1.0.15:
+ * a napalm grabbed, a remote bomb after the rollback, the host's napalm), and a re-sync never put it back (the host's
+ * state has no such field): one desync after another. Written back after every state load (vp_pickups_restore) */
+static uint16_t pk_id[50];
+static uint32_t pk_child[50];
+static void pk_note(int n)
+{
+    uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
+    pk_id[n] = node ? mem_r16(&M.cpu, node + 2) : 0;
+    pk_child[n] = node ? mem_r32(&M.cpu, pickup_child_at(node)) : 0;
+}
+void vp_pickups_restore(void) /* net/rb_state.c: after a state is put in place */
+{
+    if (!pickup_models_ready) return;
+    for (int n = 0; n < 50; n++) {
+        uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
+        if (!node || node != pickup_node[n] || !pk_id[n]) continue;
+        if (mem_r16(&M.cpu, node + 2) != pk_id[n]) mem_w16(&M.cpu, node + 2, pk_id[n]);
+        if (pk_child[n] && mem_r32(&M.cpu, pickup_child_at(node)) != pk_child[n]) mem_w32(&M.cpu, pickup_child_at(node), pk_child[n]);
+    }
+}
+static void pickup_reroll_do(int n);
+static void pickup_reroll(int n) { pickup_reroll_do(n); pk_note(n); }
+static void pickup_reroll_do(int n)
 {
     uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
     if (!node || pickup_kind0[n] < 401 || pickup_kind0[n] > 430) return;
@@ -4149,7 +4174,7 @@ static void pickups_round(void)
     if (!pickup_model[17]) pickup_model[17] = pickup_model[18]; /* the two health pickups share one */
     if (!pickup_model[18]) pickup_model[18] = pickup_model[17];
     pickup_models_ready = 1;
-    for (int n = 0; n < 50; n++) pickup_reroll(n);
+    for (int n = 0; n < 50; n++) pickup_reroll(n); /* (each slot noted: pk_note, rolled or not) */
     if (pickup_debug())
         for (int n = 0; n < 50; n++) {
             uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
@@ -6944,6 +6969,7 @@ void vp_keep_register(void)
     KEEP(gu_target); KEEP(gu_node); KEEP(gu_points); KEEP(gu_hp); KEEP(gu_banned); KEEP(gu_best); KEEP(gu_until);
     KEEP(bf_last); KEEP(bf_ticks); KEEP(bf_refill_at); KEEP(bf_roulette_at); KEEP(win_at); KEEP(vs_at); KEEP(freeze_fired); KEEP(fired);
     KEEP(pickup_step); KEEP(pickup_taken_step); KEEP(pickup_kind0); KEEP(pickup_node); KEEP(pickup_model); KEEP(pickup_models_ready);
+    KEEP(pk_id); KEEP(pk_child); /* (the slots' kinds and looks: vp_pickups_restore) */
     KEEP(burn_wait); KEEP(jc_opp); /* (Deathmatch's computer cars wait the last death's burning: a machine in mid-match had 180, the
                                     * host 420; the Juggernaut car's parked record) */
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */
