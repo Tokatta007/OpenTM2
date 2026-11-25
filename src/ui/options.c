@@ -7747,6 +7747,11 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             char cont[4] = "", plat[4] = "";
             if (online && c->kind == LC_REMOTE && !c->host && c->mach1 > 0 && netplay_lobby())
                 ms = lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].ping;
+            if (online && netplay_lobby() && (c->kind == LC_PLAYER || c->kind == LC_REMOTE)) { /* (where each machine plays) */
+                const LobbyMachine *lm = c->kind == LC_PLAYER ? NULL : &lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES];
+                snprintf(cont, sizeof cont, "%s", lm ? lm->region : lobby_region());
+                snprintf(plat, sizeof plat, "%s", lm ? lm->plat : lobby_platform());
+            }
             if (test_info && (c->kind == LC_PLAYER || c->kind == LC_REMOTE))
                 sscanf(test_info, "%d,%3[^,],%3s", &ms, cont, plat);
             char pt[16] = "";

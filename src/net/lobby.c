@@ -143,6 +143,7 @@ static uint32_t get32(const uint8_t **r) { const uint8_t *p = *r; *r += 4; retur
 
 static void master_punch(Lobby *l, const char *addr, uint16_t port); /* (below) */
 static void master_send(Lobby *l, const uint8_t *m, int len);         /* (below) */
+static void get_where(const uint8_t *r, LobbyMachine *mc); /* (below) */
 static void send_state(Lobby *l) /* (host) the whole lobby to every machine */
 {
     static uint8_t m[SES_APP_MAX];
@@ -165,6 +166,8 @@ static void send_state(Lobby *l) /* (host) the whole lobby to every machine */
         *w++ = (uint8_t)mc->port;
         *w++ = (uint8_t)(mc->port >> 8);
         w = put32(w, mc->id);
+        for (int i = 0; i < 2; i++) *w++ = (uint8_t)mc->region[i];
+        for (int i = 0; i < 3; i++) *w++ = (uint8_t)mc->plat[i];
     }
     *w++ = l->view.match_on;
     for (int n = 0; n < SES_MAX_NODES; n++)
@@ -193,7 +196,7 @@ static void got_state(Lobby *l, const uint8_t *r, int len) /* (a machine) the ho
         mc->ping = ping;
         mc->present = *r++;
         mc->count = *r++;
-        if (mc->count > LOBBY_LOCAL_MAX || end - r < mc->count * PLAYER_BYTES + 22) return;
+        if (mc->count > LOBBY_LOCAL_MAX || end - r < mc->count * PLAYER_BYTES + 27) return;
         for (int i = 0; i < mc->count; i++) r = get_player(r, &mc->p[i]);
         memcpy(mc->addr, r, 16);
         mc->addr[15] = 0;
@@ -201,6 +204,8 @@ static void got_state(Lobby *l, const uint8_t *r, int len) /* (a machine) the ho
         mc->port = (uint16_t)(r[0] | r[1] << 8);
         r += 2;
         mc->id = get32(&r);
+        get_where(r, mc);
+        r += 5;
     }
     v.match_on = end - r >= 1 ? *r++ : 0;
     if (getenv("TM2PC_NET_DEBUG") && v.match_on != l->view.match_on) fprintf(stderr, "lobby: the host in a match: %d (%d bytes left)\n", v.match_on, (int)(end - r));
@@ -212,12 +217,66 @@ static void got_state(Lobby *l, const uint8_t *r, int len) /* (a machine) the ho
     l->view = v;
     if (l->status == LOBBY_CONNECTING) l->status = LOBBY_IN;
 }
+/* ---- where a machine plays from: a continent, never more (the lobby cards, the user's 2026-11-25) ----
+ * The country of Windows' region setting (GetUserGeoID: what the player chose, no network lookup), as its continent. */
+static const char *const continents[6][2] = {
+    {"NA", "US CA MX GT BZ SV HN NI CR PA CU JM HT DO BS BB TT AG DM GD KN LC VC PR VI VG AI MS KY TC BM GL PM AW CW SX BQ "
+           "MQ GP BL MF UM"},
+    {"SA", "BR AR CL PE CO VE EC BO PY UY GY SR GF FK GS"},
+    {"EU", "GB IE FR DE NL BE LU CH AT IT ES PT AD MC SM VA MT DK NO SE FI IS FO AX PL CZ SK HU SI HR BA RS ME MK AL GR BG "
+           "RO MD UA BY LT LV EE RU XK LI GI GG JE IM SJ"},
+    {"AF", "EG LY TN DZ MA EH SD SS ET ER DJ SO KE UG TZ RW BI CD CG CF CM TD NE NG BJ TG GH CI LR SL GN GW SN GM ML BF MR "
+           "CV ST GQ GA AO ZM ZW MW MZ MG MU SC KM YT RE NA BW ZA LS SZ SH IO"},
+    {"AS", "CN JP KR KP TW HK MO MN IN PK BD LK NP BT MV AF IR IQ SY LB JO IL PS SA YE OM AE QA BH KW TR CY GE AM AZ KZ UZ "
+           "TM KG TJ TH VN LA KH MM MY SG ID PH BN TL"},
+    {"OC", "AU NZ PG FJ SB VU NC PF WS TO TV KI NR MH FM PW CK NU TK WF AS GU MP NF PN CC CX HM"},
+};
+const char *lobby_region(void)
+{
+    static char got[3];
+    static int done;
+    if (done) return got;
+    done = 1;
+    const char *test = getenv("TM2PC_TEST_REGION"); /* tests: a country's 2 letters */
+    char iso[8] = "";
+#ifdef _WIN32
+    if (test) snprintf(iso, sizeof iso, "%s", test);
+    else {
+        GEOID g = GetUserGeoID(GEOCLASS_NATION);
+        if (g != GEOID_NOT_AVAILABLE) GetGeoInfoA(g, GEO_ISO2, iso, (int)sizeof iso, 0);
+    }
+#else
+    if (test) snprintf(iso, sizeof iso, "%s", test);
+#endif
+    if (strlen(iso) != 2) return got;
+    for (int c = 0; c < 6; c++)
+        for (const char *s = continents[c][1]; *s; s += s[2] ? 3 : 2)
+            if (s[0] == iso[0] && s[1] == iso[1]) { memcpy(got, continents[c][0], 3); return got; }
+    return got;
+}
+const char *lobby_platform(void) { return "PC"; }
+static uint8_t *put_where(uint8_t *w) /* (2 bytes the continent, 3 the platform) */
+{
+    const char *rg = lobby_region(), *pl = lobby_platform();
+    for (int i = 0; i < 2; i++) *w++ = (uint8_t)rg[i < (int)strlen(rg) ? i : 2];
+    for (int i = 0; i < 3; i++) *w++ = (uint8_t)(i < (int)strlen(pl) ? pl[i] : 0);
+    return w;
+}
+static void get_where(const uint8_t *r, LobbyMachine *mc)
+{
+    for (int i = 0; i < 2; i++) mc->region[i] = (r[i] >= 'A' && r[i] <= 'Z') ? (char)r[i] : 0;
+    mc->region[2] = 0;
+    if (!mc->region[0] || !mc->region[1]) mc->region[0] = 0;
+    for (int i = 0; i < 3; i++) mc->plat[i] = (r[2 + i] >= 'A' && r[2 + i] <= 'Z') ? (char)r[2 + i] : 0;
+    mc->plat[3] = 0;
+}
 static void send_info(Lobby *l) /* (a machine) its players, once in */
 {
-    uint8_t m[2 + LOBBY_LOCAL_MAX * PLAYER_BYTES], *w = m;
+    uint8_t m[2 + LOBBY_LOCAL_MAX * PLAYER_BYTES + 5], *w = m;
     *w++ = L_INFO;
     *w++ = (uint8_t)l->count;
     for (int i = 0; i < l->count; i++) w = put_player(w, &l->mine[i]);
+    w = put_where(w); /* (where it plays from) */
     ses_app_send(l->ses, l->host_node, m, (int)(w - m));
 }
 static void on_app(void *ctx, int from, const uint8_t *d, int len)
@@ -234,6 +293,7 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
         mc->count = (uint8_t)count;
         r = d + 2;
         for (int i = 0; i < count; i++) r = get_player(r, &mc->p[i]);
+        if (len >= 2 + count * PLAYER_BYTES + 5) get_where(r, mc);
         l->dirty = 1;
     } else if (l->host && d[0] == L_SET && len >= 5 && from != l->node && from < SES_MAX_NODES) {
         LobbyMachine *mc = &l->view.m[from];
@@ -771,6 +831,12 @@ void lobby_poll(Lobby *l, uint32_t now_ms)
     memset(none, 0, sizeof none);
     ses_step(l->ses, none, now_ms); /* (idle: who is there) */
     if (l->host) {
+        if (l->node >= 0 && l->node < SES_MAX_NODES && !l->view.m[l->node].plat[0]) { /* (the host's own: where it plays) */
+            uint8_t wb[5];
+            put_where(wb);
+            get_where(wb, &l->view.m[l->node]);
+            l->dirty = 1;
+        }
         for (int n2 = 0; n2 < SES_MAX_NODES; n2++) {
             if (n2 == l->node) continue;
             int present = ses_present(l->ses, n2);

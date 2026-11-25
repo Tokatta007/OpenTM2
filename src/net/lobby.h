@@ -41,7 +41,12 @@ typedef struct {
     uint16_t port;      /* them can take over as the host (host migration) */
     uint32_t id;        /* the machine's own number (this run of the game): a machine dropped and back is known again */
     uint16_t ping;      /* its round trip to the host, ms, as the host measures it (the host: 0; 0 too: not known yet) */
+    char region[3];     /* its continent, 2 letters (NA, SA, EU, AF, AS, OC; "" not known): from its Windows region */
+    char plat[4];       /* its platform, up to 3 letters (PC) */
 } LobbyMachine;
+/* this PC's continent (lobby_region: its Windows region's country, as a continent; "" not known) and platform */
+const char *lobby_region(void);
+const char *lobby_platform(void);
 typedef struct {
     uint32_t seed;
     uint8_t delay;                       /* input delay (steps) */
