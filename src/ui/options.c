@@ -5623,7 +5623,15 @@ static int skin_portrait(Image *c, int number, int n, int x, int y, int w, int h
 static const char *car_label(int number);
 static void draw_car_portrait(const View *v, int car, int n, int x, int y, int w, int h)
 {
-    if (car < PROFILE_CHARACTERS) { draw_portrait_image(v, car * PROFILE_PORTRAITS + n, x, y, w, h); return; }
+    if (car < PROFILE_CHARACTERS) {
+        /* Sweet Tooth or Minion unlocked by their car select code (the game's flag, not the profile's ending): their
+         * picture, not the locked "?" (the user's 2026-11-24) */
+        int any = portrait_any;
+        if ((car == 12 || car == 13) && M.ram && mem_r8(&M.cpu, GA(car == 12 ? 0x80180D04u : 0x80180D05u))) portrait_any = 1;
+        draw_portrait_image(v, car * PROFILE_PORTRAITS + n, x, y, w, h);
+        portrait_any = any;
+        return;
+    }
     static const uint8_t black[3] = {0, 0, 0};
     draw_fill(v->c, x, y, w, h, black, 255);
     if (car >= 0x20 && skin_portrait(v->c, car, n, x, y, w, h)) return; /* (a mod character: its own pictures) */
@@ -13634,7 +13642,8 @@ void ui_SceneBackground(CPU *c)
         int car = vp_carousel_car(), item = carsel_chosen_item();
         int st = (cl.on ? 1 + carsel_live_state() * 2
                         : 2 + (car + 1) * 4 + (item == ITEM_SELECT_CAR) * 2 + carsel_second * 256 + (int)(carsel_text_hash << 9)) ^
-                 (carsel_title_x[0] * 7919 + carsel_title_x[1] * 104729) ^ (names_as_sprites << 30);
+                 (carsel_title_x[0] * 7919 + carsel_title_x[1] * 104729) ^ (names_as_sprites << 30) ^
+                 (bar_count() << 24); /* (the bar's drivers too: Sweet Tooth's or Minion's code adds one, the user's 2026-11-24) */
         /* the other item's picture kept: SELECT CAR / CAR INFO flicked up and down swaps the two, not composed again each
          * time (each ~40 ms at 1280 x 960 and more with the overlay at the window's size: the user's stutter, 2026-11-03) */
         static Image other_img;
@@ -13643,6 +13652,8 @@ void ui_SceneBackground(CPU *c)
             Image t = *hdp;
             *hdp = other_img, other_img = t;
             other_state = hd_state, hd_state = st;
+            carsel_art_gen++; /* (the overlay's bar copied from it again: drawn the same frame from the one before, it
+                               * kept the last car's highlight, a slot off after Sweet Tooth's code: the user's 2026-11-24) */
         } else if (st != hd_state || !hdp->px) {
             if (hdp->px && hd_state != -1) { /* (the one shown kept as the other) */
                 Image t = other_img;
@@ -13678,7 +13689,7 @@ void ui_SceneBackground(CPU *c)
             static int base_state = -1; /* without the titles' slide: the overlay's parts only change with it */
             /* (and without the chosen item: the overlay's parts, the bottom bar, are the same for both) */
             int bs = (cl.on ? 1 + carsel_live_state() * 2 : 2 + (car + 1) * 4 + carsel_second * 256 + (int)(carsel_text_hash << 9)) ^
-                     (names_as_sprites << 30);
+                     (names_as_sprites << 30) ^ (bar_count() << 24);
             if (bs != base_state) { base_state = bs; carsel_art_gen++; }
         }
     composed:
