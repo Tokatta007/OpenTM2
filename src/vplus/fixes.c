@@ -4066,6 +4066,12 @@ static void pickup_reroll(int n)
     uint32_t node = mem_r32(&M.cpu, PICKUP_OBJECTS + 4u * (uint32_t)n);
     if (!node || pickup_kind0[n] < 401 || pickup_kind0[n] > 430) return;
     int b = vp_pickup_id(pickup_kind0[n]), keep = b >= 440 ? 40 : 0, base = b - keep;
+    /* a turned-off kind's stand-in with no look on this level (each level loads only some pickups' models): another
+     * pick, up to 8, so the slot does not keep the old look (Holland's health pickup stayed one with health off, the
+     * user's 2026-11-25; it gave a weapon when taken). The picks draw vp_rand: every machine the same */
+    for (int tries = 0; tries < 8 && b != pickup_kind0[n] && base != PICKUP_SPECIAL && base >= 401 && base <= 430 &&
+                        !pickup_model[base - 400]; tries++)
+        b = vp_pickup_id(pickup_kind0[n]), keep = b >= 440 ? 40 : 0, base = b - keep;
     if (base == PICKUP_SPECIAL && pickup_special_look()) { /* a special: the globe (the slot keeps its kind) */
         mem_w16(&M.cpu, node + 2, (uint16_t)b);
         mem_w32(&M.cpu, pickup_child_at(node), pickup_special_look());

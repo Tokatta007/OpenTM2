@@ -535,7 +535,12 @@ void feat_Pickup(CPU *c) /* sub_8010AFC8(car, human, id, map slot) */
 {
     int given = (int)c->r[6] >= 441 ? (int)c->r[6] - 40 : (int)c->r[6];
     if (given != 417 && given != 418 && given != 430 && given >= 401 && given <= 430) vp_gun_resupply(c->r[4], c->r[5] & 0xFF);
+    int asked = (int)c->r[6];
     c->r[6] = (uint32_t)vp_pickup_id((int)c->r[6]);
+    static int dbg = -1; /* (tests: TM2PC_PICKUP_DEBUG, each pickup taken: its kind and what it gave) */
+    if (dbg < 0) dbg = getenv("TM2PC_PICKUP_DEBUG") != NULL;
+    if (dbg) fprintf(stderr, "pickup: %s %d took kind %d at slot %d: gave %d\n", c->r[5] & 0xFF ? "player" : "computer car",
+                     r16s(c->r[4] + (c->r[5] & 0xFF ? 0u : 2u)), asked, (int)c->r[7], (int)c->r[6]);
     if (c->r[6] == 400 || c->r[6] == 440) c->r[6] = (uint32_t)vp_pickup_special(c->r[4], c->r[5] & 0xFF) + (c->r[6] == 440 ? 40 : 0);
     if (c->r[5] && in_battle) {
         int h = r16s(c->r[4]), id = (int)c->r[6];
