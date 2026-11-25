@@ -6379,7 +6379,7 @@ int vp_spectator(int h)
 }
 static void spectators_frame(void)
 {
-    if (!spec_humans || spec_done || vp_gv() < spec_round_gv + 2 || !battle_rules()) return;
+    if (!spec_humans || spec_done || vp_gv() < spec_round_gv + 2) return; /* (any game: a Challenge Match, Survival, a co-op tournament) */
     int netplay_in_match(void);
     if (!netplay_in_match()) return;
     spec_done = 1;
