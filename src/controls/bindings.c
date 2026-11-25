@@ -93,7 +93,7 @@ static int is_extra_key(const char *key) /* an extra control's ini name (or its 
     return 0;
 }
 const char *const bind_energy_names[BIND_ENERGY] = {"Freeze", "Rear fire", "Mines", "Shield", "Invisibility", "Jump",
-                                                       "Napalm", "Volley", "Rear freeze"};
+                                                       "Napalm", "Minion's volley", "Rear freeze"};
 static const char *const energy_keys[BIND_ENERGY] = {"energy_freeze", "energy_rear_fire", "energy_mines", "energy_shield",
                                                      "energy_invisibility", "energy_jump", "energy_napalm",
                                                      "energy_volley", "energy_rear_freeze"}; /* (their ini names, after pN_) */
