@@ -109,9 +109,21 @@ void rc_watch_hit(uint32_t a, uint32_t v, int size)
     static long long from = -1; /* TM2PC_WATCH_FROM=V: only from VBlank V on (past the loading) */
     if (from < 0) from = getenv("TM2PC_WATCH_FROM") ? atoll(getenv("TM2PC_WATCH_FROM")) : 0;
     if (M.vblanks < (uint64_t)from) return;
+    static int unique = -1; /* TM2PC_WATCH_UNIQUE: each writer (the host code and the guest function last entered) once:
+                             * the ones that should be there (a model's animation) and one that should not (a boss's
+                             * model damaged at its load: decomp request 122, the Minion phase) */
+    if (unique < 0) unique = getenv("TM2PC_WATCH_UNIQUE") != NULL;
+    if (unique) {
+        static struct { void *host; uint32_t fn; } seen[512];
+        static int n_seen;
+        void *host = __builtin_return_address(0);
+        uint32_t fn = rc_trace_ring[(rc_trace_pos - 1) & 255];
+        for (int i = 0; i < n_seen; i++) if (seen[i].host == host && seen[i].fn == fn) return;
+        if (n_seen < 512) seen[n_seen].host = host, seen[n_seen].fn = fn, n_seen++;
+    }
     if (hits++ >= (getenv("TM2PC_WATCH_MAX") ? atoi(getenv("TM2PC_WATCH_MAX")) : 200)) return;
-    fprintf(stderr, "watch: vblank %llu: %08X <- %0*X (%d) at host %p, after", (unsigned long long)M.vblanks, a, size * 2, v, size,
-            __builtin_return_address(0));
+    fprintf(stderr, "watch: vblank %llu: %08X <- %0*X (%d) at host +%llx, after", (unsigned long long)M.vblanks, a, size * 2, v,
+            size, (unsigned long long)((char *)__builtin_return_address(0) - (char *)GetModuleHandleA(NULL))); /* (the exe's offset) */
     for (unsigned i = 1; i <= 4; i++) fprintf(stderr, " %08X", gr(rc_trace_ring[(rc_trace_pos - i) & 255]));
     fprintf(stderr, " (retail)\n");
 }
