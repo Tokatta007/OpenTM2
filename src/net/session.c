@@ -7,7 +7,7 @@
 
 enum { MAGIC = 0x4E54, P_INPUT = 1, P_REL = 2, P_HASH = 3, P_VOICE = 4, P_BYE = 5 }; /* packets */
 enum { R_SLOT = 1, R_NODE = 2, R_STATE = 3, R_JOIN = 4, R_CHAT = 5, R_VOTE_START = 6, R_VOTE = 7, R_VOTE_TALLY = 8,
-       R_KICK_VOTE = 9, R_KICK_STATE = 10, R_KICKED = 11, R_APP = 12, R_BASE = 13 }; /* reliable messages */
+       R_KICK_VOTE = 9, R_KICK_STATE = 10, R_KICKED = 11, R_APP = 12, R_BASE = 13, R_BASE_ASK = 14 }; /* reliable messages */
 enum { BASE_MAX = 65536 }; /* a machine's base (ses_send_base): the game's block hashes of its own state */
 enum { RUN_MAX = 32, ACKS_MAX = 128, ACK_QUEUE = 1024, HOLD_MAX = 256, CHUNK = 1000, RTO_MS = 150, RTO_MAX = 1500,
        PACKET_MAX = 1400, PEND_MAX = 128,
@@ -20,7 +20,8 @@ enum { RUN_MAX = 32, ACKS_MAX = 128, ACK_QUEUE = 1024, HOLD_MAX = 256, CHUNK = 1
         * a lossy line drops all the time) halves it, at most once a round trip, never under CWND_MIN. A match's
         * start sent each machine its state at once at the full REL_WINDOW (6 states, 7.5 MB, from a home connection):
         * one machine heard nothing more for 40 s and was dropped (SkullServant's, Ryupichu hosting, 2026-11-25) */
-       CWND_START = 64, CWND_MIN = 32 };
+       CWND_START = 64, CWND_MIN = 32,
+       RESYNC_BASE_MS = 1000 /* (host) a resync waits this long for the machine's base (asked for), then sends the whole */ };
 
 typedef struct { uint16_t id; uint8_t *data; int len; uint32_t sent_ms; uint8_t tries; } RelOut;
 typedef struct { uint16_t id; uint8_t *data; int len; } RelIn;
@@ -69,6 +70,7 @@ typedef struct {
     int base_new;                  /* (host) a whole base not yet used: the next state to it only what differs from it */
     int want_full;                 /* (host) it asked for the whole state (its base gone: another battle's) */
     uint32_t due_ms;               /* (host) a state owed to it since then, waiting for its base (base_wait_ms at most) */
+    uint32_t ask_ms;               /* (host) a resync's: its base asked for then (RESYNC_BASE_MS at most, then whole) */
     int away;                      /* (host) what it said it is doing: SES_AWAY_* (not stepping: a replay, between screens) */
 } Peer;
 
@@ -92,6 +94,7 @@ struct Session {
     int32_t rx_step;
     uint8_t *tx;                   /* a state to send */
     uint32_t base_wait_ms;         /* (host) a state owed waits this long for the machine's base (0: never: whole) */
+    int base_asked;                /* (a machine) the host asked for its base (a resync's): ses_base_asked */
     const uint8_t *cur_base;       /* (host) while the game makes a state: the machine's base (ses_state_base) */
     int cur_base_len;
     SesVoiceFn voice;
@@ -243,14 +246,25 @@ static void send_state(Session *s, int to, uint32_t now_ms)
     Peer *pt = &s->peer[to];
     int resync = pt->resync_wait;
     /* a machine's start (or a battle's): its base first, so only what differs goes (its own load is most of it): a
-     * while at most, then the whole state; a resync goes at once, whole (its base is a battle's start, gone by now) */
+     * while at most, then the whole state. A resync: its base asked for now (its state is the host's but for a few
+     * words: the blocks that differ, a tenth of the whole), RESYNC_BASE_MS at most, then the whole state (a resync was
+     * the whole 2.5 MB each time: 5 s a resync, every few steps when one kept coming back, the match held for
+     * everyone: Boxes's Paris, 2026-11-25) */
     if (!resync && s->base_wait_ms && !pt->base_new && !pt->want_full) {
         if (!pt->due_ms) pt->due_ms = now_ms ? now_ms : 1;
         if (now_ms - pt->due_ms < s->base_wait_ms) { pt->state_due = 1; return; }
     }
+    if (resync && s->base_wait_ms && !pt->base_new && !pt->want_full) {
+        if (!pt->ask_ms) {
+            pt->ask_ms = now_ms ? now_ms : 1;
+            uint8_t m[1] = {R_BASE_ASK};
+            rel_send(s, to, m, 1);
+        }
+        if (now_ms - pt->ask_ms < RESYNC_BASE_MS) { pt->state_due = 1; return; }
+    }
     if (!s->one_step) rb_catch_up(s->rb); /* (a game rolls back only between two steps of its own: ses_step) */
     int32_t step = rb_confirmed(s->rb) + 1;
-    int use_base = !resync && pt->base_new && !pt->want_full;
+    int use_base = pt->base_new && !pt->want_full;
     s->cur_base = use_base ? pt->base : NULL;
     s->cur_base_len = use_base ? pt->base_len : 0;
     int len = s->game.serialize(s->game.rb.ctx, step, s->tx, s->game.state_max);
@@ -258,7 +272,7 @@ static void send_state(Session *s, int to, uint32_t now_ms)
     s->cur_base_len = 0;
     pt->state_due = len <= 0; /* (not now: again at the next send) */
     if (len <= 0) return;
-    if (!resync) pt->base_new = pt->want_full = 0, pt->due_ms = 0; /* (a base: once) */
+    pt->base_new = pt->want_full = 0, pt->due_ms = pt->ask_ms = 0; /* (a base: once) */
     if (s->peer[to].resync_wait) s->peer[to].resync_id = (uint16_t)(s->peer[to].out_id + (len + CHUNK - 1) / CHUNK - 1);
     for (int off = 0; off < len || off == 0; off += CHUNK) {
         int n = len - off < CHUNK ? len - off : CHUNK;
@@ -320,6 +334,8 @@ static void handle_rel(Session *s, int from, const uint8_t *m, int len, uint32_t
             s->ready = 1;
             s->rx_step = -1;
         }
+    } else if (kind == R_BASE_ASK && s->host != s->node) { /* (a machine) its base, for a resync's state */
+        s->base_asked = 1;
     } else if (kind == R_BASE && len >= 9 && from >= 0 && from < SES_MAX_NODES) { /* (host) a machine's base, in pieces */
         Peer *pb = &s->peer[from];
         uint32_t total = g32(&q), off = g32(&q), n = (uint32_t)len - 9;
@@ -1101,6 +1117,7 @@ int ses_rel_pending(const Session *s, int node, int *state_got)
 
 void ses_set_base_wait(Session *s, uint32_t ms) { s->base_wait_ms = ms; }
 const uint8_t *ses_state_base(const Session *s, int *len) { if (len) *len = s->cur_base_len; return s->cur_base; }
+int ses_base_asked(Session *s) { int a = s->base_asked; s->base_asked = 0; return a; }
 void ses_send_base(Session *s, const uint8_t *base, int len) /* (a machine) to the host, in pieces (len 0: the whole state) */
 {
     if (s->host == s->node || s->host < 0 || len < 0 || len > BASE_MAX) return;

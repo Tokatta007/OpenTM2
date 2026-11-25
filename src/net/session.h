@@ -97,6 +97,8 @@ int ses_rtt(const Session *s, int node); /* the round trip to a machine, ms (0: 
 int ses_rel_pending(const Session *s, int node, int *state_got);
 /* (host) its state to that machine now (game.serialize of the next step; a match's start in lockstep) */
 void ses_push_state(Session *s, int to, uint32_t now_ms);
+/* (a machine) the host asked for its base (a resync: only what differs from it comes): once, then 0 */
+int ses_base_asked(Session *s);
 int ses_host(const Session *s);
 /* a machine's start from the host's state, only what differs from its own (the game's base: its state's block hashes,
  * made as its battle loaded): the host waits up to ms for a machine's base, then sends the whole state */

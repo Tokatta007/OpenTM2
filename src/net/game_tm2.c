@@ -1011,6 +1011,7 @@ static void frame_body(void)
         ng.join_ask = 0;
         ng.want_base = !getenv("TM2PC_NET_NO_DELTA"); /* (after the ask: the host takes nothing before it) */
     }
+    if (ses_base_asked(ng.ses) && !getenv("TM2PC_NET_NO_DELTA")) ng.want_base = 1; /* (a resync's: this step's) */
     if (ng.want_base && ses_host(ng.ses) != ng.node && base_send()) ng.want_base = 0; /* (this machine's battle loaded) */
     state_apply(); /* (a state that came early: this is its step) */
     RbInput local[RB_MAX_SLOTS];
