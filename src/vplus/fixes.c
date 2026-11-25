@@ -2643,8 +2643,33 @@ static void dt_ricochet_check(void)
     }
 }
 void vp_messages_clock_check(void); /* (below, with the kill feed) */
+/* The decomp's TM2_PORT_TEAM_LOCKS (request 123, PLAYTEST_ANSWERS.md 37.3): portCarTeam[car slot] = its team + 1 (0 none):
+ * Grasshopper's leap, Outlaw's taser and a computer car's player (aiGetTargetCar at -1) pass a teammate. Each step, from
+ * the match's teams (every machine the same); all 0 without teams (retail's pick) */
+enum { TEAM_LOCK_SLOTS = 64 }; /* (TM2_MAX_CAR_SLOTS: 2 x TM2_PORT_CARS_LOADED) */
+static void team_locks_frame(void)
+{
+    static uint32_t tab = 1;
+    if (tab == 1) tab = port_sym("portCarTeam");
+    if (!tab) return;
+    uint8_t t[TEAM_LOCK_SLOTS] = {0};
+    if (teams_on()) {
+        int H = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+        for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++) {
+            int s = (int16_t)mem_r16(&M.cpu, HUMAN_REC(h) + 4);
+            if (s >= 0 && s < TEAM_LOCK_SLOTS) t[s] = (uint8_t)(team_of_human(h) + 1);
+        }
+        for (int k = 0; k < ais && k < cars_ai_max(); k++) {
+            int s = (int16_t)mem_r16(&M.cpu, AI_REC(k) + 6);
+            if (s >= 0 && s < TEAM_LOCK_SLOTS) t[s] = (uint8_t)(team_of_ai(k) + 1);
+        }
+    }
+    for (int s = 0; s < TEAM_LOCK_SLOTS; s++)
+        if (mem_r8(&M.cpu, tab + (uint32_t)s) != t[s]) mem_w8(&M.cpu, tab + (uint32_t)s, t[s]);
+}
 void vp_lives_frame(void)
 {
+    team_locks_frame();
     vp_messages_clock_check();
     dt_ricochet_check();
     spawn_check_frame();

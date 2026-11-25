@@ -23,12 +23,18 @@ int portAiAim(int owner, int *out, int mode)
     if (me->state.dead)
         return 0;
     t = aiCarTargets[owner];
-    if (t >= 0 && t < 9) {
-        if (t < aiCarTotal && !((struct TM2AIRecord *)&aiCars[t])->state.dead) {
+    if (t >= 0 && t < aiCarTotal && t < TM2_MAX_AI_CARS) { /* every target record (was t < 9, retail's count: Dark Tooth
+                                                            * past the 9th fell to the player search, decomp request 123) */
+        struct TM2AIRecord *a = (struct TM2AIRecord *)&aiCars[t];
+
+        if (t != owner && !a->state.dead &&
+            !(portConfig.teams && t < 16 && owner < 16 && portConfig.team_ai[t] == portConfig.team_ai[owner])) {
             *out = (int)aiCarObject(t)->pos;
             return 1;
         }
-        return 0;
+        if (!portConfig.teams)
+            return 0; /* without teams as before: the retail pick */
+        /* teams: the target dead (coming back) or a teammate: a player of another team, else no lock */
     }
     best = -1;
     best_d = 0;
@@ -48,8 +54,14 @@ int portAiAim(int owner, int *out, int mode)
             best = i;
         }
     }
-    if (best < 0)
+    if (best < 0) {
+        if (portConfig.teams) {
+            *out = 0; /* no foe: no lock, the shot flies straight (retail aimed at player 1: KinggzZ's teammates' missiles
+                       * at him, request 123) */
+            return 1;
+        }
         return 0;
+    }
     *out = (int)humanCarObject(best)->pos;
     return 1;
 }
