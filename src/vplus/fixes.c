@@ -1923,7 +1923,7 @@ void killcam_new_round(void); /* killcam.c */
 static uint64_t watch_at[CARS_HUMANS_MAX]; /* VBlank human i starts watching (0: not waiting) */
 static uint64_t spectate_at;   /* 1 player, out: VBlank the spectating starts (0: not waiting) */
 static uint32_t death_delay;   /* the death's event delay (VBlanks), for duo_player_out */
-static void boss_round_start(void); static int boss_hold(void); static void boss_frame(void); static void survival_clock_stop(void); /* (below, with Survival's waves) */
+static void boss_round_start(void); static int boss_hold(void); static int boss_coming(void); static void boss_frame(void); static void survival_clock_stop(void); /* (below, with Survival's waves) */
 static uint64_t test_round_gv;    /* the round's start on the gameplay clock (kept with the network states: a machine that
                                    * took the host's has the host's; tests: TM2PC_TEST_ROUND_KILLS) */
 static uint32_t test_round_fired;
@@ -2667,14 +2667,15 @@ void vp_AiCountRemaining(CPU *c) /* aiCarsRemaining = the cars with HP > 0: and 
 {
     F_8011C248_orig(c);
     if (teams_on()) mem_w32(c, AI_REMAINING, (uint32_t)enemies_left()); /* teams: only the other teams' cars */
-    else if (battle_rules()) mem_w32(c, AI_REMAINING, mem_r32(c, AI_REMAINING) + (uint32_t)(ai_pending() + vp_survival_waiting()));
+    else if (battle_rules())
+        mem_w32(c, AI_REMAINING, mem_r32(c, AI_REMAINING) + (uint32_t)(ai_pending() + vp_survival_waiting() + boss_coming()));
 }
 void F_8011E16C_orig(CPU *c);
 void vp_AiCountAlive(CPU *c) /* the HUD's "Enemies: N": the same */
 {
     F_8011E16C_orig(c);
     if (teams_on()) c->r[2] = (uint32_t)enemies_left();
-    else if (battle_rules()) c->r[2] += (uint32_t)(ai_pending() + vp_survival_waiting());
+    else if (battle_rules()) c->r[2] += (uint32_t)(ai_pending() + vp_survival_waiting() + boss_coming());
     int vp_versus_on(void);
     int no_cpu = battle_rules() && !ui_survival() && mem_r8(c, GA(0x8016475Cu)) == 4; /* (the game's mode 4: 2 players and no
                                     * computer cars, not vp_duo's 3: a 1v1 online read "Enemies Toasted!" from its start,
@@ -3285,6 +3286,16 @@ static int boss_hold(void) /* the others are out: 1 when the bosses come now (th
     boss_until = vp_gv() + 120;
     fprintf(stderr, "custom tournament: the boss is coming\n");
     return 1;
+}
+/* the bosses on their way in (the 2 seconds before boss_frame brings them): enemies still to come. Out of play until then,
+ * they were not counted, so the game's own won test fired again the next frame and the stage ended a few seconds after
+ * they came in (Kharmisle's and shuriken8147's custom tournaments, 2026-11-24) */
+static int boss_coming(void)
+{
+    if (boss_state != 2 || boss_first < 0) return 0;
+    int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    if (n > cars_ai_max()) n = cars_ai_max();
+    return n > boss_first ? n - boss_first : 0;
 }
 static void boss_frame(void)
 {
@@ -6536,7 +6547,7 @@ static void vp_duo_frame(void)
             int ui_tour_on(void); /* ui/options.c: a custom tournament: the players together, as the tournament's co-op */
             side = teams ? 100 + team_of_human(h) : ui_tour_on() ? 300 : 200 + h;
         } else {
-            in = ai_alive(k) || ai_life_pending(k);
+            in = ai_alive(k) || ai_life_pending(k) || (boss_coming() && k >= boss_first); /* (a boss on its way in) */
             side = teams ? 100 + team_of_ai(k) : k;
         }
         if (!in) continue;
