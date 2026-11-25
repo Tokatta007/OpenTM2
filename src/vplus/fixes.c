@@ -2365,6 +2365,16 @@ static void test_handover(void) /* tests: TM2PC_TEST_HANDOVER="H@V": from VBlank
 static void test_kills(void) /* tests: TM2PC_TEST_KILL="1@2400,2@3000" destroys player P at VBlank V */
 {
     test_handover();
+    static int warp_at = -2, warp_idx, warp_h; /* tests: TM2PC_TEST_WARP=N,W,H, human H (0..) into teleporter W at the
+                                                * round's frame N (every machine the same: Boxes's Paris desync) */
+    if (warp_at == -2) {
+        warp_at = -1;
+        if (getenv("TM2PC_TEST_WARP")) sscanf(getenv("TM2PC_TEST_WARP"), "%d,%d,%d", &warp_at, &warp_idx, &warp_h);
+    }
+    if (warp_at >= 0 && vp_round_frames() == warp_at) {
+        guest_call(GA(0x8011566Cu), (uint32_t)warp_idx, HUMAN_REC(warp_h), 1, 0); /* worldWarpStart */
+        fprintf(stderr, "test: human %d into teleporter %d (round frame %d)\n", warp_h + 1, warp_idx, vp_round_frames());
+    }
     static int eiffel_at = -2; /* tests: TM2PC_TEST_EIFFEL=N, Paris's tower falls at the round's frame N (every machine the
                                 * same, a step run again too: online desync tests, Boxes's 2026-11-25) */
     if (eiffel_at == -2) eiffel_at = getenv("TM2PC_TEST_EIFFEL") ? atoi(getenv("TM2PC_TEST_EIFFEL")) : -1;
