@@ -8,7 +8,7 @@
 enum { MAGIC = 0x4E54, P_INPUT = 1, P_REL = 2, P_HASH = 3, P_VOICE = 4, P_BYE = 5 }; /* packets */
 enum { R_SLOT = 1, R_NODE = 2, R_STATE = 3, R_JOIN = 4, R_CHAT = 5, R_VOTE_START = 6, R_VOTE = 7, R_VOTE_TALLY = 8,
        R_KICK_VOTE = 9, R_KICK_STATE = 10, R_KICKED = 11, R_APP = 12, R_BASE = 13, R_BASE_ASK = 14 }; /* reliable messages */
-enum { BASE_MAX = 65536 }; /* a machine's base (ses_send_base): the game's block hashes of its own state */
+enum { BASE_MAX = 131072 }; /* a machine's base (ses_send_base): the game's block hashes of its own state */
 enum { RUN_MAX = 32, ACKS_MAX = 128, ACK_QUEUE = 1024, HOLD_MAX = 256, CHUNK = 1000, RTO_MS = 150, RTO_MAX = 1500,
        PACKET_MAX = 1400, PEND_MAX = 128,
        REL_WINDOW = HOLD_MAX, /* reliable messages in flight at most past the oldest not acked: what the other side can

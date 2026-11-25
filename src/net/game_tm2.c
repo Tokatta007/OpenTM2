@@ -468,7 +468,7 @@ static int devices_load(const uint8_t *r, size_t len)
  * the joiner puts them over its base: the host's state, byte for byte. A base not come (an old build, a host just
  * moved): the whole state after BASE_WAIT_MS; a delta made from another base (another battle's): the whole one asked */
 #include "miniz.h"
-enum { BASE_BLOCK = 16384, BASE_WAIT_MS = 15000 };
+enum { BASE_BLOCK = 4096, BASE_WAIT_MS = 15000 };
 static const uint32_t BASE_MAGIC = 0x31424D54u; /* "TMB1" */
 static uint8_t *base_raw, *work;  /* (a joiner) its own state as its battle loaded; (both) the delta's bytes, unpacked */
 static size_t base_len, work_cap;
@@ -498,7 +498,7 @@ static int base_send(void) /* (a joiner, its battle loaded) its own state kept, 
     n += devices_save(base_raw + n);
     uint32_t nb = (uint32_t)((n + BASE_BLOCK - 1) / BASE_BLOCK);
     size_t len = 12 + 8 * (size_t)nb;
-    if (len > 65536 || !work_room(len) || getenv("TM2PC_NET_NO_BASE")) { /* (too big: the whole state; tests: always) */
+    if (len > 131072 || !work_room(len) || getenv("TM2PC_NET_NO_BASE")) { /* (too big: the whole state; tests: always) */
         ses_send_base(ng.ses, NULL, 0);
         return 1;
     }
