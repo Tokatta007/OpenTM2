@@ -2364,6 +2364,8 @@ static struct {
     char password[LOBBY_PASSWORD];  /* (host) a private server's: needed to join it (Swampus's "where do I enter the password") */
 } net_server = {"", 0, NET_GAME_CHALLENGE, 8, 15, 1, 0, 1, 1, 0, 0, 0, 0, 0, NULL, ""};
 static char net_join_where[64], net_join_password[LOBBY_PASSWORD]; /* a private server's join: where, the password typed */
+static char net_last_join[64];        /* the address last joined (a refusal for its password: typed, then again) */
+static int net_pw_asked;              /* (that join) a password typed for it already */
 static void net_password_apply(void) /* (host) the lobby asks for the password while the server is private */
 {
     Lobby *l = netplay_lobby();
@@ -2706,6 +2708,8 @@ static void net_named(int kind, const char *text) /* the name grid's: 4 a chat l
             net_join_where[0] = 0;
             if (!text[0]) return; /* (none typed: not joined) */
             snprintf(net_join_password, sizeof net_join_password, "%s", text);
+            net_pw_asked = 1; /* (a wrong one: refused once more, not asked again: the server list or the address again) */
+            snprintf(net_last_join, sizeof net_last_join, "%s", where);
             net_named(6, where); /* (then the server's page, net_goto) */
             return;
         }
@@ -2743,6 +2747,8 @@ static void net_named(int kind, const char *text) /* the name grid's: 4 a chat l
         net_entered();
         net_server.host = 0;
         snprintf(net_server.name, sizeof net_server.name, "%s", text);
+        if (strcmp(net_last_join, text)) net_pw_asked = 0; /* (another server: its password not asked yet) */
+        snprintf(net_last_join, sizeof net_last_join, "%s", text);
         netplay_internet(!net_lan);
         if (!netplay_join(text, play_players, (const char (*)[LOBBY_NAME])names)) {
             net_chat_add("SERVER", "That address was not found.");
@@ -2925,16 +2931,31 @@ static int net_sync(void)
         static const char *const why[] = {NULL, NULL, "Another version of the game: both need the same build.",
                                           "The server is full.", "You were removed from this server.",
                                           "The server cannot be reached.", "You were removed from the server.",
-                                          "Wrong password. This server is private: choose it in the server list to type its password."};
+                                          "Wrong password. This server is private: type its password."};
         if (st >= LOBBY_REFUSED_BUILD && why[st]) {
             const char *say = st == LOBBY_REFUSED_BUILD && update_state() == UPDATE_READY /* (updated, not restarted) */
                                   ? "The new version is in place: restart the game to play online." : why[st];
+            if (st == LOBBY_REFUSED_PASSWORD && !net_pw_asked && net_last_join[0]) /* (joined by address, a friend's server:
+                                                                                     * never asked) */
+                say = "This server is private: type its password.";
             net_chat_add("SERVER", say);
             fprintf(stderr, "network: %s\n", say);
             netplay_leave();
             net_in_server = 0;
             net_server.host = 0;
             net_status_seen = st;
+            if (st == LOBBY_REFUSED_PASSWORD && net_last_join[0]) { /* the password asked for, then the join again (net_named 9):
+                * a join by address or from a friend never asked for it (DaToastyMane's, 2026-11-25) */
+                net_pw_asked = 1;
+                snprintf(net_join_where, sizeof net_join_where, "%s", net_last_join);
+                net_back_to = PAGE_NET_MODE;
+                name_start(0);
+                naming.game_type = 9;
+                naming.max = LOBBY_PASSWORD - 1;
+                naming.text[0] = 0;
+                naming.caps = 0;
+                fprintf(stderr, "network: the server's password asked for\n");
+            }
             return PAGE_NET_MODE;
         }
         if (st == LOBBY_IN && net_status_seen == LOBBY_CONNECTING) {
@@ -9159,7 +9180,7 @@ static int run(PageId start)
                     sel = row_count - 1;
                     scroll = 0;
                 } else if ((r->act >= ACT_NET_MODE && r->act <= ACT_NET_BACK) ||
-                           (r->act >= ACT_FRIEND_ADD && r->act <= ACT_NET_MODS_GET)) { /* Network Play's menus (and Friends,
+                           (r->act >= ACT_FRIEND_ADD && r->act <= ACT_NET_PASSWORD)) { /* Network Play's menus (and Friends,
                     * Online Services and a server's mods, listed after ACT_UPDATE / ACT_SETUP: they never got here before) */
                     if (r->act == ACT_NET_GAME) net_game_from = (int)page; /* (the game's pages: back to here at the end) */
                     int to = net_action(r->act, r->arg);
