@@ -636,6 +636,8 @@ static int cb_serialize(void *ctx, int32_t step, uint8_t *out, int cap)
             (unsigned long long)vp_gv(), (int)rb_now(ses_rollback(ng.ses)));
     return (int)packed;
 }
+static uint64_t last_state_gv;
+uint64_t net_last_state_gv(void) { return last_state_gv; } /* (the camera's log, vplus/fixes.c) */
 static void state_apply(void) /* the host's state kept: in place now (this machine at its battle's step) */
 {
     if (!ng.pend_len) return;
@@ -691,6 +693,7 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
     int32_t at_step = resync ? rb_now(ses_rollback(ng.ses)) : 0;
     if (resync) rbs_diff_begin(at_step);
     ng.loaded = n > ks && killcam_state_load(ng.raw, ks) && devices_load(ng.raw + ks, n - ks);
+    if (ng.loaded) { uint64_t vp_gv(void); last_state_gv = vp_gv(); }
     if (resync && ng.loaded) rbs_diff_end(at_step);
     void rbs_backup_arm(int on);
     rbs_backup_arm(0);

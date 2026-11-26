@@ -2292,6 +2292,44 @@ static void spawn_check_frame(void)
                     spawn_check[i].y, spawn_check[i].z, dead ? "DESTROYED" : "FELL", x, y, z, spawn_check[i].z - z);
     }
 }
+/* The camera far from its own car (Tegu's stuck camera after a respawn, online, a laggy match, 2026-11-26): each second,
+ * each of this PC's players alive and not watching, the view's eye against the car; far for 2 s running: one line with
+ * what happened before (the respawn, the host's last state, re-runs). A log only: nothing changed. */
+int humans_slot(int h); /* vplus/humans.c */
+static uint64_t cam_respawn_gv[CARS_HUMANS_MAX];
+static void cam_watchdog(void)
+{
+    extern int rbs_resimulating;
+    extern int killcam_replaying;
+    if (rbs_resimulating || killcam_replaying) return;
+    static uint64_t next;
+    if (vp_gv() < spec_round_gv + 300) return; /* (a round's first 5 s: the views not set on their cars yet) */
+    static int far_for[CARS_HUMANS_MAX], told[CARS_HUMANS_MAX];
+    if (M.vblanks < next) return;
+    next = M.vblanks + 60;
+    int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int h = 0; h < humans && h < CARS_HUMANS_MAX; h++) {
+        int v = humans_slot(h);
+        if (v < 0 || v > 3) continue;
+        uint32_t rec = HUMAN_REC(h);
+        if (mem_r8(&M.cpu, rec + 0x9C) || wv[v].on || coop_out[h] || life[h].at) { far_for[h] = 0; continue; }
+        int32_t car[3], eye[3];
+        for (int k = 0; k < 3; k++) car[k] = (int32_t)mem_r32(&M.cpu, rec + 0x6FC + 4u * (uint32_t)k),
+                                    eye[k] = -(int32_t)mem_r32(&M.cpu, GA(0x801A51A8u) + 12u * (uint32_t)v + 4u * (uint32_t)k); /* (kept
+                                                                                                     * negated: the view's translation) */
+        int32_t d = 0;
+        for (int k = 0; k < 3; k++) { int32_t a = car[k] - eye[k]; if (a < 0) a = -a; if (a > d) d = a; }
+        if (d < 3000) { far_for[h] = 0; told[h] = 0; continue; }
+        if (++far_for[h] < 2 || told[h]) continue;
+        told[h] = 1;
+        uint64_t net_last_state_gv(void); /* net/game_tm2.c: the host's last state put in place (gameplay VBlanks; 0 none) */
+        fprintf(stderr, "camera: player %d's view %d far from its car for %d s (gv %llu): car at %d %d %d, eye at %d %d %d "
+                "(%d away); respawned at gv %llu, the host's last state at gv %llu, shield %d, hp %d\n", h + 1, v, far_for[h],
+                (unsigned long long)vp_gv(), car[0], car[1], car[2], eye[0], eye[1], eye[2], d,
+                (unsigned long long)cam_respawn_gv[h], (unsigned long long)net_last_state_gv(), mem_r8(&M.cpu, rec + 0xAA),
+                (int32_t)mem_r32(&M.cpu, rec + 0x1F0));
+    }
+}
 static void respawn_human(int i)
 {
     if (vp_spectator(i)) return; /* (a split screen's spectator: never back) */
@@ -2314,6 +2352,11 @@ static void respawn_human(int i)
     guest_call(GA(0x8011D6A4u), rec, mem_r32(&M.cpu, RB_padConfigs + 4u * (uint32_t)i), 0, 0); /* the pad config */
     guest_call(GA(0x800FDCACu), rec, rec + 0x7C8u, 1, 0);                  /* a fresh weapon block */
     place_away(rec, i);                                                /* away from the others, full health */
+    cam_respawn_gv[i] = vp_gv();
+    extern int rbs_resimulating;
+    if (humans_slot(i) >= 0) /* (this PC's: where it went, for the camera's log) */
+        fprintf(stderr, "respawn: player %d (view %d) at %d %d %d%s\n", i + 1, humans_slot(i), (int32_t)mem_r32(&M.cpu, rec + 0x6FC),
+                (int32_t)mem_r32(&M.cpu, rec + 0x700), (int32_t)mem_r32(&M.cpu, rec + 0x704), rbs_resimulating ? " (a re-run)" : "");
     guest_call(GA(0x8011CBB0u), (uint32_t)i, 0, 0, 0);                     /* the displayed speed */
     uint32_t obj = guest_call(GA(0x8011CB50u), (uint32_t)i, 0, 0, 0);      /* its object, shown again */
     if (obj) guest_call(GA(0x80149604u), obj, 1, 0, 0);
@@ -2678,6 +2721,7 @@ static void team_locks_frame(void)
 }
 void vp_lives_frame(void)
 {
+    cam_watchdog();
     team_locks_frame();
     spectators_frame();
     back_frame();
