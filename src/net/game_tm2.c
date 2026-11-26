@@ -709,6 +709,8 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
     if (ng.loaded) rb_resum_restart(ses_rollback(ng.ses)); /* (its step's start ran before it was here: hashed again) */
     void humans_tables_again(void); /* vplus/humans.c */
     if (ng.loaded) humans_tables_again(); /* (the button tables, as every machine has them: the state has the host's) */
+    void four_views_again(void); /* vplus/four.c: a split screen's own views (the host's state has the host's) */
+    if (ng.loaded && feats_in_battle() && !ng.watch) four_views_again();
     void vp_watch_again(void); /* vplus/fixes.c */
     if (ng.loaded && (ng.watch || ng.wait_stage)) vp_watch_again(); /* (watching: its view on the car watched again, the host's view bytes in) */
     if (ng.loaded && ng.rollback) { /* (rollback: the state's step released before the state was put in place (the

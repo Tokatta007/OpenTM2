@@ -4011,6 +4011,12 @@ void vp_ViewSetSplitMode(CPU *c)
         settings_video.split = c->r[4] == 2 ? 1 : 2;
         settings_save_section("video");
     }
+    static int told = -1; /* (the log: each change of the split, and why) */
+    if ((int)c->r[4] != told) {
+        told = (int)c->r[4];
+        fprintf(stderr, "views: split mode %u (players here %d, from %08X%s)\n", (unsigned)c->r[4], local, (unsigned)rr,
+                hotkey ? ", the view key" : "");
+    }
     F_800D1C24_orig(c);
 }
 

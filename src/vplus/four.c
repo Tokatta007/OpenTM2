@@ -705,6 +705,21 @@ void vp_CarViewHotkeys(CPU *c) /* carViewHotkeys(car): its split toggle with 3 p
     guest_call(GA(0x800FB0B0u), 0, 0, 0, 0);      /* hudInitPanels */
 }
 
+/* Online, the host's state in place (net/game_tm2.c): this machine's own split and views again. The state brought the
+ * host's (one view for its one player): a split screen PC here with 2-4 players drew one view, half of it over the menu's
+ * last picture (the user's 2026-11-26). Nothing for one player here. */
+void four_views_again(void)
+{
+    int local = humans_local_count();
+    if (local < 2) return;
+    uint32_t mode = local == 2 ? (settings_video.split == 1 ? 2u : 1u) : 2u; /* (viewSetSplitMode; its hook, fixes.c, picks
+                                                                              * the rest: 3-4 players' own) */
+    guest_call(GA(0x800D1C24u), mode, 0, 0, 0); /* viewSetSplitMode */
+    if (four_vn()) four_views_create();
+    guest_call(GA(0x800FB0B0u), 0, 0, 0, 0);    /* hudInitPanels */
+    fprintf(stderr, "views: this machine's %d views again (the host's state in place)\n", local);
+}
+
 /* ---- HUDs: one per player ----
  * Each player's HUD is the horizontal split's (hudDrawSplitHorizontal, its
  * record and radar; records 3-4 copies of record 2 as the game sets it up:
