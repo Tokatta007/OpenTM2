@@ -14406,6 +14406,12 @@ static int pause_run(const char *password)
             compose_pause(&canvas, sel, password, NULL);
             Psyz_VideoSetDisplayRGB24(canvas.px, canvas.w, canvas.h);
             dirty = 0;
+            static int pause_shot; /* tests: TM2PC_MENU_SHOT=dir, the pause's first picture too (menu_PAUSE.bmp) */
+            if (getenv("TM2PC_MENU_SHOT") && !pause_shot++) {
+                char path[512];
+                snprintf(path, sizeof path, "%s/menu_PAUSE.bmp", getenv("TM2PC_MENU_SHOT"));
+                image_save_bmp(&canvas, path);
+            }
         }
         rt_vblank(); /* the game's VBlank (sounds), and the frame shown */
     }
@@ -16710,20 +16716,17 @@ static int pm_frame(Image *sb, int *shown)
         float s = sb->h / 240.0f;
         if (sb->w / 320.0f < s) s = sb->w / 320.0f;
         float ox = (sb->w - 320 * s) / 2, oy = (sb->h - 240 * s) / 2;
-        const char *title = np_sure ? "QUIT THE MATCH?" : "MENU";
-        int tf = gfont_width(6, title) > 296 ? 0 : 6;
-        /* (the game's 320x240; the fonts' y is the baseline: the title's at +30, the items' from +58, 20 apart) */
-        float gh = 52 + 20.0f * items, gy0 = 120 - gh / 2, gw = (float)gfont_width(tf, title) + 32;
-        if (gw < 200) gw = 200;
-        float gx = 160 - gw / 2;
-        int rx = (int)(ox + gx * s), ry = (int)(oy + gy0 * s), rw = (int)(gw * s), rh = (int)(gh * s);
+        const char *title = np_sure ? "QUIT THE MATCH?" : "BATTLE PAUSED"; /* (the single-player pause's title, the user's) */
+        int tf = gfont_width(6, title) > 312 ? 0 : 6; /* (as compose_pause: a long title in the items' font) */
+        /* (the game's 320x240, as compose_pause: the title's baseline at 60, the items' from 140, 20 apart) */
+        int rx = (int)ox, ry = (int)(oy + 30 * s), rw = (int)(320 * s), rh = (int)(205 * s);
 #define NP_TEXT(font, text, gy, color) \
     gfont_draw(sb, font, text, ox + (159 - (gfont_width(font, text) >> 1)) * s, oy + (gy) * s, s, color)
-        NP_TEXT(tf, title, gy0 + 30, title_c);
+        NP_TEXT(tf, title, 60, title_c);
         for (int k = 0; k < items; k++) {
             const char *it = np_sure ? yn[k] : np_items[k];
             int chosen = np_sure ? np_sure_sel == k : np_sel == k;
-            NP_TEXT(chosen ? 1 : 0, it, gy0 + 58 + 20 * k, chosen ? chosen_c : item_c);
+            NP_TEXT(chosen ? 1 : 0, it, 140 + 20 * k, chosen ? chosen_c : item_c);
         }
 #undef NP_TEXT
         np_blend[0] = rx, np_blend[1] = ry, np_blend[2] = rw, np_blend[3] = rh, np_blended = 1; /* (blended: black see-through) */
