@@ -1965,7 +1965,7 @@ static void build_battle(PageId page)
             rows[row_count - 1].text = battle_text[2];
         }
         if (gt->mode == MODE_LAST_CAR) {
-            add_choice("Lives", "Each player's lives (the computer cars have one for now).", get_battle, set_battle,
+            add_choice("Lives", "Each player's and computer car's lives.", get_battle, set_battle,
                        BF_LIVES, lives_values, 10);
         } else if (gt->mode != MODE_LAST_CAR) {
             if (gt->mode == MODE_DEATHMATCH)
