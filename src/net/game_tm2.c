@@ -80,6 +80,7 @@ static struct {
     int desyncs_seen, packets_in;
     int pushed, loaded;                  /* the match's start: the host's state sent (host), put in place (joiner) */
     int want_base;                       /* (a joiner) its base owed to the host: its battle's blocks' hashes (delta_make) */
+    int32_t want_base_step;              /* (a machine, a resync's) the step its base is asked of (-1: now) */
     int left_done;                       /* this battle's leavers out already (the host's, in the state it sent) */
     int saw_match_on, gave_up;                    /* (waiting for the host's state) the host was seen in the match */
     int migrations_seen;                 /* the session's host changes (the host left: another took over) */
@@ -236,6 +237,13 @@ static void cb_advance(void *ctx, const RbInput *inputs)
             ng.cur[p][3] = 4096;
         }
         ng.cur[p][0] |= 0x0008;                                         /* (no Start online: nobody pauses everyone) */
+    }
+    { /* the host's flag: the vote to go back to the lobby passed (the input of every machine's same step) */
+        int back = 0;
+        for (int p = 0; p < ng.humans && p < NG_PLAYERS; p++)
+            if (ng.cur[p][2] & 0x0008) back = 1, ng.cur[p][2] &= ~0x0008u;
+        void vp_back_input(int on); /* vplus/fixes.c */
+        vp_back_input(back);
     }
     static int in_log = -1; /* tests: TM2PC_NET_INPUT_LOG, each step's agreed inputs (two machines' logs compared) */
     if (in_log < 0) in_log = getenv("TM2PC_NET_INPUT_LOG") != NULL;
@@ -470,6 +478,10 @@ static int devices_load(const uint8_t *r, size_t len)
 #include "miniz.h"
 enum { BASE_BLOCK = 4096, BASE_WAIT_MS = 15000 };
 static const uint32_t BASE_MAGIC = 0x31424D54u; /* "TMB1" */
+static const uint32_t BASE_MAGIC2 = 0x32424D54u; /* "TMB2": a resync's, with its step (12..15) after the size */
+static uint8_t *snap;             /* (host) its own state of the step a resync's base is asked of (ses_snap_step) */
+static size_t snap_len;
+static int32_t snap_step = -1;
 static uint8_t *base_raw, *work;  /* (a joiner) its own state as its battle loaded; (both) the delta's bytes, unpacked */
 static size_t base_len, work_cap;
 static uint32_t base_id;          /* (a joiner) its bases so far: a delta names the one it was made from */
@@ -497,43 +509,75 @@ static int base_send(void) /* (a joiner, its battle loaded) its own state kept, 
     if (!n) return 0;
     n += devices_save(base_raw + n);
     uint32_t nb = (uint32_t)((n + BASE_BLOCK - 1) / BASE_BLOCK);
-    size_t len = 12 + 8 * (size_t)nb;
+    int stepped = ng.want_base_step >= 0 && ng.rollback; /* (a resync's of a step: its step in the header) */
+    size_t hd = stepped ? 16 : 12, len = hd + 8 * (size_t)nb;
     if (len > 131072 || !work_room(len) || getenv("TM2PC_NET_NO_BASE")) { /* (too big: the whole state; tests: always) */
         ses_send_base(ng.ses, NULL, 0);
         return 1;
     }
     base_len = n;
     base_id++;
-    put_u32(work, BASE_MAGIC);
+    put_u32(work, stepped ? BASE_MAGIC2 : BASE_MAGIC);
     put_u32(work + 4, base_id);
     put_u32(work + 8, (uint32_t)n);
+    if (stepped) put_u32(work + 12, (uint32_t)rb_now(ses_rollback(ng.ses)));
     for (uint32_t b = 0; b < nb; b++) {
         size_t at = (size_t)b * BASE_BLOCK, k = n - at < BASE_BLOCK ? n - at : BASE_BLOCK;
         uint64_t h = block_hash(base_raw + at, k);
-        put_u32(work + 12 + 8 * b, (uint32_t)h);
-        put_u32(work + 16 + 8 * b, (uint32_t)(h >> 32));
+        put_u32(work + hd + 8 * b, (uint32_t)h);
+        put_u32(work + hd + 4 + 8 * b, (uint32_t)(h >> 32));
     }
     ses_send_base(ng.ses, work, (int)len);
-    fprintf(stderr, "network: this machine's base sent (%u blocks, %u bytes)\n", nb, (unsigned)len);
+    fprintf(stderr, "network: this machine's base sent (%u blocks, %u bytes%s%d)\n", nb, (unsigned)len, stepped ? ", step " : "",
+            stepped ? (int)rb_now(ses_rollback(ng.ses)) : 0);
     return 1;
 }
 /* (host) the state for a machine with a base: the blocks that differ, deflated; 0: no usable base */
-static size_t delta_make(size_t n, uint8_t *out, size_t cap)
+static int32_t base_step_of(void) /* (host) the step of the machine's base (a resync's TMB2), -1 none */
+{
+    int bl;
+    const uint8_t *base = ses_state_base(ng.ses, &bl);
+    return base && bl >= 16 && get_u32(base) == BASE_MAGIC2 ? (int32_t)get_u32(base + 12) : -1;
+}
+static size_t delta_make(const uint8_t *src, size_t n, uint8_t *out, size_t cap)
 {
     int bl;
     const uint8_t *base = ses_state_base(ng.ses, &bl);
     uint32_t nb = (uint32_t)((n + BASE_BLOCK - 1) / BASE_BLOCK), map = (nb + 7) / 8;
-    if (!base || bl != (int)(12 + 8 * (size_t)nb) || get_u32(base) != BASE_MAGIC || get_u32(base + 8) != (uint32_t)n) return 0;
+    if (!base || bl < 12) return 0;
+    size_t hd = get_u32(base) == BASE_MAGIC2 ? 16 : get_u32(base) == BASE_MAGIC ? 12 : 0;
+    if (!hd || bl != (int)(hd + 8 * (size_t)nb) || get_u32(base + 8) != (uint32_t)n) return 0;
     if (!work_room(map + n) || cap < 32) return 0;
     memset(work, 0, map);
     size_t w = map;
     uint32_t differ = 0;
     for (uint32_t b = 0; b < nb; b++) {
         size_t at = (size_t)b * BASE_BLOCK, k = n - at < BASE_BLOCK ? n - at : BASE_BLOCK;
-        uint64_t h = block_hash(ng.raw + at, k), theirs = get_u32(base + 12 + 8 * b) | (uint64_t)get_u32(base + 16 + 8 * b) << 32;
+        uint64_t h = block_hash(src + at, k), theirs = get_u32(base + hd + 8 * b) | (uint64_t)get_u32(base + hd + 4 + 8 * b) << 32;
         if (h == theirs) continue;
+        if (hd == 16 && at >= 8) { /* (a resync's: the drawing's packet buffers are each machine's own, rebuilt every frame
+                                    * and drawn from its own frame records (state_apply keeps them): its own kept) */
+            static uint32_t pb = 1;
+            if (pb == 1) pb = port_sym("portPacketBuffers");
+            uint32_t a = 0x80000000u + (uint32_t)(at - 8);
+            if (pb && a >= pb && a + (uint32_t)k <= pb + 3904000u) continue;
+            /* (and the PS1 screen buffers, VRAM rows 0..479 (2 rows a block): each machine's own frames; measured, every
+             * VRAM block that differed in a resync was rows 0..239) */
+            size_t ks = killcam_state_size();
+            if (at >= ks + 12 && at + k <= ks + 12 + 480u * 2048u) continue;
+        }
+        static int dd = -1; /* tests: TM2PC_NET_DELTA_DEBUG, each block that differs (its state offset; guest RAM's address) */
+        if (dd < 0) dd = getenv("TM2PC_NET_DELTA_DEBUG") != NULL;
+        if (dd) {
+            int killcam_state_keep_at(size_t off, size_t *size); /* vplus/killcam.c */
+            size_t ksz = 0;
+            int ki = killcam_state_keep_at(at, &ksz);
+            size_t ks = killcam_state_size(), v = at >= ks + 12 ? at - ks - 12 : 0;
+            fprintf(stderr, "delta block %u: +%zx (ram %08zx) kept block %d (%zu bytes) vram row %d\n", b, at,
+                    at >= 8 ? 0x80000000u + at - 8 : 0, ki, ksz, at >= ks + 12 ? (int)(v / 2048) : -1);
+        }
         work[b / 8] |= (uint8_t)(1u << (b % 8));
-        memcpy(work + w, ng.raw + at, k);
+        memcpy(work + w, src + at, k);
         w += k;
         differ++;
     }
@@ -550,6 +594,18 @@ static size_t delta_make(size_t n, uint8_t *out, size_t cap)
 static int cb_serialize(void *ctx, int32_t step, uint8_t *out, int cap)
 {
     (void)ctx;
+    int32_t bs = ng.rollback ? base_step_of() : -1;
+    if (bs >= 0 && bs == snap_step && snap && snap_len && ng.at_step && !killcam_replaying && feats_in_battle()) {
+        /* a resync's: the host's own state of the step the machine's base is of (kept as it ran: ses_snap_step), the
+         * blocks that differ between the two states of one step (the user's 2026-11-25: smaller resyncs) */
+        size_t packed = delta_make(snap, snap_len, out, (size_t)cap);
+        if (packed) {
+            ses_state_made_at(ng.ses, snap_step);
+            fprintf(stderr, "network: the state of step %d sent (kept; %u bytes, %u packed; now %d)\n", (int)snap_step,
+                    (unsigned)snap_len, (unsigned)packed, (int)rb_now(ses_rollback(ng.ses)));
+            return (int)packed;
+        }
+    }
     if (!ng.at_step || killcam_replaying || !feats_in_battle()) return 0; /* the state only between two steps (not from
                                                            * a frame's middle, a replay, between battles): the session asks
                                                            * again at its next send */
@@ -563,7 +619,7 @@ static int cb_serialize(void *ctx, int32_t step, uint8_t *out, int cap)
         FILE *f = fopen(getenv("TM2PC_NET_STATE_DUMP"), "wb");
         if (f) { fwrite(ng.raw, 1, n, f); fclose(f); }
     }
-    size_t packed = n ? delta_make(n, out, (size_t)cap) : 0;
+    size_t packed = n ? delta_make(ng.raw, n, out, (size_t)cap) : 0;
     if (n && !packed && work_room(n + n / 64 + 4096)) { /* (the whole: its zero runs, then deflated, quick: a resync's) */
         size_t runs = pack_state(ng.raw, n, work, work_cap);
         mz_ulong z = (mz_ulong)((size_t)cap - 5);
@@ -580,6 +636,8 @@ static int cb_serialize(void *ctx, int32_t step, uint8_t *out, int cap)
             (unsigned long long)vp_gv(), (int)rb_now(ses_rollback(ng.ses)));
     return (int)packed;
 }
+static uint64_t last_state_gv;
+uint64_t net_last_state_gv(void) { return last_state_gv; } /* (the camera's log, vplus/fixes.c) */
 static void state_apply(void) /* the host's state kept: in place now (this machine at its battle's step) */
 {
     if (!ng.pend_len) return;
@@ -635,6 +693,7 @@ static void state_apply(void) /* the host's state kept: in place now (this machi
     int32_t at_step = resync ? rb_now(ses_rollback(ng.ses)) : 0;
     if (resync) rbs_diff_begin(at_step);
     ng.loaded = n > ks && killcam_state_load(ng.raw, ks) && devices_load(ng.raw + ks, n - ks);
+    if (ng.loaded) { uint64_t vp_gv(void); last_state_gv = vp_gv(); }
     if (resync && ng.loaded) rbs_diff_end(at_step);
     void rbs_backup_arm(int on);
     rbs_backup_arm(0);
@@ -733,6 +792,7 @@ static int match_open(const NetTransport *net, const uint32_t slots[SES_MAX_NODE
     ses_set_tag(ng.ses, ng.tag); /* (this match's: the last one's packets still coming are dropped) */
     if (ng.node != ng.host) ses_await_state(ng.ses); /* a joiner starts from the host's state (its menus need not be the same) */
     ses_set_base_wait(ng.ses, getenv("TM2PC_NET_NO_DELTA") ? 0 : BASE_WAIT_MS); /* (tests: the whole state, as before) */
+    ng.want_base_step = -1;
     ng.want_base = ng.node != ng.host && !rejoin && !getenv("TM2PC_NET_NO_DELTA"); /* (back in: after its ask, frame_body) */
     ng.pushed = ng.loaded = ng.left_done = 0;
     ng.pend_len = 0;
@@ -1001,6 +1061,7 @@ static void frame_body(void)
                     if (n != ng.node && ses_present(ng.ses, n)) ses_push_state(ng.ses, n, now_ms()); /* (every machine in it: one in since, watching or playing, too) */
             }
             fprintf(stderr, "network: the next battle, from the host's state\n");
+            ng.want_base_step = -1;
             ng.want_base = ses_host(ng.ses) != ng.node && !getenv("TM2PC_NET_NO_DELTA"); /* (its base for it) */
         }
     }
@@ -1009,14 +1070,41 @@ static void frame_body(void)
         if (ng.join_wait-- > 0) return;
         ses_ask_join(ng.ses, ng.join_ask);
         ng.join_ask = 0;
+        ng.want_base_step = -1;
         ng.want_base = !getenv("TM2PC_NET_NO_DELTA"); /* (after the ask: the host takes nothing before it) */
     }
-    if (ses_base_asked(ng.ses) && !getenv("TM2PC_NET_NO_DELTA")) ng.want_base = 1; /* (a resync's: this step's) */
-    if (ng.want_base && ses_host(ng.ses) != ng.node && base_send()) ng.want_base = 0; /* (this machine's battle loaded) */
+    if (ses_base_asked(ng.ses) && !getenv("TM2PC_NET_NO_DELTA")) { /* (a resync's: of the step asked, else this one) */
+        ng.want_base = 1;
+        ng.want_base_step = ses_base_ask_step(ng.ses);
+    }
+    int base_later = ng.want_base && ng.want_base_step >= 0 && ng.rollback && ses_host(ng.ses) != ng.node &&
+                     rb_now(ses_rollback(ng.ses)) < ng.want_base_step; /* (the step asked not reached yet: at it) */
+    if (!base_later && ng.want_base && ses_host(ng.ses) != ng.node && base_send()) ng.want_base = 0, ng.want_base_step = -1;
+    if (ng.rollback && ses_host(ng.ses) == ng.node && ses_snap_step(ng.ses) >= 0 &&
+        ses_snap_step(ng.ses) == rb_now(ses_rollback(ng.ses)) && snap_step != ses_snap_step(ng.ses) && !killcam_replaying &&
+        feats_in_battle() && ng.raw_size) {
+        /* (host) its state of the step a resync's base is asked of, kept (the window is 0 while a state is owed: the
+         * step's inputs confirmed) */
+        if (snap || (snap = malloc(ng.raw_size))) {
+            size_t n = killcam_state_save(snap, ng.raw_size);
+            if (n) n += devices_save(snap + n);
+            snap_len = n;
+            snap_step = n ? ses_snap_step(ng.ses) : -1;
+            if (n) fprintf(stderr, "network: this machine's state of step %d kept (a resync's)\n", (int)snap_step);
+        }
+    }
     state_apply(); /* (a state that came early: this is its step) */
     RbInput local[RB_MAX_SLOTS];
     memset(local, 0, sizeof local);
-    for (int j = 0; j < ng.count && ng.first + j < RB_MAX_SLOTS; j++) local[ng.first + j] = pack(ng.live[j]);
+    for (int j = 0; j < ng.count && ng.first + j < RB_MAX_SLOTS; j++) {
+        uint32_t w[NG_KINDS];
+        memcpy(w, ng.live[j], sizeof w);
+        /* (the host, the vote to go back to the lobby passed: a flag in its first player's input from now on, 0x0008 of the
+         * easy word (no button there); every machine ends the match at the step it comes in: cb_advance) */
+        if (j == 0 && lob && lobby_is_host(lob) && lobby_back_progress(lob, NULL, NULL, NULL, NULL, NULL) == LOBBY_BACK_PASSED)
+            w[2] |= 0x0008;
+        local[ng.first + j] = pack(w);
+    }
     ng.advanced = 0;
     if (ng.node == ng.host && !ng.pushed) { /* the match's first step: the host's state to every machine */
         ng.pushed = 1;
@@ -1404,7 +1492,7 @@ static void rejoin_check(void) /* (host, a match on) a machine in the lobby, not
         /* a machine watching a Versus Tournament: its players in during the stage it watches, playing from the next one
          * in their own cars (new records, after the others, every machine loading them; the user's 2026-11-11); one
          * machine at a time */
-        if (v->m[k].spectate) continue; /* (a spectators' machine: watching from the start, never brought in) */
+        if (lobby_machine_watches(&v->m[k])) continue; /* (a spectators' machine: watching from the start, never brought in) */
         if (f == 0xFF && ng.watch_id[k] == v->m[k].id && !ng.offered && ui_net_join_next_stage() && ng.battle_steps >= 8 &&
             ses_present(ng.ses, k) && /* (in, watching, first: its view on the cars meanwhile) */
             ng.humans + v->m[k].count <= NG_PLAYERS) {
@@ -1554,6 +1642,11 @@ int netplay_match_begin(void)
         for (int j = 0; v->start.first[n] != 0xFF && j < v->m[n].count && v->start.first[n] + j < NG_PLAYERS; j++)
             snprintf(ng.names[v->start.first[n] + j], sizeof ng.names[0], "%s", v->m[n].p[j].name);
     ng.humans = v->start.humans;
+    void vp_back_reset(void); /* vplus/fixes.c: no vote to go back to the lobby passed yet */
+    vp_back_reset();
+    void vp_set_spectators(uint32_t humans); /* vplus/fixes.c: a split screen's spectators, parked out each round */
+    vp_set_spectators(v->start.spec & (v->start.humans >= 32 ? ~0u : (1u << v->start.humans) - 1u));
+    if (v->start.spec) fprintf(stderr, "network: spectators in the start (humans %08x): parked out each round\n", (unsigned)v->start.spec);
     static NetTransport net;
     net = lobby_match_transport(lob);
     lobby_on_match(lob, match_packet, NULL);
@@ -1576,6 +1669,7 @@ void netplay_match_end(void)
     if (!ng.ses) return;
     if (lob) lobby_on_match(lob, NULL, NULL);
     if (lob && lobby_is_host(lob)) lobby_set_match_on(lob, 0);
+    if (lob && lobby_is_host(lob)) lobby_back_clear(lob); /* (a vote to go back to the lobby still running: over with the match) */
     ng.gave_up = ng.watch = ng.wait_stage = 0;
     ses_free(ng.ses);
     ng.ses = NULL;

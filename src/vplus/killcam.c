@@ -274,6 +274,16 @@ static void load(const Snap *s)
 enum { NET_STATE_MAGIC = 0x53324D54u, NET_STATE_VERSION = 1 }; /* "TM2S" */
 #define NET_STATE_FIXED (8 + RAM_SIZE + 1024 + sizeof(CPU) + sizeof(double) + 3 * 8 + 4 * 4 + sizeof(((Snap *)0)->events) + 8 * 3 + 4 * 3)
 size_t killcam_state_size(void) { return NET_STATE_FIXED + keep_bytes; }
+int killcam_state_keep_at(size_t off, size_t *size) /* the kept block at a state offset (-1: none; tests' logs) */
+{
+    if (off < NET_STATE_FIXED) return -1;
+    size_t at = NET_STATE_FIXED;
+    for (int i = 0; i < keep_n; i++) {
+        if (off < at + keep[i].n) { if (size) *size = keep[i].n; return i; }
+        at += keep[i].n;
+    }
+    return -1;
+}
 static uint8_t *put(uint8_t *w, const void *p, size_t n) { memcpy(w, p, n); return w + n; }
 static const uint8_t *get(const uint8_t *r, void *p, size_t n) { memcpy(p, r, n); return r + n; }
 size_t killcam_state_save(uint8_t *out, size_t cap)
@@ -787,8 +797,8 @@ void killcam_frame(int battle) /* each SetFrameStart (hle.c), before the game's 
         if (getenv("TM2PC_KILLCAM_SHOTS")) sscanf(getenv("TM2PC_KILLCAM_SHOTS"), "%d,%d,%d", &shots[0], &shots[1], &shots[2]); /* tests */
         fprintf(stderr, "final kill cam: shots %s, %s, %s\n", shot_names[shots[0] % SHOT_COUNT], shot_names[shots[1] % SHOT_COUNT],
                 shot_names[shots[2] % SHOT_COUNT]);
-        fprintf(stderr, "final kill cam: replaying frames %llu..%llu\n", (unsigned long long)(kill_frame - BEFORE),
-                (unsigned long long)(kill_frame + AFTER));
+        fprintf(stderr, "final kill cam: replaying frames %llu..%llu (at VBlank %llu)\n", (unsigned long long)(kill_frame - BEFORE),
+                (unsigned long long)(kill_frame + AFTER), (unsigned long long)M.vblanks); /* (VBlank: tests cut the state log there) */
         start_pass();
     }
 }

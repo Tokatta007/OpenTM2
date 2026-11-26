@@ -10,6 +10,12 @@
 #include "cars.h" /* HUMAN_REC, AI_REC, the counts */
 uint64_t vp_gv(void);    /* killcam.c: the gameplay clock (VBlanks; a kill cam replay sets it back) */
 uint32_t vp_rand(void);  /* killcam.c: random numbers kept in guest RAM (a replay draws the same) */
+int vp_spectator(int h);  /* a split screen's spectator (online), below */
+static uint32_t spec_parked;
+static uint64_t spec_round_gv;
+static int spec_done;
+static void spectators_frame(void);
+static void back_frame(void);
 void killcam_keep(void *p, size_t n);
 uint32_t killcam_input(int kind, int player, uint32_t live); /* killcam.c */
 void killcam_forget(void);
@@ -1848,7 +1854,8 @@ static int enemy_player_alive(int k) /* a player of another team than computer c
 {
     int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
     for (int i = 0; i < humans && i < CARS_HUMANS_MAX; i++)
-        if (team_of_human(i) != team_of_ai(k) && !mem_r8(&M.cpu, HUMAN_REC(i) + 0x9C) && (int32_t)mem_r32(&M.cpu, HUMAN_REC(i) + 0x1F0) > 0)
+        if (team_of_human(i) != team_of_ai(k) && !mem_r8(&M.cpu, HUMAN_REC(i) + 0x9C) && (int32_t)mem_r32(&M.cpu, HUMAN_REC(i) + 0x1F0) > 0 &&
+            !vp_spectator(i))
             return 1;
     return 0;
 }
@@ -2058,6 +2065,7 @@ void vp_lives_round(void) /* the round's start */
                 }
     }
     vp_port_event = 0; /* (none left over from the last round: its next death would end this one) */
+    spec_round_gv = vp_gv(), spec_done = 0, spec_parked = 0; /* (a split screen's spectators: parked again, spectators_frame) */
     for (int i = 0; i < CARS_HUMANS_MAX; i++) life[i].at = life[i].shield_off = watch_at[i] = 0;
     spectate_at = 0;
     if (battle_rules()) {
@@ -2077,7 +2085,7 @@ void F_800D181C_orig(CPU *c);
 /* The winner's moment (the user's 2026-11-24): the match's last round end waits WIN_HOLD VBlanks more, the winner's name
  * and picture over the cars once the final kill cam is over (ui/options.c win_frame). The replay's end the same wait, so
  * the kill cam's replay schedules what the battle did. */
-#define WIN_HOLD 120
+#define WIN_HOLD 180 /* (3 s: a second more, the user's 2026-11-26) */
 int ui_round_ends_match(int value); /* ui/options.c */
 static int win_value = -1;
 static uint64_t win_end; /* (the round's end, VBlanks: the moment's overlay off 4 before it, so the results' picture of
@@ -2284,8 +2292,47 @@ static void spawn_check_frame(void)
                     spawn_check[i].y, spawn_check[i].z, dead ? "DESTROYED" : "FELL", x, y, z, spawn_check[i].z - z);
     }
 }
+/* The camera far from its own car (Tegu's stuck camera after a respawn, online, a laggy match, 2026-11-26): each second,
+ * each of this PC's players alive and not watching, the view's eye against the car; far for 2 s running: one line with
+ * what happened before (the respawn, the host's last state, re-runs). A log only: nothing changed. */
+int humans_slot(int h); /* vplus/humans.c */
+static uint64_t cam_respawn_gv[CARS_HUMANS_MAX];
+static void cam_watchdog(void)
+{
+    extern int rbs_resimulating;
+    extern int killcam_replaying;
+    if (rbs_resimulating || killcam_replaying) return;
+    static uint64_t next;
+    if (vp_gv() < spec_round_gv + 300) return; /* (a round's first 5 s: the views not set on their cars yet) */
+    static int far_for[CARS_HUMANS_MAX], told[CARS_HUMANS_MAX];
+    if (M.vblanks < next) return;
+    next = M.vblanks + 60;
+    int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int h = 0; h < humans && h < CARS_HUMANS_MAX; h++) {
+        int v = humans_slot(h);
+        if (v < 0 || v > 3) continue;
+        uint32_t rec = HUMAN_REC(h);
+        if (mem_r8(&M.cpu, rec + 0x9C) || wv[v].on || coop_out[h] || life[h].at) { far_for[h] = 0; continue; }
+        int32_t car[3], eye[3];
+        for (int k = 0; k < 3; k++) car[k] = (int32_t)mem_r32(&M.cpu, rec + 0x6FC + 4u * (uint32_t)k),
+                                    eye[k] = -(int32_t)mem_r32(&M.cpu, GA(0x801A51A8u) + 12u * (uint32_t)v + 4u * (uint32_t)k); /* (kept
+                                                                                                     * negated: the view's translation) */
+        int32_t d = 0;
+        for (int k = 0; k < 3; k++) { int32_t a = car[k] - eye[k]; if (a < 0) a = -a; if (a > d) d = a; }
+        if (d < 3000) { far_for[h] = 0; told[h] = 0; continue; }
+        if (++far_for[h] < 2 || told[h]) continue;
+        told[h] = 1;
+        uint64_t net_last_state_gv(void); /* net/game_tm2.c: the host's last state put in place (gameplay VBlanks; 0 none) */
+        fprintf(stderr, "camera: player %d's view %d far from its car for %d s (gv %llu): car at %d %d %d, eye at %d %d %d "
+                "(%d away); respawned at gv %llu, the host's last state at gv %llu, shield %d, hp %d\n", h + 1, v, far_for[h],
+                (unsigned long long)vp_gv(), car[0], car[1], car[2], eye[0], eye[1], eye[2], d,
+                (unsigned long long)cam_respawn_gv[h], (unsigned long long)net_last_state_gv(), mem_r8(&M.cpu, rec + 0xAA),
+                (int32_t)mem_r32(&M.cpu, rec + 0x1F0));
+    }
+}
 static void respawn_human(int i)
 {
+    if (vp_spectator(i)) return; /* (a split screen's spectator: never back) */
     uint32_t rec = HUMAN_REC(i);
     watch_end_for(i); /* (watching while waiting: their own view again) */
     /* carRestart's per-car stores (800FD550), not its global wipes */
@@ -2305,6 +2352,11 @@ static void respawn_human(int i)
     guest_call(GA(0x8011D6A4u), rec, mem_r32(&M.cpu, RB_padConfigs + 4u * (uint32_t)i), 0, 0); /* the pad config */
     guest_call(GA(0x800FDCACu), rec, rec + 0x7C8u, 1, 0);                  /* a fresh weapon block */
     place_away(rec, i);                                                /* away from the others, full health */
+    cam_respawn_gv[i] = vp_gv();
+    extern int rbs_resimulating;
+    if (humans_slot(i) >= 0) /* (this PC's: where it went, for the camera's log) */
+        fprintf(stderr, "respawn: player %d (view %d) at %d %d %d%s\n", i + 1, humans_slot(i), (int32_t)mem_r32(&M.cpu, rec + 0x6FC),
+                (int32_t)mem_r32(&M.cpu, rec + 0x700), (int32_t)mem_r32(&M.cpu, rec + 0x704), rbs_resimulating ? " (a re-run)" : "");
     guest_call(GA(0x8011CBB0u), (uint32_t)i, 0, 0, 0);                     /* the displayed speed */
     uint32_t obj = guest_call(GA(0x8011CB50u), (uint32_t)i, 0, 0, 0);      /* its object, shown again */
     if (obj) guest_call(GA(0x80149604u), obj, 1, 0, 0);
@@ -2667,9 +2719,56 @@ static void team_locks_frame(void)
     for (int s = 0; s < TEAM_LOCK_SLOTS; s++)
         if (mem_r8(&M.cpu, tab + (uint32_t)s) != t[s]) mem_w8(&M.cpu, tab + (uint32_t)s, t[s]);
 }
+/* tests: TM2PC_WRECK_DEBUG, each change of a player's wreck mark (decomp request 126: set at the death, cleared when the
+ * wreck is blown apart 22 s later or at a respawn) */
+static void wreck_debug(void)
+{
+    static int on = -1;
+    static uint32_t live;
+    static int was[CARS_HUMANS_MAX];
+    if (on < 0) on = getenv("TM2PC_WRECK_DEBUG") != NULL, live = on ? port_sym("portHumanWreckLive") : 0;
+    if (!live) return;
+    int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int h = 0; h < humans && h < CARS_HUMANS_MAX; h++) {
+        int now = (int)mem_r32(&M.cpu, live + 4u * (uint32_t)h);
+        if (now != was[h])
+            fprintf(stderr, "wreck: player %d's mark %d at vblank %llu (hp %d)\n", h + 1, now, (unsigned long long)M.vblanks,
+                    (int32_t)mem_r32(&M.cpu, HUMAN_REC(h) + 0x1F0));
+        was[h] = now;
+    }
+}
+/* tests: TM2PC_MINE_DEBUG, each second the mines' clocks (decomp request 127: portBalanceMineAge / Orphan, 60ths of a
+ * second; a mine goes at 900): how many run, the oldest, and how many reached 900 (mines removed) */
+static void mine_debug(void)
+{
+    static int on = -1;
+    static uint32_t age, orphan;
+    static uint64_t next;
+    if (on < 0) on = getenv("TM2PC_MINE_DEBUG") != NULL, age = on ? port_sym("portBalanceMineAge") : 0,
+                orphan = on ? port_sym("portBalanceMineOrphan") : 0;
+    if (!age || !orphan || M.vblanks < next) return;
+    next = M.vblanks + 60;
+    int na = 0, no = 0, ended = 0;
+    int32_t ma = 0, mo = 0;
+    for (int i = 0; i < 96; i++) {
+        int32_t a = (int32_t)mem_r32(&M.cpu, age + 4u * (uint32_t)i), o = (int32_t)mem_r32(&M.cpu, orphan + 4u * (uint32_t)i);
+        na += a > 0 && a < 900, no += o > 0 && o < 900, ended += a >= 900 || o >= 900; /* (a removed mine's clock stays at 900
+                                                                                   * until its record is reused) */
+        if (a > ma) ma = a;
+        if (o > mo) mo = o;
+    }
+    if (na || no || ended)
+        fprintf(stderr, "mines: vblank %llu, laid clocks %d (oldest %d), owner-down clocks %d (oldest %d), removed %d\n",
+                (unsigned long long)M.vblanks, na, ma, no, mo, ended);
+}
 void vp_lives_frame(void)
 {
+    wreck_debug();
+    mine_debug();
+    cam_watchdog();
     team_locks_frame();
+    spectators_frame();
+    back_frame();
     vp_messages_clock_check();
     dt_ricochet_check();
     spawn_check_frame();
@@ -3272,10 +3371,11 @@ static void watch_frame(void) /* the delayed starts of watching */
     static uint32_t parked_started;
     for (int i = 0; i < CARS_HUMANS_MAX && i < humans; i++) {
         int s = humans_slot(i);
-        if (!vp_versus_parked(i)) { parked_started &= ~(1u << i); continue; }
+        if (!vp_versus_parked(i) && !((spec_parked >> i) & 1)) { parked_started &= ~(1u << i); continue; } /* (and a split
+                                                                     * screen's spectator: watching, on every machine) */
         if (s < 0 || s >= 4 || wv[s].on || watch_at[i] || ((parked_started >> i) & 1)) continue;
         parked_started |= 1u << i;
-        fprintf(stderr, "watch: player %d parked out of the boss round: watching\n", i + 1);
+        fprintf(stderr, "watch: player %d parked out (a boss round, or a spectator): watching\n", i + 1);
         watch_begin(i);
     }
     for (int i = 0; i < CARS_HUMANS_MAX && i < humans; i++) {
@@ -4635,7 +4735,7 @@ static int slot_ai(int slot)
 static int slot_alive(int slot)
 {
     int h = slot_human(slot), k = slot_ai(slot);
-    return h >= 0 ? !mem_r8(&M.cpu, HUMAN_REC(h) + 0x9C) : k >= 0 && ai_alive(k);
+    return h >= 0 ? !mem_r8(&M.cpu, HUMAN_REC(h) + 0x9C) && !vp_spectator(h) : k >= 0 && ai_alive(k);
 }
 /* aiUpdateMood (800E8A84): with no human car alive in a custom match (every player out, watching), a computer car that
  * rolls "flee" (state 3) hunts instead: a hurt driver mostly flees its target, and with only computer cars left two hurt
@@ -6352,6 +6452,62 @@ void vp_versus_podium_done(void) { versus.podium = versus.podium_ended = versus.
 int vp_versus_duelist(int h) { return versus.on && versus.boss_round && (h == versus.duel_w || h == versus.duel_b); }
 int vp_versus_parked(int h) { return versus.on && versus.boss_round && h >= 0 && h < 32 && ((versus.parked >> h) & 1); }
 int vp_versus_boss_driver(void) { return versus.on && versus.boss_round ? versus.duel_b : -1; }
+/* ---- A split screen's spectators (online; the user's 2026-11-25) ----
+ * The humans the host's start names (LobbyStart.spec: a player of a split screen PC who only watches): a car each, so
+ * the PC's views and controls stay as they are, parked out of the arena two steps into every round (as a Versus boss
+ * round's: portHumanLeave, the record vacant until the next load), out (coop_out: no respawn, no win check, the enemies'
+ * count) and watching. The same on every machine (the start's list; the parking a step of the game, kept). */
+static uint32_t spec_humans;                 /* (the match's) bit h: human h only watches */
+static uint64_t spec_round_gv;               /* (kept) the round's start */
+static int spec_done;                        /* (kept) this round's parked */
+static uint32_t spec_parked;                 /* (kept) who this round */
+void vp_set_spectators(uint32_t humans) { spec_humans = humans; }
+int vp_spectator(int h)
+{
+    int netplay_in_match(void); /* net/game_tm2.c */
+    return spec_humans && h >= 0 && h < 32 && ((spec_humans >> h) & 1) && netplay_in_match();
+}
+static void spectators_frame(void)
+{
+    if (!spec_humans || spec_done || vp_gv() < spec_round_gv + 2) return; /* (any game: a Challenge Match, Survival, a co-op tournament) */
+    int netplay_in_match(void);
+    if (!netplay_in_match()) return;
+    spec_done = 1;
+    int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    static uint32_t leave = 1;
+    if (leave == 1) leave = port_sym("portHumanLeave");
+    for (int h = 1; h < humans && h < CARS_HUMANS_MAX; h++) { /* (never human 1: the host's first player plays; the
+                                                                * game's won test needs that record) */
+        if (!((spec_humans >> h) & 1) || mem_r8(&M.cpu, HUMAN_REC(h) + 0x9C)) continue;
+        life[h].left = 0;
+        int rr = leave ? (int)guest_call(leave, (uint32_t)h, 0, 0, 0) : -1;
+        if (rr != h) { /* (refused: out the old way, no one's kill) */
+            uint32_t id = h < 7 ? (uint32_t)h + 1 : h == 7 ? 9u : (uint32_t)h + 3;
+            guest_call5(GA(0x800E5628u), id, 1000, 0, 0, (uint32_t)-1); /* carApplyDamage */
+        }
+        coop_out[h] = 1;       /* (not a driver: no respawn, the enemies' count, the round's end without them) */
+        watch_at[h] = vp_gv(); /* (their view: watching) */
+        spec_parked |= 1u << h;
+        fprintf(stderr, "spectator: player %d parked out of the round (%s)\n", h + 1, rr == h ? "parked" : "destroyed");
+    }
+}
+/* ---- The vote to go back to the lobby passed (online; the user's 2026-11-25) ----
+ * The host's flag in the inputs (net/game_tm2.c cb_advance): the step it comes in ends the match on every machine, as
+ * the port's own end of a battle (the podium round's way); ui_MainLoop then quits the session (no round restart, no
+ * playlist vote, no tournament stage): back to the lobby. Kept with the network states. */
+static int back_req, back_done;
+void vp_back_input(int on) { if (on) back_req = 1; }
+void vp_back_reset(void) { back_req = back_done = 0; }
+int vp_back_requested(void) { return back_req; }
+static void back_frame(void)
+{
+    if (!back_req || back_done) return;
+    back_done = 1;
+    duo_ended = 1;
+    vp_port_event = 1;
+    guest_call(GA(0x800D181Cu), 3, 1, 0, 0); /* rtScheduleEvent: the round over */
+    fprintf(stderr, "back to the lobby: the vote passed, the match ends\n");
+}
 static void versus_frame(void) /* the boss round: at its start every player not in it out of the arena (they watch) */
 {
     if (versus.on && versus.podium && versus.sat_out && !versus.podium_ended && vp_gv() >= versus.round_gv + 4) {
@@ -6969,7 +7125,9 @@ void vp_keep_register(void)
     KEEP(gu_target); KEEP(gu_node); KEEP(gu_points); KEEP(gu_hp); KEEP(gu_banned); KEEP(gu_best); KEEP(gu_until);
     KEEP(bf_last); KEEP(bf_ticks); KEEP(bf_refill_at); KEEP(bf_roulette_at); KEEP(win_at); KEEP(vs_at); KEEP(freeze_fired); KEEP(fired);
     KEEP(pickup_step); KEEP(pickup_taken_step); KEEP(pickup_kind0); KEEP(pickup_node); KEEP(pickup_model); KEEP(pickup_models_ready);
-    KEEP(pk_id); KEEP(pk_child); /* (the slots' kinds and looks: vp_pickups_restore) */
+    KEEP(pk_id); KEEP(pk_child);
+    KEEP(spec_round_gv); KEEP(spec_done); KEEP(spec_parked);
+    KEEP(back_req); KEEP(back_done); /* (the vote to go back to the lobby: back_frame) */ /* (a split screen's spectators: spectators_frame) */ /* (the slots' kinds and looks: vp_pickups_restore) */
     KEEP(burn_wait); KEEP(jc_opp); /* (Deathmatch's computer cars wait the last death's burning: a machine in mid-match had 180, the
                                     * host 420; the Juggernaut car's parked record) */
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */

@@ -90,6 +90,8 @@ def main():
     ap.add_argument('--game', type=int, default=0, help="the server's game (1 Co-op Tournament, 2 Survival)")
     ap.add_argument('--migrate-start', action='store_true', help='with --quit-host: the new host starts the match (tests hook)')
     ap.add_argument('--quit-host', type=int, default=0, help='the host quits after this many seconds (another machine takes over)')
+    ap.add_argument('--split', action='append', type=int, default=[], help='machine K a split screen of two players (its player 2 '
+                    'signed in and through car select; with --machine-env K:TM2PC_TEST_SPECTATE=2 a spectator)')
     a = ap.parse_args()
     if a.dropin and not os.environ.get('NET_KILLS'):  # (the computer cars out after the newcomer is in; it too, the match ends)
         os.environ['NET_KILLS'] = '2@6000,' + ','.join('%d@%d' % (50 + k, 6100 + 10 * k) for k in range(12)) + ',3@6400'
@@ -98,21 +100,29 @@ def main():
     if a.game == 2 and not os.environ.get('NET_KILLS'):  # (Survival: both players out later, so the run ends in time)
         os.environ['NET_KILLS'] = KILLS + ',1@4200,2@4200'
     if a.one:
-        one(a.secs, *a.one)
+        one(a.secs, *(a.one if a.one != ['env', 'env'] else (os.environ['NET_ONE_SCRIPT'], os.environ['NET_ONE_PAD'])))
         return 0
     runs = []
     pads = [P1, P2, '3100:cross+right,3300:-,3500:square,3520:-,3700:cross+left,3900:-']
-    host_script = HOST.replace(W(120), W(120 + 60 * (a.players - 2)), 1)  # (the host waits for every machine)
+    host_script = HOST.replace(W(120), W(120 + 60 * (a.players - 2) + 100 * len(a.split)), 1)  # (the host waits for every
+    # machine; a split screen's longer: its two players' car select in a team game)
     for k in range(a.players):
         dev = 'port-dev' if k == 0 else 'port-dev%d' % (k + 1)
         script, pad = (host_script, P1) if k == 0 else (JOIN_LAN if a.lan else JOIN, pads[k % 3])
         if a.game:  # (a tournament's menus between levels, Survival's results: X on and on)
             script += ',-,-,-,x' * 400
+        elif k + 1 in a.split:  # (a split screen: the host starts later, its results still to go through)
+            script += ',-,-,-,x' * 200
         if a.late and k == a.players - 1:  # (0.2 s a script step: its Join that much later)
             script = W(a.late * 5) + ',' + script
         e = dict(os.environ, CB_DEV=str(REPO / 'build' / dev), CB_OUT=str(REPO / 'build' / 'test-net'), NET_NAME='lobby_' + dev,
                  SDL_AUDIO_DRIVER='dummy', SDL_WINDOW_ACTIVATE_WHEN_SHOWN='0', SDL_WINDOW_ACTIVATE_WHEN_RAISED='0', NET_PLAYLIST='1' if a.playlist else '',
                  NET_TIMED='1' if a.quit_last or a.quit_host or a.late else '')
+        if k + 1 in a.split:  # (a split screen PC: player 2 signs in, and picks a car whenever car select opens: a team
+            # game's X on a player's card opens it, and with player 2's choice never made the PC stayed there while the
+            # host played the match without it)
+            e.update(TM2PC_P2_SCRIPT='-,x', TM2PC_CARSEL_P2_SCRIPT='-,-,-,-,-,-,x',
+                     TM2PC_PAD2_SCRIPT=','.join('%d:cross,%d:-' % (v, v + 8) for v in range(1000, 12000, 100)))
         for me in a.machine_env:
             mk, kv = me.split(':', 1)
             if int(mk) == k + 1:
@@ -123,13 +133,16 @@ def main():
             e['TM2PC_NET_TEST_MIGRATE_START'] = '1'
         # (a late machine: the same kills; which have fired comes with the host's state)
         secs = a.quit_last if a.quit_last and k == a.players - 1 else a.quit_host if a.quit_host and k == 0 else a.secs
-        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(secs), '--one', script, pad], env=e,
+        # (the scripts through the environment: a long run of '-,-,-' on a command line is refused on some PCs, Access is denied)
+        e.update(NET_ONE_SCRIPT=script, NET_ONE_PAD=pad)
+        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(secs), '--one', 'env', 'env'], env=e,
                                      stdout=subprocess.PIPE, text=True))
     if a.rejoin:  # (the dropped player back: another copy, the same name, its Join that much later)
         dev = 'port-dev%d' % (a.players + 1)
         e = dict(os.environ, CB_DEV=str(REPO / 'build' / dev), CB_OUT=str(REPO / 'build' / 'test-net'), NET_NAME='lobby_' + dev,
                  SDL_AUDIO_DRIVER='dummy', SDL_WINDOW_ACTIVATE_WHEN_SHOWN='0', SDL_WINDOW_ACTIVATE_WHEN_RAISED='0')  # (the same kills: which have fired comes with the host's state)
-        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(a.secs), '--one', W(a.rejoin * 5) + ',' + JOIN, pads[0]],
+        e.update(NET_ONE_SCRIPT=W(a.rejoin * 5) + ',' + JOIN, NET_ONE_PAD=pads[0])
+        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(a.secs), '--one', 'env', 'env'],
                                      env=e, stdout=subprocess.PIPE, text=True))
     outs = [Path(p.communicate()[0].strip().splitlines()[-1]) for p in runs]
     if a.rejoin:  # (back in: told, and its battle the host's from where it came in)
@@ -188,9 +201,19 @@ def main():
         print("late machine: battle frames %d, %s the host's from its frame %d" % (len(mine), 'equal to' if same else 'NOT equal to', at))
         ok &= same
         return 0 if ok else 1
-    if a.playlist:  # (the same matches on both)
+    if a.playlist:  # (the same matches on both; and every machine voted: the joiners' vote screen too)
         ok &= [l for l in (outs[0] / 'log.txt').read_text(errors='replace').splitlines() if 'the match starts' in l] ==               [l for l in (outs[1] / 'log.txt').read_text(errors='replace').splitlines() if 'the match starts' in l]
+        for i, d in enumerate(outs):
+            voted = 'voted for' in (d / 'log.txt').read_text(errors='replace')
+            print('machine %d %s' % (i + 1, 'voted' if voted else 'never saw the vote'))
+            ok &= voted
     logs = [battle((d / 'state.txt').read_text().splitlines()) if (d / 'state.txt').exists() else [] for d in outs]
+    if a.split:  # (a split screen PC: each machine's final kill cam its own, its views two; the first battle compared, to
+        # its final kill cam's start: the VBlank its log line names)
+        import re
+        for i, d in enumerate(outs):
+            m = re.search(r'final kill cam: replaying frames \d+\.\.\d+ \(at VBlank (\d+)\)', (d / 'log.txt').read_text(errors='replace'))
+            if m: logs[i] = [l for l in logs[i] if int(l.split()[1]) < int(m.group(1))]
     if a.players > 2:  # (every machine's battle against the host's; the host gone: against the next machine's)
         ref = 1 if a.quit_host else 0
         for k in range(ref + 1, len(logs) - (1 if a.quit_last else 0)):

@@ -7,6 +7,16 @@ The newest update is at the top.
 
 ---
 
+## v1.0.17 (November 26, 2026)
+
+### General (V1.0.17)
+
+- **Shots through pickups:** ricochet bombs, missiles, bullets, and Dark Tooth's swoop pass through pickups. Before, a ricochet bomb could get trapped bouncing between a pickup and a wall, missiles and bullets stopped at the Los Angeles and Moscow bonus pickups, and Dark Tooth's swoop ended at the first pickup it touched.
+- **Mines:** a mine is removed 15 seconds after its owner is destroyed. Before, mines stayed for good. The game type's Mine timer setting (Energy attacks) can remove every mine 15 seconds after it's laid instead.
+- **Players' wrecks:** a destroyed player's wreck burns, spins, and is blown apart 22 seconds later, like a computer car's, unless the player comes back first. Before, it stayed in the arena for good, solid and hard to see, stopping shots and ramming cars that touched it.
+
+---
+
 ## v1.0.14 (November 24, 2026)
 
 ### General (V1.0.14)

@@ -11,6 +11,7 @@
 #include <string.h>
 #include "vplus.h"
 #include "cars.h"
+#include "profile/battle.h"
 
 const char *const vp_category_names[VP_CAT_COUNT] = {
     [VP_CAT_BALANCING] = "Global Balancing",
@@ -126,6 +127,8 @@ const VpChange vp_changes[VP_COUNT] = {
         "His boomerang always gives its charge back when it returns to his car. The original sometimes let it vanish next to him." },
     [VP_BAL_GUN_RANGE] = { "bal_gun_range", "Machine gun range", VP_CAT_BALANCING,
         "Machine-gun bullets fly 25% farther before they fade, as in the PC version." },
+    [VP_BAL_PICKUP_PASS] = { "bal_pickup_pass", "Shots through pickups", VP_CAT_BALANCING,
+        "Ricochet bombs, missiles, bullets, and Dark Tooth's swoop pass through pickups. The original could trap a ricochet bomb between a pickup and a wall." },
     [VP_BAL_SLAM] = { "bal_slam", "Mr. Slam balancing", VP_CAT_CHARACTERS,
         "No pickups or special while his arm swings. His shield and machine guns still work." },
     [VP_AI_UNJAM] = { "ai_unjam", "Computer cars unjam", VP_CAT_BALANCING,
@@ -287,6 +290,21 @@ unsigned vp_balance_word(void)
                        * inside the arena-wide cooldown (the user's missing explosion sounds, 2026-11-04): a fix, no option */
     if (getenv("TM2PC_TEST_PRE42")) w &= 0x3DFF; /* tests: the rules before requests 41-42 (the old baselines) */
     if (getenv("TM2PC_BAL_OFF")) w &= ~(unsigned)strtoul(getenv("TM2PC_BAL_OFF"), NULL, 16); /* tests: these bits off (hex) */
+    return w;
+}
+
+/* The decomp's portBalance2 bits (request 124, BALANCE.md 26): bit 0 every shot passes pickups 401..480. Online always. */
+unsigned vp_balance_word2(void)
+{
+    int netplay_in_match(void); /* net/game_tm2.c */
+    unsigned w = netplay_in_match() || vp_on(VP_BAL_PICKUP_PASS) ? 0x3u : 0u; /* (bit 1, request 125: Dark Tooth's swoop too) */
+    /* bits 2, 3 (request 127, BALANCE.md 27): a mine removed 15 s after it was laid (2) or after its owner's car was
+     * destroyed (3, the default); always one of them, every preset (the user's: no mine stays for good). The game
+     * type's (a server's for everyone); else (a tournament, Survival) the default */
+    int ui_battle_live(void);
+    const GameType *t = ui_battle_live() ? battle_match_type() : NULL;
+    w |= t && t->mines == MINES_AFTER_LAID ? 0x4u : 0x8u;
+    if (getenv("TM2PC_BAL2_OFF")) w &= ~(unsigned)strtoul(getenv("TM2PC_BAL2_OFF"), NULL, 16); /* tests: these bits off (hex) */
     return w;
 }
 

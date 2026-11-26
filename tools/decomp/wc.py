@@ -191,6 +191,7 @@ PORT_DEFINES = ['--port-define', 'TM2_PORT_CAR_GROUPS', '--port-define', 'TM2_PO
                 '--port-define', 'TM2_PORT_MOD_ARENA',  # (request 114: a mod arena's health spot and the AI's warp exits, portArenaRules)
                 '--port-define', 'TM2_PORT_WRECK_FALL',  # (request 117: a falling wreck hidden with its splash on Antarctica, or exploding at the floor)
                 '--port-define', 'TM2_PORT_DT_SWOOP',  # (request 121: a computer Dark Tooth swoops at the car he is after, port_dt_swoop.h)
+                '--port-define', 'TM2_PORT_HUMAN_WRECK',  # (request 126: a player's wreck lives a computer car's wreck's life: burns, blown apart at 22 s)
                 '--port-define', 'TM2_PORT_TEAM_LOCKS',  # (request 123: the leap's and the taser's locks and a computer car's player pass a teammate, portCarTeam)
                 '--port-define', 'TM2_PORT_SPECIAL_PROFILE']  # (request 73, SPECIAL_TEMPLATES.md: mod characters' specials, portSpecialProfile)
 

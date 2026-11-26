@@ -99,6 +99,9 @@ int ses_rel_pending(const Session *s, int node, int *state_got);
 void ses_push_state(Session *s, int to, uint32_t now_ms);
 /* (a machine) the host asked for its base (a resync: only what differs from it comes): once, then 0 */
 int ses_base_asked(Session *s);
+int32_t ses_base_ask_step(const Session *s);  /* (a machine) the step the host asked its base of (-1: now) */
+int32_t ses_snap_step(const Session *s);      /* (host) a step whose state the game keeps for a resync (-1 none) */
+void ses_state_made_at(Session *s, int32_t step); /* (host, in serialize) the state made is of this step, not the one asked */
 int ses_host(const Session *s);
 /* a machine's start from the host's state, only what differs from its own (the game's base: its state's block hashes,
  * made as its battle loaded): the host waits up to ms for a machine's base, then sends the whole state */

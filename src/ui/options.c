@@ -731,8 +731,8 @@ static void set_extra_button(int a, int v) { bind_set_extra_button(a, v); change
 
 /* Custom Music: each track's playback (default, random, in order, a song)
  * and, for a song, which one */
-enum { PLAY_DEFAULT, PLAY_RANDOM, PLAY_ORDER, PLAY_SONG, PLAY_OFF };
-static const char *const playback_values[] = {"DEFAULT", "RANDOM", "IN ORDER", "SONG", "OFF"};
+enum { PLAY_DEFAULT, PLAY_RANDOM, PLAY_ORDER, PLAY_FOLDER_RANDOM, PLAY_FOLDER_ORDER, PLAY_SONG, PLAY_OFF };
+static const char *const playback_values[] = {"DEFAULT", "RANDOM", "IN ORDER", "FOLDER RANDOM", "FOLDER IN ORDER", "SONG", "OFF"};
 
 static int music_file_index(int slot)
 {
@@ -747,12 +747,17 @@ static int music_playback(int slot)
     const char *set = music_page_setting(slot);
     if (music_page_has_off(slot) && (!*set || !SDL_strcasecmp(set, "off"))) return PLAY_OFF;
     if (!*set || !SDL_strcasecmp(set, "default")) return PLAY_DEFAULT;
+    const char *dir = music_page_dir(slot); /* (the arena's own folder: random:DIR, order:DIR) */
+    if (dir && !SDL_strncasecmp(set, "random:", 7) && !SDL_strcasecmp(set + 7, dir)) return PLAY_FOLDER_RANDOM;
+    if (dir && !SDL_strncasecmp(set, "order:", 6) && !SDL_strcasecmp(set + 6, dir)) return PLAY_FOLDER_ORDER;
     if (!SDL_strncasecmp(set, "random", 6)) return PLAY_RANDOM;
-    if (!SDL_strcasecmp(set, "order")) return PLAY_ORDER;
+    if (!SDL_strncasecmp(set, "order", 5)) return PLAY_ORDER;
     return PLAY_SONG;
 }
 
 static int get_music_at_end(int a) { (void)a; return music_next_at_end(); }
+static int get_music_original(int a) { (void)a; return music_include_original(); }
+static void set_music_original(int a, int v) { (void)a; music_set_include_original(v); changed |= SAVE_MUSIC; }
 static void set_music_at_end(int a, int v) { (void)a; music_set_next_at_end(v); changed |= SAVE_MUSIC; }
 static void set_music_file(int slot, int i)
 {
@@ -765,7 +770,8 @@ static void set_music_file(int slot, int i)
 /* Square: the next playback (a song: the one chosen before, or the first) */
 static void next_playback(int slot)
 {
-    int now = music_playback(slot), t = now == PLAY_OFF ? PLAY_DEFAULT : (now + 1) % 4;
+    int now = music_playback(slot), t = now == PLAY_OFF ? PLAY_DEFAULT : (now + 1) % (PLAY_SONG + 1);
+    if ((t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER) && !music_page_dir(slot)) t = PLAY_SONG; /* (an arena's row only) */
     if (t == PLAY_SONG && music_file_total <= 0) t = PLAY_DEFAULT;
     if (music_page_has_off(slot) && now != PLAY_OFF && t == PLAY_DEFAULT) { /* the showdown: back to Off */
         music_page_set(slot, "off");
@@ -781,6 +787,11 @@ static void next_playback(int slot)
         for (int k = 0; k < music_file_total; k++)
             if (!SDL_strcasecmp(last[slot], music_files[k])) i = k;
         set_music_file(slot, i);
+    } else if (t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER) { /* its own folder (music/<arena>) */
+        char set[300];
+        snprintf(set, sizeof set, "%s:%s", t == PLAY_FOLDER_RANDOM ? "random" : "order", music_page_dir(slot));
+        music_page_set(slot, set);
+        changed |= SAVE_MUSIC;
     } else {
         music_page_set(slot, keys[t]);
         changed |= SAVE_MUSIC;
@@ -1590,7 +1601,9 @@ enum { GT_INFINITE, GT_HEALTH, GT_TURBO, GT_RESPAWN, GT_SPECIALS, GT_RECHARGE, G
        GT_SPAWN_SHIELD, GT_JUGG_HEALTH, GT_JUGG_HEAL, GT_JUGG_WEAPON, GT_JUGG_RAM, GT_JUGG_INFINITE, GT_JUGG_FORCE, GT_JUGG_CAR,
        GT_GUN_ORDER, GT_GUN_INFINITE, GT_GUN_AMMO, GT_HUNTED_COUNT, GT_HUNTED_ATTACK, GT_KOTH_MOVE,
        GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES, GT_SUDDEN,
-       GT_SUDDEN_END };
+       GT_SUDDEN_END, GT_MINES };
+/* how long a mine stays (decomp request 127: the user's two, never for good; MINES_x) */
+static const char *const mines_values[MINES_COUNT] = {"AFTER DEATH", "AFTER LAID"};
 /* Last Car Standing's sudden death: its countdown once two cars are left (the user's 2026-11-25) */
 enum { SUDDEN_STEPS = 8 };
 static const int sudden_steps[SUDDEN_STEPS] = {0, 15, 30, 45, 60, 90, 120, 180};
@@ -1657,6 +1670,7 @@ static int get_gt_flag(int a)
            : a == GT_SPAWN_SHIELD ? step_of(shield_steps, SHIELD_STEPS, edit_gt.spawn_shield)
            : a == GT_SUDDEN ? step_of(sudden_steps, SUDDEN_STEPS, edit_gt.sudden_death)
            : a == GT_SUDDEN_END ? edit_gt.sudden_death_end
+           : a == GT_MINES ? edit_gt.mines
            : a == GT_JUGG_HEALTH ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_health)
            : a == GT_JUGG_HEAL ? edit_gt.jugg_full_heal
            : a == GT_JUGG_WEAPON ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_weapon)
@@ -1690,6 +1704,7 @@ static void set_gt_flag(int a, int v)
     else if (a == GT_SPAWN_SHIELD) edit_gt.spawn_shield = shield_steps[v % SHIELD_STEPS];
     else if (a == GT_SUDDEN) edit_gt.sudden_death = sudden_steps[v % SUDDEN_STEPS], rebuild_page = 1;
     else if (a == GT_SUDDEN_END) edit_gt.sudden_death_end = v % SUDDEN_END_COUNT;
+    else if (a == GT_MINES) edit_gt.mines = v % MINES_COUNT;
     else if (a == GT_JUGG_HEALTH) edit_gt.jugg_health = pct_steps[v % PCT_STEPS];
     else if (a == GT_JUGG_HEAL) edit_gt.jugg_full_heal = v;
     else if (a == GT_JUGG_WEAPON) edit_gt.jugg_weapon = pct_steps[v % PCT_STEPS];
@@ -1831,6 +1846,7 @@ static int rules_lines(const GameType *t, char lines[][48], int max)
     if (t->ai_targets == AI_TARGETS_HUMANS) LINE("CPU logic: only target humans");
     if (t->respawn) LINE("Respawn: %d s more", t->respawn);
     if (t->spawn_shield != d.spawn_shield) LINE("Spawn shield: %d s", t->spawn_shield);
+    if (t->mines == MINES_AFTER_LAID) LINE("Mines: 15 s after laid");
     if (t->mode == MODE_JUGGERNAUT) { /* the mode's own settings, always listed (the user's) */
         LINE("Juggernaut toughness: %d%%", t->jugg_health);
         LINE("Juggernaut weapons: %d%%, rams: %d%%", t->jugg_weapon, t->jugg_ram);
@@ -2189,6 +2205,9 @@ static void build_battle(PageId page)
             add_choice(energy_names[e], e == ENERGY_VOLLEY ? "Up, Down, Up, Up: any car's volley (always off online)."
                        : e == ENERGY_INVISIBILITY ? "This energy attack on or off (always off online)." : "This energy attack on or off.",
                        get_gt_energy, set_gt_energy, e, onoff_values, 2);
+            if (e == ENERGY_MINES) /* (beside the mines, the user's 2026-11-26) */
+                add_choice("Mine timer", "How long a dropped mine stays: 15 seconds after its owner is destroyed, or "
+                           "15 seconds after it is laid.", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
         }
         break;
     case PAGE_BATTLE_HAZARDS:
@@ -2353,6 +2372,8 @@ static struct {
     char password[LOBBY_PASSWORD];  /* (host) a private server's: needed to join it (Swampus's "where do I enter the password") */
 } net_server = {"", 0, NET_GAME_CHALLENGE, 8, 15, 1, 0, 1, 1, 0, 0, 0, 0, 0, NULL, ""};
 static char net_join_where[64], net_join_password[LOBBY_PASSWORD]; /* a private server's join: where, the password typed */
+static char net_last_join[64];        /* the address last joined (a refusal for its password: typed, then again) */
+static int net_pw_asked;              /* (that join) a password typed for it already */
 static void net_password_apply(void) /* (host) the lobby asks for the password while the server is private */
 {
     Lobby *l = netplay_lobby();
@@ -2601,12 +2622,11 @@ static void set_net_filter(int a, int v)
 static int get_net_voice(int a) { (void)a; return net_voice_mode; }
 /* a machine joining: its players spectators (watching every match: no car, no team, not on the scoreboard; the user's
  * 2026-11-25) or players */
-static int get_net_spectate(int a) { (void)a; return netplay_lobby() ? lobby_spectating(netplay_lobby()) : 0; }
-static void set_net_spectate(int a, int v)
+static int get_net_spectate(int a) { return netplay_lobby() ? (lobby_spectate_mask(netplay_lobby()) >> (a & 3)) & 1 : 0; }
+static void set_net_spectate(int a, int v) /* (a: this PC's player; a split screen's players each their own) */
 {
-    (void)a;
-    if (netplay_lobby()) lobby_set_spectate(netplay_lobby(), v);
-    fprintf(stderr, "network: %s\n", v ? "spectating: watching every match" : "playing again (from the next match)");
+    if (netplay_lobby()) lobby_set_spectate_player(netplay_lobby(), a & 3, v);
+    fprintf(stderr, "network: player %d %s\n", (a & 3) + 1, v ? "spectating: watching every match" : "playing again (from the next match)");
     rebuild_page = 1;
 }
 static void set_net_voice(int a, int v) { (void)a; net_voice_mode = v; }
@@ -2696,6 +2716,8 @@ static void net_named(int kind, const char *text) /* the name grid's: 4 a chat l
             net_join_where[0] = 0;
             if (!text[0]) return; /* (none typed: not joined) */
             snprintf(net_join_password, sizeof net_join_password, "%s", text);
+            net_pw_asked = 1; /* (a wrong one: refused once more, not asked again: the server list or the address again) */
+            snprintf(net_last_join, sizeof net_last_join, "%s", where);
             net_named(6, where); /* (then the server's page, net_goto) */
             return;
         }
@@ -2733,6 +2755,8 @@ static void net_named(int kind, const char *text) /* the name grid's: 4 a chat l
         net_entered();
         net_server.host = 0;
         snprintf(net_server.name, sizeof net_server.name, "%s", text);
+        if (strcmp(net_last_join, text)) net_pw_asked = 0; /* (another server: its password not asked yet) */
+        snprintf(net_last_join, sizeof net_last_join, "%s", text);
         netplay_internet(!net_lan);
         if (!netplay_join(text, play_players, (const char (*)[LOBBY_NAME])names)) {
             net_chat_add("SERVER", "That address was not found.");
@@ -2834,7 +2858,7 @@ static void net_send_settings(void) /* (host) the game as it is now */
     s.teams = net_teams();
     s.match = *battle_match();
     s.type = *battle_match_type();
-    s.pl_on = net_pl.on;
+    s.pl_on = net_pl.on && net_pl.n > 0; /* (an empty playlist: no vote, the joiners not waiting for one) */
     s.vote_round = net_vote_round;
     s.vote_n = net_vote_n;
     s.vote_winner = net_vote_winner;
@@ -2915,16 +2939,31 @@ static int net_sync(void)
         static const char *const why[] = {NULL, NULL, "Another version of the game: both need the same build.",
                                           "The server is full.", "You were removed from this server.",
                                           "The server cannot be reached.", "You were removed from the server.",
-                                          "Wrong password. This server is private: choose it in the server list to type its password."};
+                                          "Wrong password. This server is private: type its password."};
         if (st >= LOBBY_REFUSED_BUILD && why[st]) {
             const char *say = st == LOBBY_REFUSED_BUILD && update_state() == UPDATE_READY /* (updated, not restarted) */
                                   ? "The new version is in place: restart the game to play online." : why[st];
+            if (st == LOBBY_REFUSED_PASSWORD && !net_pw_asked && net_last_join[0]) /* (joined by address, a friend's server:
+                                                                                     * never asked) */
+                say = "This server is private: type its password.";
             net_chat_add("SERVER", say);
             fprintf(stderr, "network: %s\n", say);
             netplay_leave();
             net_in_server = 0;
             net_server.host = 0;
             net_status_seen = st;
+            if (st == LOBBY_REFUSED_PASSWORD && net_last_join[0]) { /* the password asked for, then the join again (net_named 9):
+                * a join by address or from a friend never asked for it (DaToastyMane's, 2026-11-25) */
+                net_pw_asked = 1;
+                snprintf(net_join_where, sizeof net_join_where, "%s", net_last_join);
+                net_back_to = PAGE_NET_MODE;
+                name_start(0);
+                naming.game_type = 9;
+                naming.max = LOBBY_PASSWORD - 1;
+                naming.text[0] = 0;
+                naming.caps = 0;
+                fprintf(stderr, "network: the server's password asked for\n");
+            }
             return PAGE_NET_MODE;
         }
         if (st == LOBBY_IN && net_status_seen == LOBBY_CONNECTING) {
@@ -3487,10 +3526,11 @@ static void net_balance_teams(Lobby *l)
     const LobbyView *v = lobby_view(l);
     int size[BATTLE_TEAM_COLORS] = {0};
     for (int n = 0; n < SES_MAX_NODES; n++) /* (spectators: no team) */
-        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++)
-            if (v->m[n].p[i].team >= 0 && v->m[n].p[i].team < teams) size[v->m[n].p[i].team]++;
+        for (int i = 0; v->m[n].present && i < v->m[n].count; i++)
+            if (!lobby_player_spectates(&v->m[n], i) && v->m[n].p[i].team >= 0 && v->m[n].p[i].team < teams) size[v->m[n].p[i].team]++;
     for (int n = 0; n < SES_MAX_NODES; n++)
-        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++) {
+        for (int i = 0; v->m[n].present && i < v->m[n].count; i++) {
+            if (lobby_player_spectates(&v->m[n], i)) continue; /* (a split screen's spectator: no team either) */
             int t = v->m[n].p[i].team;
             if (t >= 0 && t < teams) continue;
             int best = 0;
@@ -3697,15 +3737,17 @@ static void net_player_rows(void)
     if (c->kind == LC_PLAYER) { /* your car (as Triangle in the lobby: the user's 2026-11-01, for whoever misses it),
                                  * controls, voice; your team: car select */
         int p = c->local - 1;
-        if (netplay_lobby() && !lobby_is_host(netplay_lobby()) && c->local == 1)
-            add_choice("Spectate", "On: watch every match instead of playing (no car, no team, not on the scoreboard). "
-                       "Off: play from the next match.", get_net_spectate, set_net_spectate, 0, onoff_values, 2);
         add_page("Car select", PAGE_ACTION, "Car select for every player on this PC, as Triangle in the lobby.");
         rows[row_count - 1].act = ACT_NET_CAR;
         add_page("Set car to random", PAGE_ACTION, "A car at random when the match starts (one the game type allows)."); /* (always:
                                                        * back to the lobby, the "?" there; the user's 2026-11-01) */
         rows[row_count - 1].act = ACT_LOBBY_RANDOM;
         rows[row_count - 1].arg = p;
+        /* (each of this PC's players their own, a split screen's too; the host's first player plays: after the car's
+         * rows, the page's first row the car select as before) */
+        if (netplay_lobby() && c->local >= 1 && c->local <= 4 && !(lobby_is_host(netplay_lobby()) && c->local == 1))
+            add_choice("Spectate", "On: watch every match instead of playing (no car, no team, not on the scoreboard). "
+                       "Off: play from the next match.", get_net_spectate, set_net_spectate, c->local - 1, onoff_values, 2);
         if (c->local >= 1 && c->local <= 2) { /* (the user's 2026-11-01: your controls from the lobby) */
             add_page("Controls", PAGE_CONTROLS, "Your buttons and keys. Back returns to the lobby.");
             rows[row_count - 1].arg = c->local - 1;
@@ -3791,11 +3833,19 @@ static int net_host_start(void)
     const LobbyView *v = lobby_view(l);
     int8_t cars[SES_MAX_NODES];
     memset(cars, -1, sizeof cars);
-    int humans = 0;
-    for (int n = 0; n < SES_MAX_NODES; n++) /* (in the start's order: a spectators' machine none, as lobby_start) */
-        for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count; i++, humans++)
+    int humans = 0, players = 0;
+    for (int n = 0; n < SES_MAX_NODES; n++) /* (in the start's order: a spectators' machine none, as lobby_start; a split
+                                             * screen's spectator a car all the same, parked out each round) */
+        for (int i = 0; v->m[n].present && !lobby_machine_watches(&v->m[n]) && i < v->m[n].count; i++, humans++) {
             if (humans < SES_MAX_NODES) cars[humans] = n == lobby_node(l) ? (int8_t)net_car[i] : v->m[n].p[i].car;
-    if (humans < 2) { net_chat_add("SERVER", "Waiting for another player to join."); return NET_REBUILD; }
+            players += !lobby_player_spectates(&v->m[n], i);
+        }
+    if (players < 2) {
+        fprintf(stderr, "network: the start waits: %d players of %d humans (spectate %02x %02x)\n", players, humans,
+                v->m[0].spectate, v->m[1].spectate);
+        net_chat_add("SERVER", "Waiting for another player to join.");
+        return NET_REBUILD;
+    }
     if (humans > 16) { net_chat_add("SERVER", "A match takes 16 players at most."); return NET_REBUILD; }
     for (int h = 0; h < humans; h++) { /* a player without a vehicle: one at random, not another's (the host's pick) */
         for (int tries = 0; tries < 64 && cars[h] < 0; tries++) {
@@ -3816,7 +3866,7 @@ static int net_host_start(void)
         unsigned char ids[SES_MAX_NODES][8];
         int map[PROFILE_SAVE_PLAYERS], h = 0;
         for (int n = 0; n < SES_MAX_NODES; n++)
-            for (int i = 0; v->m[n].present && !v->m[n].spectate && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
+            for (int i = 0; v->m[n].present && !lobby_machine_watches(&v->m[n]) && i < v->m[n].count && h < SES_MAX_NODES; i++, h++) {
                 snprintf(names[h], sizeof names[h], "%s", v->m[n].p[i].name);
                 memcpy(ids[h], v->m[n].p[i].online_id, 8);
             }
@@ -5031,6 +5081,10 @@ static void build(PageId page)
         static const char *const at_end_values[2] = {"REPEAT", "NEXT SONG"};
         add_choice("When a song ends", "For tracks set to Random or In order: the next song plays (Random: another at random), "
                    "or the same song starts over.", get_music_at_end, set_music_at_end, 0, at_end_values, 2)->small = 1;
+        add_choice("Include the arena's original song", "On: an arena's original song is one of the songs its Random, In "
+                   "order, or folder plays. Each arena has a folder in the music folder for its own songs (Folder Random, Folder "
+                   "In Order).",
+                   get_music_original, set_music_original, 0, onoff_values, 2)->small = 1;
         Row *h = add(ROW_HEADER, "Tracks", NULL);
         h->col1 = "PLAYBACK";
         h->col2 = "SONG";
@@ -5045,7 +5099,7 @@ static void build(PageId page)
                                 : !strcmp(music_page_name(i), "Versus podium")
                                 ? "A Versus Tournament's podium and final standings. Default: the menus' music; or Random, "
                                   "In order, a song."
-                                : "How each track plays: Default, Random, In order, or the song you choose.",
+                                : "How each track plays: Default, Random, In order, Folder Random (an arena's own folder), Folder In Order, or the song you choose.",
                                 get_zero, set_none, i, playback_values, 1);
             r->small = 1;
             r->music = 1;
@@ -7754,8 +7808,9 @@ static void draw_lobby_screen(const View *v, int sel, int online)
             draw_fill(v->c, X(v, plx) - bt, Y(v, ply) - bt, S(v, plw) + 2 * bt, S(v, plh) + 2 * bt, PLAYER_COLOR_BASE[c->local - 1], 255);
         } else draw_fill(v->c, X(v, plx) - t, Y(v, ply) - t, S(v, plw) + 2 * t, S(v, plh) + 2 * t, line, 255);
         /* a spectator: no car, the plate black with SPECTATOR across it (the user's 2026-11-25) */
-        int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? lobby_spectating(netplay_lobby())
-                   : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES].spectate : 0);
+        int spec = online && netplay_lobby() && (c->kind == LC_PLAYER ? c->local >= 1 && ((lobby_spectate_mask(netplay_lobby()) >> (c->local - 1)) & 1)
+                   : c->kind == LC_REMOTE && c->mach1 > 0 ? lobby_player_spectates(&lobby_view(netplay_lobby())->m[(c->mach1 - 1) % SES_MAX_NODES],
+                                                                                     c->seat1 > 0 ? c->seat1 - 1 : 0) : 0);
         if (spec) {
             draw_fill(v->c, X(v, plx), Y(v, ply), S(v, plw), S(v, plh), black, 255);
             int ss = S(v, 8);
@@ -8126,10 +8181,11 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                     int t = music_playback(r->arg);
                     const char *type = playback_values[t];
                     text_draw(c, type, X(&v, MUSIC_PLAY_X) - text_width(type, size) / 2, ty, size, ORANGE);
-                    if (t == PLAY_SONG || !SDL_strncasecmp(music_page_setting(r->arg), "random:", 7)) {
+                    if (t == PLAY_SONG || t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER ||
+                        !SDL_strncasecmp(music_page_setting(r->arg), "random:", 7)) { /* (the song, or the folder) */
                         char song[160], up[256];
                         const char *set = music_page_setting(r->arg);
-                        shorten(up, sizeof up, t == PLAY_SONG ? set : set + 7, t == PLAY_SONG);
+                        shorten(up, sizeof up, t == PLAY_SONG ? set : strchr(set, ':') + 1, t == PLAY_SONG);
                         int sx = X(&v, MUSIC_SONG_X);
                         fit_text(song, sizeof song, up, c->w - S(&v, MUSIC_SONG_MARGIN) - sx, size);
                         text_draw(c, song, sx, ty, size, ORANGE);
@@ -9132,7 +9188,7 @@ static int run(PageId start)
                     sel = row_count - 1;
                     scroll = 0;
                 } else if ((r->act >= ACT_NET_MODE && r->act <= ACT_NET_BACK) ||
-                           (r->act >= ACT_FRIEND_ADD && r->act <= ACT_NET_MODS_GET)) { /* Network Play's menus (and Friends,
+                           (r->act >= ACT_FRIEND_ADD && r->act <= ACT_NET_PASSWORD)) { /* Network Play's menus (and Friends,
                     * Online Services and a server's mods, listed after ACT_UPDATE / ACT_SETUP: they never got here before) */
                     if (r->act == ACT_NET_GAME) net_game_from = (int)page; /* (the game's pages: back to here at the end) */
                     int to = net_action(r->act, r->arg);
@@ -15785,6 +15841,8 @@ static void scoreboard_name(const MatchCar *m, char *out, size_t n)
 
 /* the order shown: still in first (by kills, then damage), then by place */
 int vp_deathmatch(void);
+int vp_spectator(int h); /* vplus/fixes.c: a split screen's spectator (online): not on the board */
+static int sb_spectator(const MatchCar *m) { return m && m->human >= 0 && vp_spectator(m->human); }
 static int scoreboard_order(int *order)
 {
     int n = match_cars();
@@ -15804,7 +15862,9 @@ static int scoreboard_order(int *order)
                      : b->kills != a->kills ? b->kills > a->kills : b->damage > a->damage;
             if (swap) { int t = order[i]; order[i] = order[j]; order[j] = t; }
         }
-    return n;
+    int kept = 0; /* (a split screen's spectators left out: the SPECTATORS line has them) */
+    for (int i = 0; i < n; i++) if (!sb_spectator(match_car(order[i]))) order[kept++] = order[i];
+    return kept;
 }
 
 /* A car's card (the opponent cards' picture, 2:1), framed in the player's color. */
@@ -15862,6 +15922,7 @@ static int scoreboard_split(int *order, int *per, int tc[4], int *g1)
 {
     int n = match_cars(), seen[BATTLE_TEAM_COLORS] = {0}, teams = 0, list[BATTLE_TEAM_COLORS];
     for (int i = 0; i < n; i++) {
+        if (sb_spectator(match_car(i))) continue; /* (a split screen's spectator: no team, not on the board) */
         int t = car_team(match_car(i));
         if (t < 0) return 0;
         if (!seen[t]++) list[teams++] = t;
@@ -15875,7 +15936,7 @@ static int scoreboard_split(int *order, int *per, int tc[4], int *g1)
     *g1 = a;
     *per = a + b;
     int sorted[MATCH_MAX], fill[4] = {0};
-    scoreboard_order(sorted);
+    n = scoreboard_order(sorted);
     for (int i = 0; i < 2 * *per; i++) order[i] = -1;
     for (int i = 0; i < n; i++) {
         int t = car_team(match_car(sorted[i])), k = 0;
@@ -16138,8 +16199,8 @@ int vp_watching(int player);
 static void overlay_with_lines(Image *sb, int *rect, int n) /* our rects, and the split lines */
 {
     static const uint8_t black[3] = {0, 0, 0};
-    int all[8][4], k = 0, lines[2][4];
-    for (int i = 0; i < n && k < 6; i++) memcpy(all[k++], rect + 4 * i, sizeof all[0]);
+    int all[12][4], k = 0, lines[2][4];
+    for (int i = 0; i < n && k < 10; i++) memcpy(all[k++], rect + 4 * i, sizeof all[0]);
     int nl = hudlay_divider_rects(sb->w, sb->h, lines);
     for (int i = 0; i < nl; i++) { draw_fill(sb, lines[i][0], lines[i][1], lines[i][2], lines[i][3], black, 255); memcpy(all[k++], lines[i], sizeof all[0]); }
     hudlay_overlay_ui(1);
@@ -16157,15 +16218,60 @@ static int pm_open = -1;              /* this PC's player (slot) whose menu is o
 static int pm_sel, pm_sub = -1, pm_sub_sel; /* the row; the player whose actions are open (human), its action */
 static uint16_t pm_prev[4];
 static int pm_voted = -1;             /* the machine whose kick vote this PC answered (-1: none running) */
+/* Select with a vote waiting for this PC's answer: a small box over the game, YES / NO, gone once answered (the user's
+ * 2026-11-25: Select, little used; Start the menu as ever; the game never paused, the car not held for it) */
+static int pv_on, pv_kind, pv_sel;    /* the box shown; 1 the vote to go back to the lobby, 2 the kick vote; YES 0 NO 1 */
 /* Start opens the pause menu's items over the running game (the user's 2026-11-07: as local play's, Photo Mode as
  * PLAYERS, and the game never stops): RESUME, OPTIONS (the pages beside the match, mf_open), PLAYERS (the list below:
  * O back to these), QUIT (sure? then this machine leaves the match: a computer driver takes the car) */
-static const char *const np_items[4] = {"RESUME", "OPTIONS", "PLAYERS", "QUIT"};
+static const char *const np_items[5] = {"RESUME", "OPTIONS", "PLAYERS", "TEXT CHAT", "QUIT"};
+/* TEXT CHAT (the user's 2026-11-25): the keyboard over the game (this player's car held meanwhile, as in the menu),
+ * Start sends: the lobby's chat (one chat in the lobby and the match), the lines under the kill feed a while */
+static int tc_on;                     /* this PC's player typing (pm_open's) */
+enum { TC_SHOWN = 3, TC_MS = 8000 };
+static struct { char name[24], text[48]; uint8_t col[3]; uint32_t at; } tc_line[TC_SHOWN]; /* (the newest last) */
+static int tc_next = -1;              /* the next lobby chat line to show (-1: from the match's start on) */
+static const char *pm_node_name(int node); /* (below) */
+static void tc_poll(void) /* the chat's new lines: under the kill feed a while */
+{
+    Lobby *l = netplay_lobby();
+    if (!l) return;
+    int speaker;
+    const char *text;
+    if (tc_next < 0) { /* (the lines said before the match: not again) */
+        tc_next = lobby_chat_first(l);
+        while (lobby_chat_lines(l, tc_next, NULL, NULL)) tc_next++;
+        return;
+    }
+    if (tc_next < lobby_chat_first(l)) tc_next = lobby_chat_first(l);
+    while (lobby_chat_lines(l, tc_next, &speaker, &text)) {
+        tc_next++;
+        memmove(&tc_line[0], &tc_line[1], sizeof tc_line[0] * (TC_SHOWN - 1));
+        snprintf(tc_line[TC_SHOWN - 1].name, sizeof tc_line[0].name, "%s", pm_node_name(speaker));
+        snprintf(tc_line[TC_SHOWN - 1].text, sizeof tc_line[0].text, "%s", text);
+        upper(tc_line[TC_SHOWN - 1].name);
+        /* the name's color: its team's (team games), else its player's own (a color each, by the match's player number) */
+        static const uint8_t own[8][3] = {{250, 186, 52}, {120, 200, 230}, {200, 140, 235}, {150, 220, 120},
+                                          {245, 120, 170}, {80, 210, 190}, {235, 105, 85}, {120, 140, 250}};
+        const LobbyView *v = lobby_view(l);
+        int h = speaker >= 0 && speaker < SES_MAX_NODES && v->start.first[speaker] != 0xFF ? v->start.first[speaker] : speaker;
+        int team = h >= 0 && net_teams() ? vp_team_of_human(h) : -1;
+        memcpy(tc_line[TC_SHOWN - 1].col, team >= 0 && team < BATTLE_TEAM_COLORS ? TEAM_COLOR[team] : own[(h < 0 ? 0 : h) % 8], 3);
+        tc_line[TC_SHOWN - 1].at = SDL_GetTicks() ? (uint32_t)SDL_GetTicks() : 1;
+        fprintf(stderr, "text chat: %s: %s\n", tc_line[TC_SHOWN - 1].name, text);
+    }
+}
+static int tc_count(void) /* the lines shown now */
+{
+    int n = 0;
+    for (int i = 0; i < TC_SHOWN; i++) n += tc_line[i].at && (uint32_t)SDL_GetTicks() - tc_line[i].at < TC_MS;
+    return n;
+}
 static int np_on, np_sel, np_sure, np_sure_sel; /* the menu shown (else the Players list), its row; QUIT's question */
 static int net_quit_asked;            /* QUIT chosen: the battle quits at the next step (net/game_tm2.c, ui_net_quit_take) */
 static int net_quit_leaving;          /* (then) the menus leave the server for the title (ui_ScrollText) */
 int ui_net_quit_take(void) { int q = net_quit_asked; net_quit_asked = 0; if (q) net_quit_leaving = 1; return q; }
-int ui_net_menu_holds(int slot) { return (pm_open >= 0 && pm_open == slot) || (mf_slot >= 0 && mf_slot == slot); }
+int ui_net_menu_holds(int slot) { return (pm_open >= 0 && pm_open == slot && !pv_on) || (mf_slot >= 0 && mf_slot == slot); }
 static void net_pause_reopen(int slot) { pm_open = slot; np_on = 1; np_sure = 0; pm_sub = -1; pm_prev[slot & 3] = 0xFFFF; }
 unsigned ui_net_muted(void) { return net_mute_node; }            /* (net/game_tm2.c: voices dropped) */
 int ui_net_voice_on(void) { return net_in_server && net_server.voice; }
@@ -16196,6 +16302,15 @@ static const char *pm_node_name(int node)
     const LobbyView *v = l ? lobby_view(l) : NULL;
     return v && node >= 0 && node < SES_MAX_NODES && v->m[node].count ? v->m[node].p[0].name : "A PLAYER";
 }
+/* the vote to go back to the lobby (net/lobby.c): its state; *ask: running and this machine not voted (its YES / NO row) */
+static int pm_back(int *caller, int *yes, int *no, int *needed, int *ask)
+{
+    Lobby *l = netplay_lobby();
+    int mine = 0, st = l ? lobby_back_progress(l, caller, yes, no, needed, &mine) : LOBBY_BACK_NONE;
+    *ask = st == LOBBY_BACK_RUNNING && !mine;
+    return st;
+}
+static const uint8_t BACK_SKY[3] = {120, 200, 240}; /* (its note's color: not the kick vote's) */
 static void pm_input(void)
 {
     uint16_t input_player_menu_buttons(int p);
@@ -16204,6 +16319,8 @@ static void pm_input(void)
     if (local < 1) local = 1;
     int8_t node_of[16];
     int n = pm_humans(node_of), target, yes, needed, vote = pm_vote(&target, &yes, &needed);
+    int b_caller = 0, b_yes = 0, b_no = 0, b_needed = 0, b_ask = 0, b_state = pm_back(&b_caller, &b_yes, &b_no, &b_needed, &b_ask);
+    int b_row = vote ? 1 : 0; /* (the back vote's YES / NO row: after the kick vote's) */
     for (int p = 0; p < local && p < 4; p++) {
         uint16_t b = (uint16_t)(input_player_menu_buttons(p) | (p == 0 ? net_test_menu_buttons() : 0)), pressed = (uint16_t)(b & ~pm_prev[p]);
         pm_prev[p] = b;
@@ -16212,16 +16329,54 @@ static void pm_input(void)
         if (!test_read) { test_read = 1; test_at = getenv("TM2PC_NET_TEST_MENU_AT"); } /* tests: the menu opens then */
         if (test_at && p == 0 && pm_open < 0 && M.vblanks >= strtoull(test_at, NULL, 10)) { test_at = NULL; pressed = B_START; }
         if (pm_test_open && p == 0 && pm_open < 0) { pm_test_open = 0; pressed = B_START; }
+        static const char *sel_at; /* tests: TM2PC_NET_TEST_SELECT_AT=V, Select then (the vote's box) */
+        static int sel_read;
+        if (!sel_read) { sel_read = 1; sel_at = getenv("TM2PC_NET_TEST_SELECT_AT"); }
+        if (sel_at && p == 0 && pm_open < 0 && M.vblanks >= strtoull(sel_at, NULL, 10)) { sel_at = NULL; pressed = B_SELECT; }
         if (pm_open < 0) {
-            if (pressed & B_START) { /* the menu (a kick vote running: the Players list at once, to vote) */
-                pm_open = p; pm_sel = 0; pm_sub = -1; np_on = !vote; np_sel = 0; np_sure = 0;
+            if (pressed & B_START) { /* the menu (a vote's row also in its Players list) */
+                pm_open = p; pm_sel = 0; pm_sub = -1; np_on = 1; np_sel = 0; np_sure = 0; pv_on = 0;
                 menu_sound(1);
-                fprintf(stderr, "%s menu: open\n", np_on ? "online" : "players");
+                fprintf(stderr, "online menu: open\n");
+            } else if ((pressed & B_SELECT) && (b_ask || vote)) { /* the vote's box */
+                pm_open = p; pv_on = 1; pv_kind = b_ask ? 1 : 2; pv_sel = 0; np_on = 0;
+                menu_sound(1);
+                fprintf(stderr, "vote box: open (%s)\n", pv_kind == 1 ? "back to the lobby" : "kick");
             }
             continue;
         }
         if (p != pm_open) continue;
-        int rows = n + (vote ? 1 : 0);
+        if (tc_on) { /* typing: Start sends, O erases (and backs out once empty) */
+            naming_pad = p;
+            int done = naming_input(0);
+            naming_pad = -1;
+            if (done) {
+                if (done == 1 && naming.text[0] && l) {
+                    lobby_chat(l, naming.text);
+                    fprintf(stderr, "text chat: sent \"%s\"\n", naming.text);
+                }
+                naming.active = 0;
+                tc_on = 0;
+                pm_open = -1;
+                menu_sound(done == 1 ? 1 : 0);
+            }
+            pm_prev[p] = 0xFFFF; /* (the press that closed it not seen again) */
+            continue;
+        }
+        if (pv_on) { /* the vote's box: YES / NO, X answers, O / Select / Start close it */
+            if ((pv_kind == 1 && !b_ask) || (pv_kind == 2 && !vote)) { pm_open = -1; pv_on = 0; continue; } /* (over, or answered) */
+            if (pressed & (B_LEFT | B_RIGHT | B_UP | B_DOWN)) { pv_sel = !pv_sel; menu_sound(0); }
+            if (pressed & (B_CIRCLE | B_SELECT | B_START)) { pm_open = -1; pv_on = 0; menu_sound(0); continue; }
+            if (pressed & B_CROSS) {
+                if (pv_kind == 1 && l) lobby_back_vote(l, pv_sel == 0);
+                else if (pv_kind == 2) { if (pv_sel == 0 && l) lobby_kick_vote(l, target); pm_voted = target; }
+                fprintf(stderr, "vote box: %s\n", pv_sel == 0 ? "yes" : "no");
+                menu_sound(1);
+                pm_open = -1; pv_on = 0;
+            }
+            continue;
+        }
+        int rows = n + (vote ? 1 : 0) + (b_ask ? 1 : 0) + 1; /* (the last: the call to go back to the lobby) */
         if (pressed & B_START) { pm_open = -1; np_on = 0; menu_sound(0); continue; }
         if (np_on) { /* the menu's items */
             if (np_sure) { /* QUIT: sure? (YES on top, NO highlighted, as the tournament's) */
@@ -16237,8 +16392,8 @@ static void pm_input(void)
                 }
                 continue;
             }
-            if (pressed & B_UP) { np_sel = (np_sel + 3) % 4; menu_sound(0); }
-            if (pressed & B_DOWN) { np_sel = (np_sel + 1) % 4; menu_sound(0); }
+            if (pressed & B_UP) { np_sel = (np_sel + 4) % 5; menu_sound(0); }
+            if (pressed & B_DOWN) { np_sel = (np_sel + 1) % 5; menu_sound(0); }
             if (pressed & B_CIRCLE) { pm_open = -1; np_on = 0; menu_sound(0); continue; }
             if (pressed & B_CROSS) {
                 menu_sound(1);
@@ -16246,7 +16401,13 @@ static void pm_input(void)
                 else if (np_sel == 1) { /* the pages beside the match (their own picture over it) */
                     if (mf_open(p)) { pm_open = -1; np_on = 0; }
                 } else if (np_sel == 2) { np_on = 0; pm_sel = 0; pm_sub = -1; }
-                else { np_sure = 1; np_sure_sel = 1; }
+                else if (np_sel == 3) { /* the chat's keyboard */
+                    name_start(0);
+                    naming.max = 40;
+                    tc_on = 1;
+                    np_on = 0;
+                    fprintf(stderr, "text chat: open\n");
+                } else { np_sure = 1; np_sure_sel = 1; }
             }
             continue;
         }
@@ -16273,8 +16434,24 @@ static void pm_input(void)
         if (pressed & B_UP) { pm_sel = (pm_sel + rows - 1) % (rows ? rows : 1); menu_sound(0); }
         if (pressed & B_DOWN) { pm_sel = (pm_sel + 1) % (rows ? rows : 1); menu_sound(0); }
         if (pressed & B_CIRCLE) { np_on = 1; menu_sound(0); continue; } /* (back to the menu) */
-        if (vote && pm_sel == 0 && (pressed & (B_LEFT | B_RIGHT))) { pm_sub_sel = !pm_sub_sel; menu_sound(0); }
+        if (((vote && pm_sel == 0) || (b_ask && pm_sel == b_row)) && (pressed & (B_LEFT | B_RIGHT))) { pm_sub_sel = !pm_sub_sel; menu_sound(0); }
         if (pressed & B_CROSS) {
+            if (b_ask && pm_sel == b_row) { /* the vote to go back to the lobby: YES or NO */
+                if (l) lobby_back_vote(l, pm_sub_sel == 0);
+                fprintf(stderr, "players menu: voted %s on going back to the lobby\n", pm_sub_sel == 0 ? "yes" : "no");
+                pm_sub_sel = 0;
+                pm_sel = 0;
+                menu_sound(1);
+                continue;
+            }
+            if (pm_sel == rows - 1) { /* the call: a vote to go back to the lobby (none running) */
+                if (l && (b_state == LOBBY_BACK_NONE || b_state == LOBBY_BACK_FAILED)) {
+                    lobby_back_vote(l, 1);
+                    fprintf(stderr, "players menu: called a vote to go back to the lobby\n");
+                    menu_sound(1);
+                } else menu_sound(0);
+                continue;
+            }
             if (vote && pm_sel == 0) { /* the vote: YES (this machine's vote) or NO (left at that) */
                 if (pm_sub_sel == 0 && l) lobby_kick_vote(l, target);
                 fprintf(stderr, "players menu: voted %s on kicking %s\n", pm_sub_sel == 0 ? "yes" : "no", pm_node_name(target));
@@ -16284,7 +16461,7 @@ static void pm_input(void)
                 menu_sound(1);
                 continue;
             }
-            int h = pm_sel - (vote ? 1 : 0);
+            int h = pm_sel - (vote ? 1 : 0) - (b_ask ? 1 : 0);
             if (h >= 0 && h < n && node_of[h] >= 0 && node_of[h] != lobby_node(l)) { pm_sub = h; pm_sub_sel = 0; menu_sound(1); }
         }
     }
@@ -16299,9 +16476,13 @@ static int pm_frame(Image *sb, int *shown)
     }
     if (!netplay_in_match() || !feats_in_battle() || killcam_replaying) {
         pm_open = -1;
+        if (tc_on) { naming.active = 0; tc_on = 0; }
+        if (!netplay_in_match()) { tc_next = -1; memset(tc_line, 0, sizeof tc_line); }
         return 0;
     }
     pm_input();
+    tc_poll();
+    int tc_n = tc_count();
     static const char *kick_at; /* tests: TM2PC_NET_TEST_KICKVOTE_AT, the host starts a vote to kick the last machine then */
     static int kick_read;
     if (!kick_read) { kick_read = 1; kick_at = getenv("TM2PC_NET_TEST_KICKVOTE_AT"); }
@@ -16312,9 +16493,39 @@ static int pm_frame(Image *sb, int *shown)
         if (last >= 0) lobby_kick_vote(netplay_lobby(), last);
     }
     int target = -1, yes = 0, needed = 0, vote = pm_vote(&target, &yes, &needed);
+    int b_caller = 0, b_yes = 0, b_no = 0, b_needed = 0, b_ask = 0, b_state = pm_back(&b_caller, &b_yes, &b_no, &b_needed, &b_ask);
+    static const char *back_at; /* tests: TM2PC_NET_TEST_BACKVOTE_AT=V, this machine calls (or votes yes on) the vote then */
+    static int back_read;
+    if (!back_read) { back_read = 1; back_at = getenv("TM2PC_NET_TEST_BACKVOTE_AT"); }
+    { /* tests: TM2PC_NET_TEST_CHAT_AT=V:text, this machine says it then; TM2PC_NET_TEST_TYPING_AT=V:text, the chat's keyboard
+       * open then with that typed (its look) */
+        static const char *say, *typing;
+        static int read;
+        if (!read) { read = 1; say = getenv("TM2PC_NET_TEST_CHAT_AT"); typing = getenv("TM2PC_NET_TEST_TYPING_AT"); }
+        if (say && M.vblanks >= strtoull(say, NULL, 10) && netplay_lobby() && strchr(say, ':')) {
+            lobby_chat(netplay_lobby(), strchr(say, ':') + 1);
+            say = NULL;
+        }
+        if (typing && M.vblanks >= strtoull(typing, NULL, 10) && strchr(typing, ':') && pm_open < 0) {
+            name_start(0);
+            naming.max = 40;
+            snprintf(naming.text, sizeof naming.text, "%s", strchr(typing, ':') + 1);
+            tc_on = 1, pm_open = 0, np_on = 0;
+            typing = NULL;
+        }
+    }
+    if (back_at && M.vblanks >= strtoull(back_at, NULL, 10) && netplay_lobby() && (b_state != LOBBY_BACK_RUNNING || b_ask)) {
+        int no = strchr(back_at, 'n') != NULL; /* (V followed by n: a no) */
+        back_at = NULL;
+        lobby_back_vote(netplay_lobby(), !no);
+        fprintf(stderr, "players menu: (test) a %s to go back to the lobby\n", no ? "no" : "yes");
+    }
+    int bnote = b_state != LOBBY_BACK_NONE; /* (its note: running, or its result a while) */
+    int b_total = 0, b_secs = 0;
+    if (netplay_lobby()) lobby_back_counts(netplay_lobby(), &b_total, &b_secs);
     unsigned talking = 0; /* (the machines talking now, this PC's too) */
     for (int k = 0; k < SES_MAX_NODES && netplay_lobby(); k++) if (voice_io_talking(netplay_lobby(), k)) talking |= 1u << k;
-    if (pm_open < 0 && !vote && !talking) return 0;
+    if (pm_open < 0 && !vote && !bnote && !talking && !tc_n) return 0;
     int8_t node_of[16];
     int n = pm_humans(node_of);
     Lobby *l = netplay_lobby();
@@ -16324,6 +16535,11 @@ static int pm_frame(Image *sb, int *shown)
     PM_MIX(size.w); PM_MIX(size.h); PM_MIX(pm_open); PM_MIX(pm_sel); PM_MIX(pm_sub); PM_MIX(pm_sub_sel); PM_MIX(net_mute_node);
     PM_MIX(vote); PM_MIX(target); PM_MIX(yes); PM_MIX(needed); PM_MIX(n); PM_MIX(talking); PM_MIX(0x5A11);
     PM_MIX(np_on); PM_MIX(np_sel); PM_MIX(np_sure); PM_MIX(np_sure_sel);
+    PM_MIX(b_state); PM_MIX(b_caller); PM_MIX(b_yes); PM_MIX(b_no); PM_MIX(b_needed); PM_MIX(b_ask);
+    PM_MIX(b_total); PM_MIX(b_secs); PM_MIX(pv_on); PM_MIX(pv_kind); PM_MIX(pv_sel);
+    PM_MIX(tc_on); PM_MIX(tc_n); PM_MIX(naming.row); PM_MIX(naming.col); PM_MIX(naming.caps);
+    for (const char *q = naming.text; tc_on && *q; q++) PM_MIX(*q);
+    for (int i = 0; i < TC_SHOWN; i++) PM_MIX(tc_line[i].at);
 #undef PM_MIX
     static uint32_t shown_key;
     if (*shown == 2 && key == shown_key) return 1;
@@ -16331,11 +16547,11 @@ static int pm_frame(Image *sb, int *shown)
     memset(sb->px, 0, (size_t)sb->w * sb->h * 3);
     View v = view_fit(sb);
     static const uint8_t panel[3] = {10, 10, 14}, line[3] = {188, 188, 196};
-    int rect[8], nr = 0;
+    int rect[4 * 8], nr = 0; /* (the overlay's pieces: the notes, the chat's lines, the talkers, a box or the menu) */
     char text[96];
     static const uint8_t mic_on[3] = {120, 220, 120};
     if (pm_open < 0 && talking) { /* who is talking: a note each at the side, under the kill feed (and the vote's) */
-        float bx = 470, by = vote ? 148 : 96, bw = 160, bh = 18;
+        float bx = 470, by = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0) + 18 * tc_n, bw = 160, bh = 18;
         for (int k = 0; k < SES_MAX_NODES && nr < 2; k++) {
             if (!((talking >> k) & 1)) continue;
             draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
@@ -16348,23 +16564,110 @@ static int pm_frame(Image *sb, int *shown)
         }
         int talkers = 0; /* (their notes: one overlay piece, from the first to the last) */
         for (int k = 0; k < SES_MAX_NODES; k++) talkers += (talking >> k) & 1;
-        float top = vote ? 148 : 96;
+        float top = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0) + 18 * tc_n;
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, top), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, (bh + 3) * talkers);
         nr++;
     }
+    TextColor sky = WHITE;
+    memcpy(sky.top, BACK_SKY, 3), memcpy(sky.bottom, BACK_SKY, 3);
+    if (pm_open < 0 && bnote) { /* the vote to go back to the lobby: its note under the kill feed (and the kick vote's), its
+                                 * own color, centered; SELECT to vote; at its end VOTE PASSED / FAILED a while, big */
+        float bx = 390, by = 122 + (vote ? 52 : 0), bw = 240, bh = 58, cx = bx + bw / 2;
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, BACK_SKY, 255);
+        int voted = b_yes + b_no;
+        if (b_state == LOBBY_BACK_RUNNING) {
+            int ls = S(&v, 10);
+            snprintf(text, sizeof text, "%s CALLED A VOTE: BACK TO LOBBY?", pm_node_name(b_caller));
+            upper(text);
+            while (ls > S(&v, 7) && text_width(text, ls) > S(&v, bw - 12)) ls--;
+            text_draw(sb, text, X(&v, cx) - text_width(text, ls) / 2, text_top_for_center(Y(&v, by + 13), ls), ls, sky);
+            ls = S(&v, 11);
+            snprintf(text, sizeof text, "YES %d   NO %d   (%d/%d)   0:%02d", b_yes, b_no, voted, b_total, b_secs);
+            text_draw(sb, text, X(&v, cx) - text_width(text, ls) / 2, text_top_for_center(Y(&v, by + 31), ls), ls, WHITE);
+            if (b_ask) text_draw(sb, "SELECT: VOTE", X(&v, cx) - text_width("SELECT: VOTE", ls) / 2, text_top_for_center(Y(&v, by + 47), ls), ls, PALE);
+        } else {
+            int big = S(&v, 18), ls = S(&v, 11);
+            const char *res = b_state == LOBBY_BACK_PASSED ? "VOTE PASSED" : "VOTE FAILED";
+            text_draw(sb, res, X(&v, cx) - text_width(res, big) / 2, text_top_for_center(Y(&v, by + 20), big), big, sky);
+            snprintf(text, sizeof text, "(%d/%d)", b_state == LOBBY_BACK_PASSED ? b_yes : b_total - b_yes, b_total);
+            text_draw(sb, text, X(&v, cx) - text_width(text, ls) / 2, text_top_for_center(Y(&v, by + 43), ls), ls, WHITE);
+        }
+        rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
+        nr++;
+    }
+    if (tc_n) { /* the chat's lines: under the kill feed (and the votes' notes), "NAME: text", the newest last */
+        float by = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0), right = 630;
+        int k = 0;
+        for (int i = 0; i < TC_SHOWN; i++) {
+            if (!tc_line[i].at || (uint32_t)SDL_GetTicks() - tc_line[i].at >= TC_MS) continue;
+            int ls = S(&v, 10);
+            char nm[32];
+            snprintf(nm, sizeof nm, "%s: ", tc_line[i].name);
+            while (ls > S(&v, 7) && text_width(nm, ls) + text_width(tc_line[i].text, ls) > S(&v, 300)) ls--;
+            int w = text_width(nm, ls) + text_width(tc_line[i].text, ls), x = X(&v, right) - w, cy = Y(&v, by + 9 + 18 * k);
+            draw_fill(sb, x - S(&v, 6), Y(&v, by + 18 * k), w + S(&v, 12), S(&v, 17), panel, 255);
+            TextColor nc = WHITE;
+            memcpy(nc.top, tc_line[i].col, 3), memcpy(nc.bottom, tc_line[i].col, 3);
+            text_draw(sb, nm, x, text_top_for_center(cy, ls), ls, nc);
+            text_draw(sb, tc_line[i].text, x + text_width(nm, ls), text_top_for_center(cy, ls), ls, WHITE);
+            rect[4 * nr] = x - S(&v, 6), rect[4 * nr + 1] = Y(&v, by + 18 * k), rect[4 * nr + 2] = w + S(&v, 12), rect[4 * nr + 3] = S(&v, 17);
+            nr++; /* (each line its own piece: its strip only, the game round it) */
+            k++;
+        }
+    }
+    if (tc_on && pm_open >= 0) { /* the chat's keyboard: over the game's lower middle */
+        float bx = 150, bw = 340, by = 196, bh = 206;
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
+        lettering();
+        int ts = S(&v, 14);
+        text_draw(sb, "TEXT CHAT", X(&v, 320) - text_width("TEXT CHAT", ts) / 2, text_top_for_center(Y(&v, by + 14), ts), ts, TITLE);
+        plain_text();
+        draw_naming_at(&v, (int)bx + 15, (int)by + 28, (int)by + 66, 31, 24, 13, 0);
+        int ls = S(&v, 9);
+        const char *legend = "START: SEND    O: ERASE / BACK";
+        text_draw(sb, legend, X(&v, 320) - text_width(legend, ls) / 2, text_top_for_center(Y(&v, by + bh - 10), ls), ls, PALE);
+        rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
+        nr++;
+    }
+    if (pv_on && pm_open >= 0) { /* the vote's box (Select): over the game's middle, YES / NO */
+        float bw = 260, bh = 92, bx = 320 - bw / 2, by = 190;
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, pv_kind == 1 ? BACK_SKY : line, 255);
+        int ls = S(&v, 12);
+        if (pv_kind == 1) snprintf(text, sizeof text, "%s CALLED A VOTE: BACK TO LOBBY?", pm_node_name(b_caller));
+        else snprintf(text, sizeof text, "A VOTE: KICK %s?", pm_node_name(target));
+        upper(text);
+        while (ls > S(&v, 8) && text_width(text, ls) > S(&v, bw - 16)) ls--;
+        text_draw(sb, text, X(&v, 320) - text_width(text, ls) / 2, text_top_for_center(Y(&v, by + 18), ls), ls, pv_kind == 1 ? sky : COPPER);
+        static const char *const yn[2] = {"YES", "NO"};
+        int ys = S(&v, 16);
+        for (int k = 0; k < 2; k++) {
+            int x = X(&v, 320 + (k ? 50 : -50)), cy = Y(&v, by + 48);
+            if (pv_sel == k) draw_bar(&v, x - text_width(yn[k], ys) / 2 - S(&v, 10), x + text_width(yn[k], ys) / 2 + S(&v, 10), cy, ys);
+            text_draw(sb, yn[k], x - text_width(yn[k], ys) / 2, text_top_for_center(cy, ys), ys, pv_sel == k ? WHITE : GRAY);
+        }
+        int ss = S(&v, 10);
+        if (pv_kind == 1) snprintf(text, sizeof text, "YES %d   NO %d   (%d/%d)   0:%02d", b_yes, b_no, b_yes + b_no, b_total, b_secs);
+        else snprintf(text, sizeof text, "(%d/%d)", yes, needed);
+        text_draw(sb, text, X(&v, 320) - text_width(text, ss) / 2, text_top_for_center(Y(&v, by + 76), ss), ss, PALE);
+        rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
+        nr++;
+    }
     if (pm_open < 0 && vote) { /* the vote's note: at the side, under the kill feed; START (the menu) to vote */
-        float bx = 420, by = 96, bw = 210, bh = 46;
+        float bx = 420, by = 122, /* (under four kill feed lines) */ bw = 210, bh = 46;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
         int ls = S(&v, 11);
         snprintf(text, sizeof text, "VOTE TO KICK %s (%d/%d)", pm_node_name(target), yes, needed);
         upper(text);
         text_draw(sb, text, X(&v, bx + 8), text_top_for_center(Y(&v, by + 15), ls), ls, COPPER);
-        text_draw(sb, "START: VOTE", X(&v, bx + 8), text_top_for_center(Y(&v, by + 33), ls), ls, WHITE); /* (Start: the list at once) */
+        text_draw(sb, "SELECT: VOTE", X(&v, bx + 8), text_top_for_center(Y(&v, by + 33), ls), ls, WHITE); /* (Select: the vote's box) */
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
-    } else if (pm_open >= 0 && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
-        int items = np_sure ? 2 : 4;
+    } else if (pm_open >= 0 && !pv_on && !tc_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
+        int items = np_sure ? 2 : 5;
         float bx = 220, bw = 200, rh = 24, bh = 56 + rh * (float)items, by = 240 - bh / 2;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
@@ -16382,8 +16685,8 @@ static int pm_frame(Image *sb, int *shown)
         plain_text();
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
-    } else if (pm_open >= 0) { /* the Players list */
-        int rows = n + (vote ? 1 : 0);
+    } else if (pm_open >= 0 && !pv_on && !tc_on) { /* the Players list */
+        int rows = n + (vote ? 1 : 0) + (b_ask ? 1 : 0) + 1;
         float bx = 110, bw = 420, rh = 22, bh = 52 + rh * (float)rows + (pm_sub >= 0 ? 0 : 0), by = 240 - bh / 2;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
@@ -16406,8 +16709,20 @@ static int pm_frame(Image *sb, int *shown)
             }
             y += rh;
         }
+        if (b_ask) { /* the vote to go back to the lobby: YES / NO */
+            int cy = Y(&v, y + rh / 2), row = vote ? 1 : 0;
+            snprintf(text, sizeof text, "BACK TO THE LOBBY? (%d/%d)", b_yes, b_needed);
+            TextColor sky = WHITE;
+            memcpy(sky.top, BACK_SKY, 3), memcpy(sky.bottom, BACK_SKY, 3);
+            if (pm_sel == row) draw_bar(&v, X(&v, bx + 6), X(&v, bx + bw - 6), cy, ls);
+            text_draw(sb, text, X(&v, bx + 14), text_top_for_center(cy, ls), ls, sky);
+            const char *yn[2] = {"YES", "NO"};
+            for (int k = 0; k < 2; k++)
+                text_draw(sb, yn[k], X(&v, bx + bw - 120 + 56 * k), text_top_for_center(cy, ls), ls, pm_sel == row && pm_sub_sel == k ? ORANGE : GRAY);
+            y += rh;
+        }
         for (int h = 0; h < n; h++, y += rh) {
-            int row = h + (vote ? 1 : 0), node = node_of[h], cy = Y(&v, y + rh / 2);
+            int row = h + (vote ? 1 : 0) + (b_ask ? 1 : 0), node = node_of[h], cy = Y(&v, y + rh / 2);
             const LobbyView *lv = l ? lobby_view(l) : NULL;
             if (row == pm_sel && pm_sub < 0) draw_bar(&v, X(&v, bx + 6), X(&v, bx + bw - 6), cy, ls);
             snprintf(text, sizeof text, "%s", match_human_name(h));
@@ -16431,6 +16746,16 @@ static int pm_frame(Image *sb, int *shown)
                               pm_sub_sel == k ? ORANGE : GRAY);
                 }
             }
+        }
+        { /* the last row: the call to go back to the lobby (a vote running: its count) */
+            int row = rows - 1, cy = Y(&v, y + rh / 2), can = b_state == LOBBY_BACK_NONE || b_state == LOBBY_BACK_FAILED;
+            if (row == pm_sel && pm_sub < 0) draw_bar(&v, X(&v, bx + 6), X(&v, bx + bw - 6), cy, ls);
+            if (can) snprintf(text, sizeof text, "VOTE: BACK TO LOBBY");
+            else if (b_state == LOBBY_BACK_RUNNING) snprintf(text, sizeof text, "BACK TO LOBBY: YES %d  NO %d  (%d NEEDED)", b_yes, b_no, b_needed);
+            else snprintf(text, sizeof text, "BACK TO LOBBY: PASSED");
+            TextColor sky = WHITE;
+            memcpy(sky.top, BACK_SKY, 3), memcpy(sky.bottom, BACK_SKY, 3);
+            text_draw(sb, text, X(&v, bx + 14), text_top_for_center(cy, ls), ls, can ? WHITE : sky);
         }
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
@@ -16755,9 +17080,9 @@ static void scoreboard_frame(void)
             plain_text();
             rect[nr * 4] = X(&v, bx), rect[nr * 4 + 1] = Y(&v, by), rect[nr * 4 + 2] = S(&v, bw), rect[nr * 4 + 3] = S(&v, bh);
             nr++;
-            if (wp < 0 && watching && nr < 4) { /* in to watch (joined mid-match): when they play, above the banner */
-                const char *note = netplay_lobby() && lobby_spectating(netplay_lobby()) ? "SPECTATOR: SPECTATE OFF IN THE LOBBY TO PLAY"
-                                 : trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
+            if (wp < 0 && watching && nr < 4 && !(netplay_lobby() && lobby_spectating(netplay_lobby()))) {
+                /* in to watch (joined mid-match): when they play, above the banner (a spectator: no note, the user's 2026-11-26) */
+                const char *note = trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
                 float nh = 22, ny = by - nh - 6;
                 lettering();
                 int ns = S(&v, 12), nw = text_width(note, ns) + S(&v, 28), nx = X(&v, 320) - nw / 2;
@@ -16792,7 +17117,8 @@ static void scoreboard_frame(void)
     if (netplay_lobby()) {
         const LobbyView *lv = lobby_view(netplay_lobby());
         for (int n = 0; n < SES_MAX_NODES; n++)
-            for (int i = 0; lv->m[n].present && lv->m[n].spectate && i < lv->m[n].count; i++) {
+            for (int i = 0; lv->m[n].present && i < lv->m[n].count; i++) {
+                if (!lobby_player_spectates(&lv->m[n], i)) continue;
                 size_t at = strlen(specs);
                 snprintf(specs + at, sizeof specs - at, "%s%s", at ? ", " : "SPECTATORS: ", lv->m[n].p[i].name);
             }
@@ -17285,6 +17611,39 @@ static int battle_results(int result, int mode)
      * and the menu sounds over the results */
     port_sounds_stop();
     vp_win_reset(); /* (the winner's moment over: the results') */
+    int vp_back_requested(void); /* vplus/fixes.c */
+    if (netplay_in_match() && vp_back_requested()) { /* the vote to go back to the lobby passed: VOTE PASSED: BACK TO LOBBY
+                                                     * over the results a few seconds (no winner, nothing counted), then on */
+        snprintf(title, sizeof title, "VOTE PASSED: BACK TO LOBBY");
+        results_title = title;
+        results_winner = NULL;
+        memset(results_lines, 0, sizeof results_lines);
+        if (netplay_lobby()) lobby_back_clear(netplay_lobby());
+        Image canvas = {0, 0, NULL};
+        uint64_t until = SDL_GetTicks() + 4000;
+        int dirty = 1;
+        results_no_choices = 1;
+        while (SDL_GetTicks() < until) {
+            PsyzSize size = menu_canvas_size();
+            if (size.w > 0 && size.h > 0 && (dirty || size.w != canvas.w || size.h != canvas.h) && image_resize(&canvas, size.w, size.h)) {
+                compose_results(&canvas, -1);
+                Psyz_VideoSetDisplayRGB24(canvas.px, canvas.w, canvas.h);
+                static int shot;
+                if (getenv("TM2PC_NET_MENU_SHOT") && !shot++) { /* tests: its look */
+                    char path[512];
+                    snprintf(path, sizeof path, "%s/back_results.bmp", getenv("TM2PC_NET_MENU_SHOT"));
+                    image_save_bmp(&canvas, path);
+                }
+                dirty = 0;
+            }
+            ui_audio_frame();
+            ui_vsync();
+        }
+        results_no_choices = 0;
+        image_free(&canvas);
+        fprintf(stderr, "back to the lobby: the results' note shown\n");
+        return 1;
+    }
     int team = match_winner(result, mode, title, sizeof title);
     memset(results_lines, 0, sizeof results_lines);
     if (survival_on) {
@@ -17419,7 +17778,13 @@ static int battle_results(int result, int mode)
         image_free(&canvas);
         return 0;
     }
-    if (netplay_in_match() && net_pl.on && net_pl.n > 0 && netplay_lobby() && !lobby_migrated_at(netplay_lobby(), NULL)) { /* a server's playlist: the final scoreboard a while, then the vote, then on */
+    int vp_back_requested(void);
+    if (netplay_in_match() && vp_back_requested() && netplay_lobby()) /* (the vote to go back to the lobby: no playlist vote) */
+        lobby_back_clear(netplay_lobby());
+    if (netplay_in_match() && !vp_back_requested() && net_pl.on && netplay_lobby() && (net_pl.n > 0 || !lobby_is_host(netplay_lobby())) &&
+        !lobby_migrated_at(netplay_lobby(), NULL)) { /* (a joiner: the host's playlist on, its matches the host's alone: the
+                                                     * vote's screen for every player, not the host's only: SuperflyKev's and
+                                                     * Navi's, 2026-11-25) */ /* a server's playlist: the final scoreboard a while, then the vote, then on */
         uint64_t until = SDL_GetTicks() + NET_SCOREBOARD_MS;
         results_no_choices = 1;
         while (SDL_GetTicks() < until) {
@@ -17689,6 +18054,14 @@ void ui_MainLoop(CPU *c) /* rtMainLoop: one round, its result */
         void interp_snap(void), interp_frame_start(void); /* vplus/interp.c */
         interp_snap();
         interp_frame_start();
+    }
+    int vp_back_requested(void); /* vplus/fixes.c: the vote to go back to the lobby passed */
+    if (netplay_in_match() && vp_back_requested()) { /* the match over: the session quits, back to the lobby */
+        battle_new_match = 1;
+        battle_results((int)c->r[2], mem_r8(&M.cpu, SETTINGS_BLOCK)); /* (its note over the results a while) */
+        c->r[2] = 2;
+        fprintf(stderr, "back to the lobby: the session quits\n");
+        return;
     }
     if (duel_active) { /* the co-op duel: one round, then the runner quits */
         int dr = (int)c->r[2];

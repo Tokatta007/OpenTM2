@@ -17,12 +17,20 @@
 enum { CH_HELLO = 0x48, CH_LOBBY = 0x4C, CH_MATCH = 0x4D }; /* the first byte of a packet: 'H', 'L', 'M' */
 enum { HELLO = 1, WELCOME = 2, REFUSED = 3 };                 /* the handshake */
 enum { RELAY_AFTER_MS = 3000 }; /* a joining machine unanswered this long: through the relay */
-enum { L_INFO = 1, L_SET = 2, L_STATE = 3, L_START = 4, L_VOTE = 5, L_TABLE = 6, L_REJOIN = 7, L_PINGS = 8, L_SKIN = 9 };     /* the lobby's messages (ses_app_send) */
+enum { L_INFO = 1, L_SET = 2, L_STATE = 3, L_START = 4, L_VOTE = 5, L_TABLE = 6, L_REJOIN = 7, L_PINGS = 8, L_SKIN = 9,
+       L_BACK = 10, L_BACK_STATE = 11 }; /* (L_BACK: a machine's vote to go back to the lobby; L_BACK_STATE: the host's tally) */     /* the lobby's messages (ses_app_send) */
 enum { HELLO_EVERY_MS = 500, HELLO_GIVE_UP_MS = 10000, PENDING_MS = 10000, STATE_EVERY_MS = 100, BANNED_MAX = 16, PINGS_EVERY_MS = 2000 };
 static const uint8_t MAGIC[4] = {'T', 'M', '2', 'L'};
 enum { PLAYER_BYTES = LOBBY_NAME + 5 + 128 + 8 + 1 + 2 };
 
 struct Lobby {
+    struct { /* the vote to go back to the lobby (a match on): the host's tally, every machine's copy (lobby_back_progress) */
+        uint8_t round, caller, yes, no, needed, state; /* state: LOBBY_BACK_* */
+        uint8_t total, secs;                    /* the machines that may vote; the seconds left (the host's, sent) */
+        uint8_t vote[SES_MAX_NODES];            /* (host) each machine's: 0 none, 1 yes, 2 no */
+        uint32_t at, ended;                     /* (host) its start; its end (the result shown a while) */
+        uint8_t mine_round;                     /* (each machine) the round this machine voted in */
+    } back;
     SesVoiceFn voice;                           /* the voices as they come (voice_io.c) */
     void *voice_ctx;
     uint32_t pending_id[SES_MAX_NODES];         /* (host) the number each machine given a node said in its hello */
@@ -40,7 +48,7 @@ struct Lobby {
     Session *ses;
     LobbyView view;
     int count;                                  /* this machine's players */
-    int spectate;                               /* this machine's players only watch (lobby_set_spectate) */
+    int spectate;                               /* which of this machine's players only watch (bit i; lobby_set_spectate) */
     LobbyPlayer mine[LOBBY_LOCAL_MAX];
     uint32_t hello_ms, hello_first_ms;          /* (a machine) the handshake's tries */
     uint32_t pending_ms[SES_MAX_NODES];         /* (host) nodes given out, not in the session yet */
@@ -280,8 +288,105 @@ static void send_info(Lobby *l) /* (a machine) its players, once in */
     *w++ = (uint8_t)l->count;
     for (int i = 0; i < l->count; i++) w = put_player(w, &l->mine[i]);
     w = put_where(w); /* (where it plays from) */
-    *w++ = (uint8_t)(l->spectate != 0); /* (its players only watch) */
+    *w++ = (uint8_t)l->spectate; /* (which of its players only watch) */
     ses_app_send(l->ses, l->host_node, m, (int)(w - m));
+}
+/* ---- the vote to go back to the lobby (a match on; the user's 2026-11-25) ----
+ * Any machine calls it (its players' vote: yes); every other machine yes or no; more than half the match's machines
+ * yes: passed (the host's game ends the match at one step on every machine: net/game_tm2.c); half or more no, or 30 s:
+ * failed. The result shown a few seconds, then none. One vote a machine (as the kick vote's). */
+enum { BACK_SECS = 30, BACK_SHOWN_MS = 3000 };
+static void back_send(Lobby *l)
+{
+    uint8_t m[9] = {L_BACK_STATE, l->back.round, l->back.caller, l->back.yes, l->back.no, l->back.needed, l->back.state,
+                    l->back.total, l->back.secs};
+    for (int n = 0; n < SES_MAX_NODES; n++)
+        if (n != l->node && l->view.m[n].present) ses_app_send(l->ses, n, m, (int)sizeof m);
+}
+static void back_tally(Lobby *l)
+{
+    int total = 0, yes = 0, no = 0;
+    for (int n = 0; n < SES_MAX_NODES; n++) {
+        if (!l->view.m[n].present || !l->view.m[n].count) continue;
+        total++;
+        yes += l->back.vote[n] == 1, no += l->back.vote[n] == 2;
+    }
+    l->back.yes = (uint8_t)yes, l->back.no = (uint8_t)no, l->back.needed = (uint8_t)(total / 2 + 1), l->back.total = (uint8_t)total;
+    uint32_t gone = l->now - l->back.at;
+    l->back.secs = (uint8_t)(gone >= BACK_SECS * 1000u ? 0 : (BACK_SECS * 1000u - gone + 999) / 1000);
+    if (l->back.state == LOBBY_BACK_RUNNING) {
+        if (yes >= l->back.needed) l->back.state = LOBBY_BACK_PASSED;
+        else if (no * 2 >= total || l->now - l->back.at >= BACK_SECS * 1000u) l->back.state = LOBBY_BACK_FAILED;
+        if (l->back.state != LOBBY_BACK_RUNNING) {
+            l->back.ended = l->now ? l->now : 1;
+            fprintf(stderr, "lobby: the vote to go back to the lobby %s (%d yes, %d no of %d)\n",
+                    l->back.state == LOBBY_BACK_PASSED ? "passed" : "failed", yes, no, total);
+        }
+    }
+    back_send(l);
+}
+static void back_take(Lobby *l, int node, int round, int choice) /* (host) a machine's call or vote */
+{
+    if (node < 0 || node >= SES_MAX_NODES || (choice != 1 && choice != 2)) return;
+    if (l->back.state != LOBBY_BACK_RUNNING) { /* (none running: a yes calls one) */
+        if (choice != 1 || (l->back.state != LOBBY_BACK_NONE && l->back.state != LOBBY_BACK_FAILED)) return;
+        memset(l->back.vote, 0, sizeof l->back.vote);
+        l->back.round++;
+        if (!l->back.round) l->back.round = 1;
+        l->back.caller = (uint8_t)node;
+        l->back.state = LOBBY_BACK_RUNNING;
+        l->back.at = l->now ? l->now : 1;
+        fprintf(stderr, "lobby: machine %d called a vote to go back to the lobby\n", node);
+    } else if (round != l->back.round || l->back.vote[node]) return; /* (another round's, or voted already) */
+    l->back.vote[node] = (uint8_t)choice;
+    back_tally(l);
+}
+void lobby_back_vote(Lobby *l, int yes)
+{
+    if (!l || l->node < 0) return;
+    int round = l->back.state == LOBBY_BACK_RUNNING ? l->back.round : 0;
+    l->back.mine_round = l->back.state == LOBBY_BACK_RUNNING ? l->back.round : 0; /* (a call: the caller's, below) */
+    if (l->host) back_take(l, l->node, round, yes ? 1 : 2);
+    else {
+        uint8_t m[3] = {L_BACK, (uint8_t)round, (uint8_t)(yes ? 1 : 2)};
+        ses_app_send(l->ses, l->host_node, m, (int)sizeof m);
+    }
+}
+int lobby_back_counts(const Lobby *l, int *total, int *secs)
+{
+    if (!l || l->back.state == LOBBY_BACK_NONE) return 0;
+    if (total) *total = l->back.total;
+    if (secs) *secs = l->back.secs;
+    return 1;
+}
+int lobby_back_progress(const Lobby *l, int *caller, int *yes, int *no, int *needed, int *mine)
+{
+    if (!l || l->back.state == LOBBY_BACK_NONE) return LOBBY_BACK_NONE;
+    if (caller) *caller = l->back.caller;
+    if (yes) *yes = l->back.yes;
+    if (no) *no = l->back.no;
+    if (needed) *needed = l->back.needed;
+    if (mine) *mine = l->back.mine_round == l->back.round || l->back.caller == l->node;
+    return l->back.state;
+}
+void lobby_back_clear(Lobby *l) /* (the match over, back in the lobby: none) */
+{
+    if (!l) return;
+    l->back.state = LOBBY_BACK_NONE;
+    memset(l->back.vote, 0, sizeof l->back.vote);
+    if (l->host) back_send(l);
+}
+static void back_tick(Lobby *l) /* (host) its time out; a result shown a while, then none */
+{
+    if (!l->host) return;
+    if (l->back.state == LOBBY_BACK_RUNNING) {
+        uint32_t gone = l->now - l->back.at; /* (each second: its countdown to every machine) */
+        uint8_t secs = (uint8_t)(gone >= BACK_SECS * 1000u ? 0 : (BACK_SECS * 1000u - gone + 999) / 1000);
+        if (gone >= BACK_SECS * 1000u || secs != l->back.secs) back_tally(l);
+    } else if (l->back.state == LOBBY_BACK_FAILED && l->now - l->back.ended >= BACK_SHOWN_MS) {
+        l->back.state = LOBBY_BACK_NONE;
+        back_send(l);
+    }
 }
 static void on_app(void *ctx, int from, const uint8_t *d, int len)
 {
@@ -298,7 +403,7 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
         r = d + 2;
         for (int i = 0; i < count; i++) r = get_player(r, &mc->p[i]);
         if (len >= 2 + count * PLAYER_BYTES + 5) get_where(r, mc);
-        if (len >= 2 + count * PLAYER_BYTES + 6) mc->spectate = r[5] != 0;
+        if (len >= 2 + count * PLAYER_BYTES + 6) mc->spectate = r[5];
         l->dirty = 1;
     } else if (l->host && d[0] == L_SET && len >= 5 && from != l->node && from < SES_MAX_NODES) {
         LobbyMachine *mc = &l->view.m[from];
@@ -313,6 +418,12 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
         if (d[1] >= mc->count) return;
         mc->p[d[1]].skin = (int8_t)d[2];
         l->dirty = 1;
+    } else if (l->host && d[0] == L_BACK && len >= 3 && from != l->node && from < SES_MAX_NODES) {
+        back_take(l, from, d[1], d[2]);
+    } else if (!l->host && from == l->host_node && d[0] == L_BACK_STATE && len >= 7) {
+        l->back.round = d[1], l->back.caller = d[2], l->back.yes = d[3], l->back.no = d[4], l->back.needed = d[5];
+        l->back.state = d[6];
+        if (len >= 9) l->back.total = d[7], l->back.secs = d[8];
     } else if (d[0] >= LOBBY_EXT_FIRST) {
         if (l->ext) l->ext(l->ext_ctx, from, d, len);
     } else if (l->host && d[0] == L_TABLE && len >= 2 + 128 && from != l->node && from < SES_MAX_NODES) {
@@ -340,6 +451,8 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
         memcpy(s.first, r, SES_MAX_NODES);
         memcpy(s.car, r + SES_MAX_NODES, SES_MAX_NODES);
         memcpy(s.skin, r + 2 * SES_MAX_NODES, SES_MAX_NODES);
+        r += 3 * SES_MAX_NODES;
+        s.spec = len >= 2 + 4 + 2 + 3 * SES_MAX_NODES + 4 ? get32(&r) : 0;
         l->view.start = s;
         if (target == l->node) { l->rejoin = 1; l->view.starts++; }
     } else if (!l->host && from == l->host_node && d[0] == L_START && len >= 1 + 4 + 2 + 3 * SES_MAX_NODES) {
@@ -350,6 +463,8 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
         memcpy(s.first, r, SES_MAX_NODES);
         memcpy(s.car, r + SES_MAX_NODES, SES_MAX_NODES);
         memcpy(s.skin, r + 2 * SES_MAX_NODES, SES_MAX_NODES);
+        r += 3 * SES_MAX_NODES;
+        s.spec = len >= 1 + 4 + 2 + 3 * SES_MAX_NODES + 4 ? get32(&r) : 0;
         l->view.start = s;
         l->view.starts++;
     }
@@ -465,7 +580,9 @@ Lobby *lobby_join(const char *host, uint16_t port, int loopback, int count, cons
     l->node = -1;
     l->loopback = loopback;
     l->status = LOBBY_CONNECTING;
-    l->spectate = getenv("TM2PC_TEST_SPECTATE") != NULL; /* tests: this machine's players spectators from the start */
+    l->spectate = getenv("TM2PC_TEST_SPECTATE") ? (int)strtol(getenv("TM2PC_TEST_SPECTATE"), NULL, 0) : 0; /* tests: this
+                                    * machine's players spectators from the start (1: all of them; a mask: 2 player 2's) */
+    if (getenv("TM2PC_TEST_SPECTATE") && l->spectate == 1) l->spectate = 0xFF;
     l->udp = udp_open(0, loopback ? UDP_LOOPBACK : 0);
     if (!l->udp || !udp_set_node(l->udp, 0, host, port)) { lobby_free(l); return NULL; }
     return l;
@@ -798,6 +915,7 @@ void lobby_lan_search_free(LanSearch *s)
 void lobby_poll(Lobby *l, uint32_t now_ms)
 {
     l->now = now_ms;
+    back_tick(l);
     if (l->host) lan_answer(l);
     uint8_t buf[2600];
     char addr[48];
@@ -879,7 +997,7 @@ void lobby_poll(Lobby *l, uint32_t now_ms)
     } else if (l->status == LOBBY_IN || l->status == LOBBY_CONNECTING) {
         uint32_t watchers = 0; /* (the spectators' machines: the next host only if no player's is left, session.c) */
         for (int n2 = 0; n2 < SES_MAX_NODES; n2++)
-            if (l->view.m[n2].present && l->view.m[n2].spectate) watchers |= 1u << n2;
+            if (l->view.m[n2].present && lobby_machine_watches(&l->view.m[n2])) watchers |= 1u << n2;
         ses_set_watchers(l->ses, watchers);
         int h = ses_host(l->ses);
         if (h != l->host_node) { /* the host left: the machine there longest carries on as the host (session.c) */
@@ -905,9 +1023,18 @@ void lobby_poll(Lobby *l, uint32_t now_ms)
 }
 
 /* ---- this machine's choices; the host's ---- */
-void lobby_set_spectate(Lobby *l, int on)
+static void spectate_changed(Lobby *l);
+void lobby_set_spectate(Lobby *l, int on) { l->spectate = on ? 0xFF : 0; spectate_changed(l); }
+void lobby_set_spectate_player(Lobby *l, int i, int on)
 {
-    l->spectate = on != 0;
+    if (i < 0 || i >= LOBBY_LOCAL_MAX) return;
+    if (on) l->spectate |= 1 << i;
+    else l->spectate &= ~(1 << i);
+    spectate_changed(l);
+}
+int lobby_spectate_mask(const Lobby *l) { return l->spectate & ((1 << l->count) - 1); }
+static void spectate_changed(Lobby *l)
+{
     if (l->host) {
         if (l->node >= 0 && l->node < SES_MAX_NODES) l->view.m[l->node].spectate = (uint8_t)l->spectate;
         l->dirty = 1;
@@ -916,7 +1043,7 @@ void lobby_set_spectate(Lobby *l, int on)
         send_info(l);
     }
 }
-int lobby_spectating(const Lobby *l) { return l->spectate; }
+int lobby_spectating(const Lobby *l) { return l->count && (l->spectate & ((1 << l->count) - 1)) == (1 << l->count) - 1; }
 void lobby_set_player(Lobby *l, int i, int car, int team, int ready)
 {
     if (i < 0 || i >= l->count) return;
@@ -1017,14 +1144,19 @@ void lobby_start(Lobby *l, uint32_t seed, int delay, const int8_t car[SES_MAX_NO
     memset(s.first, 0xFF, sizeof s.first);
     int h = 0;
     for (int n = 0; n < SES_MAX_NODES; n++) /* (a spectators' machine: none of the start's players; it watches) */
-        if (l->view.m[n].present && l->view.m[n].count && !l->view.m[n].spectate) { s.first[n] = (uint8_t)h; h += l->view.m[n].count; }
+        if (l->view.m[n].present && l->view.m[n].count && !lobby_machine_watches(&l->view.m[n])) {
+            for (int i = 0; i < l->view.m[n].count; i++) /* (a split screen's spectators: a car each, parked out) */
+                if (lobby_player_spectates(&l->view.m[n], i) && h + i < 32) s.spec |= 1u << (h + i);
+            s.first[n] = (uint8_t)h;
+            h += l->view.m[n].count;
+        }
     s.humans = (uint8_t)h;
     memcpy(s.car, car, SES_MAX_NODES);
     memset(s.skin, -1, sizeof s.skin);
     for (int n = 0; n < SES_MAX_NODES; n++) /* (each human's skin: their choice, kept only with their own car) */
         for (int i = 0; s.first[n] != 0xFF && i < l->view.m[n].count && s.first[n] + i < SES_MAX_NODES; i++)
             if (l->view.m[n].p[i].car >= 0 && l->view.m[n].p[i].car == car[s.first[n] + i]) s.skin[s.first[n] + i] = l->view.m[n].p[i].skin;
-    uint8_t m[1 + 4 + 2 + 3 * SES_MAX_NODES], *w = m;
+    uint8_t m[1 + 4 + 2 + 3 * SES_MAX_NODES + 4], *w = m;
     *w++ = L_START;
     w = put32(w, s.seed);
     *w++ = s.delay;
@@ -1035,6 +1167,7 @@ void lobby_start(Lobby *l, uint32_t seed, int delay, const int8_t car[SES_MAX_NO
     w += SES_MAX_NODES;
     memcpy(w, s.skin, SES_MAX_NODES);
     w += SES_MAX_NODES;
+    w = put32(w, s.spec);
     for (int n = 0; n < SES_MAX_NODES; n++)
         if (n != l->node && l->view.m[n].present) ses_app_send(l->ses, n, m, (int)(w - m));
     l->view.start = s;
@@ -1047,7 +1180,7 @@ void lobby_rejoin(Lobby *l, int node, int first)
     LobbyStart *s = &l->view.start;
     for (int n = 0; n < SES_MAX_NODES; n++) if (s->first[n] == (uint8_t)first) s->first[n] = 0xFF; /* (its old node's) */
     s->first[node] = (uint8_t)first;
-    uint8_t m[2 + 4 + 2 + 3 * SES_MAX_NODES], *w = m;
+    uint8_t m[2 + 4 + 2 + 3 * SES_MAX_NODES + 4], *w = m;
     *w++ = L_REJOIN;
     *w++ = (uint8_t)node;
     w = put32(w, s->seed);
@@ -1059,6 +1192,7 @@ void lobby_rejoin(Lobby *l, int node, int first)
     w += SES_MAX_NODES;
     memcpy(w, s->skin, SES_MAX_NODES);
     w += SES_MAX_NODES;
+    w = put32(w, s->spec);
     for (int n = 0; n < SES_MAX_NODES; n++)
         if (n != l->node && l->view.m[n].present) ses_app_send(l->ses, n, m, (int)(w - m));
 }

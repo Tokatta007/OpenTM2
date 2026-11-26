@@ -1,5 +1,8 @@
 <p align="center">
   <a href="https://youtu.be/QdJrzCkjSc8"><img src="https://img.youtube.com/vi/QdJrzCkjSc8/maxresdefault.jpg" alt="OpenTM2 release trailer" width="640"></a><br>
+</p>
+<h3 align="center"><a href="https://discord.gg/SNBEBt9geQ">💬 Join the Discord</a></h3>
+<p align="center">
   <a href="https://youtu.be/QdJrzCkjSc8">▶ Watch the release trailer</a> · <a href="https://opentm2.pages.dev">Website: opentm2.pages.dev</a>
 </p>
 

@@ -200,6 +200,18 @@ void rt_live_shot(void)
         snprintf(path, sizeof path, "%s/burst-%03d.bmp", shot_dir, burst_i++);
         gpu_backend->capture(path, 0);
     }
+    { /* TM2PC_LIVE_SHOT_VB=V1,V2,...: the screen as presented (overlays included) at those VBlanks, vb-V.bmp */
+        static const char *vb_list;
+        static int vb_read;
+        if (!vb_read) { vb_read = 1; vb_list = getenv("TM2PC_LIVE_SHOT_VB"); }
+        if (vb_list && *vb_list && M.vblanks >= strtoull(vb_list, NULL, 10)) {
+            char path[512];
+            snprintf(path, sizeof path, "%s/vb-%llu.bmp", shot_dir, strtoull(vb_list, NULL, 10));
+            gpu_backend->capture(path, 0);
+            const char *comma = strchr(vb_list, ',');
+            vb_list = comma ? comma + 1 : NULL;
+        }
+    }
     if (every < 0) every = getenv("TM2PC_LIVE_SHOT") ? atoi(getenv("TM2PC_LIVE_SHOT")) : 0;
     if (every <= 0 || time(NULL) < next) return;
     next = time(NULL) + every;
@@ -735,8 +747,9 @@ int main(int argc, char **argv)
     if (settings_path || !M.headless) {
         if (disc) settings_set_disc(disc);
         settings_load(ini, !settings_path);
-        if (!settings_path) SDL_CreateDirectory(music_folder()); /* (play: the music folder there for the player's songs, a
-                                                                    * player's "it doesn't create one", 2026-11-22) */
+        if (!settings_path) SDL_CreateDirectory(music_folder()), music_make_folders(); /* (play: the music folder there for
+                                                    * the player's songs, a player's "it doesn't create one", 2026-11-22;
+                                                    * and each arena's, empty, the user's 2026-11-25) */
         { /* the video settings a report needs, in the log (Ryupichu's Wobble had to be asked for, 2026-11-22) */
             static const char *const wob[3] = {"ps1", "smooth", "none"}, *const fr[3] = {"original", "60", "uncapped"};
             fprintf(stderr, "video: wobble %s, frame rate %s, resolution %d%s, textures %s, hidden surfaces %s, widescreen %s\n",
