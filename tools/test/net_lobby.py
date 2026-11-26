@@ -198,8 +198,12 @@ def main():
         print("late machine: battle frames %d, %s the host's from its frame %d" % (len(mine), 'equal to' if same else 'NOT equal to', at))
         ok &= same
         return 0 if ok else 1
-    if a.playlist:  # (the same matches on both)
+    if a.playlist:  # (the same matches on both; and every machine voted: the joiners' vote screen too)
         ok &= [l for l in (outs[0] / 'log.txt').read_text(errors='replace').splitlines() if 'the match starts' in l] ==               [l for l in (outs[1] / 'log.txt').read_text(errors='replace').splitlines() if 'the match starts' in l]
+        for i, d in enumerate(outs):
+            voted = 'voted for' in (d / 'log.txt').read_text(errors='replace')
+            print('machine %d %s' % (i + 1, 'voted' if voted else 'never saw the vote'))
+            ok &= voted
     logs = [battle((d / 'state.txt').read_text().splitlines()) if (d / 'state.txt').exists() else [] for d in outs]
     if a.split:  # (a split screen PC: each machine's final kill cam its own, its views two; the first battle compared, to
         # its final kill cam's start: the VBlank its log line names)

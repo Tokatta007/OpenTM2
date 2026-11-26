@@ -2833,7 +2833,7 @@ static void net_send_settings(void) /* (host) the game as it is now */
     s.teams = net_teams();
     s.match = *battle_match();
     s.type = *battle_match_type();
-    s.pl_on = net_pl.on;
+    s.pl_on = net_pl.on && net_pl.n > 0; /* (an empty playlist: no vote, the joiners not waiting for one) */
     s.vote_round = net_vote_round;
     s.vote_n = net_vote_n;
     s.vote_winner = net_vote_winner;
@@ -17436,7 +17436,10 @@ static int battle_results(int result, int mode)
         image_free(&canvas);
         return 0;
     }
-    if (netplay_in_match() && net_pl.on && net_pl.n > 0 && netplay_lobby() && !lobby_migrated_at(netplay_lobby(), NULL)) { /* a server's playlist: the final scoreboard a while, then the vote, then on */
+    if (netplay_in_match() && net_pl.on && netplay_lobby() && (net_pl.n > 0 || !lobby_is_host(netplay_lobby())) &&
+        !lobby_migrated_at(netplay_lobby(), NULL)) { /* (a joiner: the host's playlist on, its matches the host's alone: the
+                                                     * vote's screen for every player, not the host's only: SuperflyKev's and
+                                                     * Navi's, 2026-11-25) */ /* a server's playlist: the final scoreboard a while, then the vote, then on */
         uint64_t until = SDL_GetTicks() + NET_SCOREBOARD_MS;
         results_no_choices = 1;
         while (SDL_GetTicks() < until) {
