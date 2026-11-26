@@ -2737,9 +2737,34 @@ static void wreck_debug(void)
         was[h] = now;
     }
 }
+/* tests: TM2PC_MINE_DEBUG, each second the mines' clocks (decomp request 127: portBalanceMineAge / Orphan, 60ths of a
+ * second; a mine goes at 900): how many run, the oldest, and how many reached 900 (mines removed) */
+static void mine_debug(void)
+{
+    static int on = -1;
+    static uint32_t age, orphan;
+    static uint64_t next;
+    if (on < 0) on = getenv("TM2PC_MINE_DEBUG") != NULL, age = on ? port_sym("portBalanceMineAge") : 0,
+                orphan = on ? port_sym("portBalanceMineOrphan") : 0;
+    if (!age || !orphan || M.vblanks < next) return;
+    next = M.vblanks + 60;
+    int na = 0, no = 0, ended = 0;
+    int32_t ma = 0, mo = 0;
+    for (int i = 0; i < 96; i++) {
+        int32_t a = (int32_t)mem_r32(&M.cpu, age + 4u * (uint32_t)i), o = (int32_t)mem_r32(&M.cpu, orphan + 4u * (uint32_t)i);
+        na += a > 0 && a < 900, no += o > 0 && o < 900, ended += a >= 900 || o >= 900; /* (a removed mine's clock stays at 900
+                                                                                   * until its record is reused) */
+        if (a > ma) ma = a;
+        if (o > mo) mo = o;
+    }
+    if (na || no || ended)
+        fprintf(stderr, "mines: vblank %llu, laid clocks %d (oldest %d), owner-down clocks %d (oldest %d), removed %d\n",
+                (unsigned long long)M.vblanks, na, ma, no, mo, ended);
+}
 void vp_lives_frame(void)
 {
     wreck_debug();
+    mine_debug();
     cam_watchdog();
     team_locks_frame();
     spectators_frame();
