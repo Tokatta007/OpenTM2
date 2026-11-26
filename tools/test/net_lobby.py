@@ -100,7 +100,7 @@ def main():
     if a.game == 2 and not os.environ.get('NET_KILLS'):  # (Survival: both players out later, so the run ends in time)
         os.environ['NET_KILLS'] = KILLS + ',1@4200,2@4200'
     if a.one:
-        one(a.secs, *a.one)
+        one(a.secs, *(a.one if a.one != ['env', 'env'] else (os.environ['NET_ONE_SCRIPT'], os.environ['NET_ONE_PAD'])))
         return 0
     runs = []
     pads = [P1, P2, '3100:cross+right,3300:-,3500:square,3520:-,3700:cross+left,3900:-']
@@ -133,13 +133,16 @@ def main():
             e['TM2PC_NET_TEST_MIGRATE_START'] = '1'
         # (a late machine: the same kills; which have fired comes with the host's state)
         secs = a.quit_last if a.quit_last and k == a.players - 1 else a.quit_host if a.quit_host and k == 0 else a.secs
-        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(secs), '--one', script, pad], env=e,
+        # (the scripts through the environment: a long run of '-,-,-' on a command line is refused on some PCs, Access is denied)
+        e.update(NET_ONE_SCRIPT=script, NET_ONE_PAD=pad)
+        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(secs), '--one', 'env', 'env'], env=e,
                                      stdout=subprocess.PIPE, text=True))
     if a.rejoin:  # (the dropped player back: another copy, the same name, its Join that much later)
         dev = 'port-dev%d' % (a.players + 1)
         e = dict(os.environ, CB_DEV=str(REPO / 'build' / dev), CB_OUT=str(REPO / 'build' / 'test-net'), NET_NAME='lobby_' + dev,
                  SDL_AUDIO_DRIVER='dummy', SDL_WINDOW_ACTIVATE_WHEN_SHOWN='0', SDL_WINDOW_ACTIVATE_WHEN_RAISED='0')  # (the same kills: which have fired comes with the host's state)
-        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(a.secs), '--one', W(a.rejoin * 5) + ',' + JOIN, pads[0]],
+        e.update(NET_ONE_SCRIPT=W(a.rejoin * 5) + ',' + JOIN, NET_ONE_PAD=pads[0])
+        runs.append(subprocess.Popen([sys.executable, __file__, '--secs', str(a.secs), '--one', 'env', 'env'],
                                      env=e, stdout=subprocess.PIPE, text=True))
     outs = [Path(p.communicate()[0].strip().splitlines()[-1]) for p in runs]
     if a.rejoin:  # (back in: told, and its battle the host's from where it came in)
