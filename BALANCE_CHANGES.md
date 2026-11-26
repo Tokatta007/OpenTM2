@@ -11,7 +11,7 @@ The newest update is at the top.
 
 ### General (V1.0.17)
 
-- **Shots through pickups:** ricochet bombs, missiles and bullets pass through pickups. Before, a ricochet bomb could get trapped bouncing between a pickup and a wall, and missiles and bullets stopped at the Los Angeles and Moscow bonus pickups.
+- **Shots through pickups:** ricochet bombs, missiles, bullets and Dark Tooth's swoop pass through pickups. Before, a ricochet bomb could get trapped bouncing between a pickup and a wall, missiles and bullets stopped at the Los Angeles and Moscow bonus pickups, and Dark Tooth's swoop ended at the first pickup it touched.
 
 ---
 
