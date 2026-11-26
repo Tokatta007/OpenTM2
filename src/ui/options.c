@@ -16196,6 +16196,39 @@ void photo_legend(int show)
 void hudlay_overlay_ui(int on);
 int hudlay_divider_rects(int w, int h, int r[2][4]);
 int vp_watching(int player);
+/* A dark edge around the lit pixels within x0..x1, y0..y1 (not pure black: that is see-through in the overlay's blended
+ * pieces), o pixels wide: words straight on the game, readable over anything */
+static void dark_edge(Image *sb, int x0, int y0, int x1, int y1, int o)
+{
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > sb->w) x1 = sb->w;
+    if (y1 > sb->h) y1 = sb->h;
+    int w = x1 - x0, h = y1 - y0;
+    uint8_t *lit = w > 0 && h > 0 ? calloc((size_t)w * h, 1) : NULL;
+    if (lit) {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                const uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                lit[(size_t)y * w + x] = (q[0] | q[1] | q[2]) != 0;
+            }
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                if (lit[(size_t)y * w + x]) continue;
+                int near = 0;
+                for (int dy = -o; dy <= o && !near; dy++)
+                    for (int dx = -o; dx <= o && !near; dx++) {
+                        int ax = x + dx, ay = y + dy;
+                        near = ax >= 0 && ay >= 0 && ax < w && ay < h && lit[(size_t)ay * w + ax];
+                    }
+                if (near) {
+                    uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                    q[0] = 14, q[1] = 14, q[2] = 16;
+                }
+            }
+        free(lit);
+    }
+}
 static void overlay_with_lines(Image *sb, int *rect, int n) /* our rects, and the split lines */
 {
     static const uint8_t black[3] = {0, 0, 0};
@@ -16548,6 +16581,7 @@ static int pm_frame(Image *sb, int *shown)
     View v = view_fit(sb);
     static const uint8_t panel[3] = {10, 10, 14}, line[3] = {188, 188, 196};
     int rect[4 * 8], nr = 0; /* (the overlay's pieces: the notes, the chat's lines, the talkers, a box or the menu) */
+    int np_blend[4] = {0}, np_blended = 0; /* (the online menu's words: a blended piece) */
     char text[96];
     static const uint8_t mic_on[3] = {120, 220, 120};
     if (pm_open < 0 && talking) { /* who is talking: a note each at the side, under the kill feed (and the vote's) */
@@ -16668,8 +16702,8 @@ static int pm_frame(Image *sb, int *shown)
         nr++;
     } else if (pm_open >= 0 && !pv_on && !tc_on && np_on && gfont_ready(0) && gfont_ready(6)) {
         /* the online menu in the single-player pause's look (the user's 2026-11-26): the game's fonts and colors (compose_pause),
-         * its items 20 apart, on a black box (the overlay can't darken the running game behind it) */
-        static const uint8_t black[3] = {0, 0, 0}, title_c[3] = {115, 84, 35}, item_c[3] = {93, 30, 23},
+         * its items 20 apart; no box and no edge (the user's): the words straight on the game */
+        static const uint8_t title_c[3] = {115, 84, 35}, item_c[3] = {93, 30, 23},
                              chosen_c[3] = {115, 61, 27};
         static const char *const yn[2] = {"YES", "NO"};
         int items = np_sure ? 2 : 5;
@@ -16683,7 +16717,6 @@ static int pm_frame(Image *sb, int *shown)
         if (gw < 200) gw = 200;
         float gx = 160 - gw / 2;
         int rx = (int)(ox + gx * s), ry = (int)(oy + gy0 * s), rw = (int)(gw * s), rh = (int)(gh * s);
-        draw_fill(sb, rx, ry, rw, rh, black, 255);
 #define NP_TEXT(font, text, gy, color) \
     gfont_draw(sb, font, text, ox + (159 - (gfont_width(font, text) >> 1)) * s, oy + (gy) * s, s, color)
         NP_TEXT(tf, title, gy0 + 30, title_c);
@@ -16693,8 +16726,7 @@ static int pm_frame(Image *sb, int *shown)
             NP_TEXT(chosen ? 1 : 0, it, gy0 + 58 + 20 * k, chosen ? chosen_c : item_c);
         }
 #undef NP_TEXT
-        rect[4 * nr] = rx, rect[4 * nr + 1] = ry, rect[4 * nr + 2] = rw, rect[4 * nr + 3] = rh;
-        nr++;
+        np_blend[0] = rx, np_blend[1] = ry, np_blend[2] = rw, np_blend[3] = rh, np_blended = 1; /* (blended: black see-through) */
     } else if (pm_open >= 0 && !pv_on && !tc_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
         int items = np_sure ? 2 : 5;
         float bx = 220, bw = 200, rh = 24, bh = 56 + rh * (float)items, by = 240 - bh / 2;
@@ -16790,6 +16822,7 @@ static int pm_frame(Image *sb, int *shown)
         nr++;
     }
     overlay_with_lines(sb, rect, nr);
+    if (np_blended) Psyz_VideoSetOverlayBlend(np_blend, 1); /* (the online menu: after the overlay, which clears them) */
     static int shot;
     if (getenv("TM2PC_NET_MENU_SHOT") && shot < 4 && key != shown_key) { /* tests: the first few looks, as BMPs */
         char path[512];
@@ -16965,34 +16998,7 @@ static int win_frame(Image *sb, int *shown)
             text_draw(sb, title, tx, text_top_for_center(Y(&v, ty), ts), ts, TITLE);
         }
         int o = S(&v, 2) > 1 ? S(&v, 2) : 1, x0 = tx - o - 2, x1 = tx + tw_px + o + 2, y0 = Y(&v, ty) - ts * 2 - o, y1 = Y(&v, ty) + ts + o;
-        if (x0 < 0) x0 = 0;
-        if (y0 < 0) y0 = 0;
-        if (x1 > sb->w) x1 = sb->w;
-        if (y1 > sb->h) y1 = sb->h;
-        int w = x1 - x0, h = y1 - y0;
-        uint8_t *lit = w > 0 && h > 0 ? calloc((size_t)w * h, 1) : NULL;
-        if (lit) {
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++) {
-                    const uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
-                    lit[(size_t)y * w + x] = (q[0] | q[1] | q[2]) != 0;
-                }
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++) {
-                    if (lit[(size_t)y * w + x]) continue;
-                    int near = 0;
-                    for (int dy = -o; dy <= o && !near; dy++)
-                        for (int dx = -o; dx <= o && !near; dx++) {
-                            int ax = x + dx, ay = y + dy;
-                            near = ax >= 0 && ay >= 0 && ax < w && ay < h && lit[(size_t)ay * w + ax];
-                        }
-                    if (near) {
-                        uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
-                        q[0] = 14, q[1] = 14, q[2] = 16;
-                    }
-                }
-            free(lit);
-        }
+        dark_edge(sb, x0, y0, x1, y1, o);
     }
     plain_text();
     int rect[4] = {X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh)};
