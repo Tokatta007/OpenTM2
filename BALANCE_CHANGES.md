@@ -7,7 +7,7 @@ The newest update is at the top.
 
 ---
 
-## v1.0.17 (November 25, 2026)
+## v1.0.17 (November 26, 2026)
 
 ### General (V1.0.17)
 
