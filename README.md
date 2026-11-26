@@ -1,6 +1,9 @@
 <p align="center">
   <a href="https://youtu.be/QdJrzCkjSc8"><img src="https://img.youtube.com/vi/QdJrzCkjSc8/maxresdefault.jpg" alt="OpenTM2 release trailer" width="640"></a><br>
-  <a href="https://youtu.be/QdJrzCkjSc8">▶ Watch the release trailer</a> · <a href="https://discord.gg/SNBEBt9geQ"><b>💬 Join the Discord</b></a> · <a href="https://opentm2.pages.dev">Website: opentm2.pages.dev</a>
+</p>
+<h3 align="center"><a href="https://discord.gg/SNBEBt9geQ">💬 Join the Discord</a></h3>
+<p align="center">
+  <a href="https://youtu.be/QdJrzCkjSc8">▶ Watch the release trailer</a> · <a href="https://opentm2.pages.dev">Website: opentm2.pages.dev</a>
 </p>
 
 <p align="center"><a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a></p>
