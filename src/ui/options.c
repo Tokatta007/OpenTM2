@@ -731,8 +731,8 @@ static void set_extra_button(int a, int v) { bind_set_extra_button(a, v); change
 
 /* Custom Music: each track's playback (default, random, in order, a song)
  * and, for a song, which one */
-enum { PLAY_DEFAULT, PLAY_RANDOM, PLAY_ORDER, PLAY_FOLDER_RANDOM, PLAY_FOLDER_ORDER, PLAY_SONG, PLAY_OFF };
-static const char *const playback_values[] = {"DEFAULT", "RANDOM", "IN ORDER", "FOLDER RANDOM", "FOLDER IN ORDER", "SONG", "OFF"};
+enum { PLAY_DEFAULT, PLAY_RANDOM, PLAY_ORDER, PLAY_SONG, PLAY_OFF };
+static const char *const playback_values[] = {"DEFAULT", "RANDOM", "IN ORDER", "SONG", "OFF"};
 
 static int music_file_index(int slot)
 {
@@ -747,17 +747,12 @@ static int music_playback(int slot)
     const char *set = music_page_setting(slot);
     if (music_page_has_off(slot) && (!*set || !SDL_strcasecmp(set, "off"))) return PLAY_OFF;
     if (!*set || !SDL_strcasecmp(set, "default")) return PLAY_DEFAULT;
-    const char *dir = music_page_dir(slot); /* (the arena's own folder: random:DIR, order:DIR) */
-    if (dir && !SDL_strncasecmp(set, "random:", 7) && !SDL_strcasecmp(set + 7, dir)) return PLAY_FOLDER_RANDOM;
-    if (dir && !SDL_strncasecmp(set, "order:", 6) && !SDL_strcasecmp(set + 6, dir)) return PLAY_FOLDER_ORDER;
     if (!SDL_strncasecmp(set, "random", 6)) return PLAY_RANDOM;
-    if (!SDL_strncasecmp(set, "order", 5)) return PLAY_ORDER;
+    if (!SDL_strcasecmp(set, "order")) return PLAY_ORDER;
     return PLAY_SONG;
 }
 
 static int get_music_at_end(int a) { (void)a; return music_next_at_end(); }
-static int get_music_original(int a) { (void)a; return music_include_original(); }
-static void set_music_original(int a, int v) { (void)a; music_set_include_original(v); changed |= SAVE_MUSIC; }
 static void set_music_at_end(int a, int v) { (void)a; music_set_next_at_end(v); changed |= SAVE_MUSIC; }
 static void set_music_file(int slot, int i)
 {
@@ -770,8 +765,7 @@ static void set_music_file(int slot, int i)
 /* Square: the next playback (a song: the one chosen before, or the first) */
 static void next_playback(int slot)
 {
-    int now = music_playback(slot), t = now == PLAY_OFF ? PLAY_DEFAULT : (now + 1) % (PLAY_SONG + 1);
-    if ((t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER) && !music_page_dir(slot)) t = PLAY_SONG; /* (an arena's row only) */
+    int now = music_playback(slot), t = now == PLAY_OFF ? PLAY_DEFAULT : (now + 1) % 4;
     if (t == PLAY_SONG && music_file_total <= 0) t = PLAY_DEFAULT;
     if (music_page_has_off(slot) && now != PLAY_OFF && t == PLAY_DEFAULT) { /* the showdown: back to Off */
         music_page_set(slot, "off");
@@ -787,11 +781,6 @@ static void next_playback(int slot)
         for (int k = 0; k < music_file_total; k++)
             if (!SDL_strcasecmp(last[slot], music_files[k])) i = k;
         set_music_file(slot, i);
-    } else if (t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER) { /* its own folder (music/<arena>) */
-        char set[300];
-        snprintf(set, sizeof set, "%s:%s", t == PLAY_FOLDER_RANDOM ? "random" : "order", music_page_dir(slot));
-        music_page_set(slot, set);
-        changed |= SAVE_MUSIC;
     } else {
         music_page_set(slot, keys[t]);
         changed |= SAVE_MUSIC;
@@ -5052,9 +5041,6 @@ static void build(PageId page)
         static const char *const at_end_values[2] = {"REPEAT", "NEXT SONG"};
         add_choice("When a song ends", "For tracks set to Random or In order: the next song plays (Random: another at random), "
                    "or the same song starts over.", get_music_at_end, set_music_at_end, 0, at_end_values, 2)->small = 1;
-        add_choice("Include the arena's song", "On: an arena's own song is one of the songs its Random, In order or folder "
-                   "plays. Each arena has a folder in the music folder for its own songs (Folder Random, Folder In Order).",
-                   get_music_original, set_music_original, 0, onoff_values, 2)->small = 1;
         Row *h = add(ROW_HEADER, "Tracks", NULL);
         h->col1 = "PLAYBACK";
         h->col2 = "SONG";
@@ -8151,11 +8137,10 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                     int t = music_playback(r->arg);
                     const char *type = playback_values[t];
                     text_draw(c, type, X(&v, MUSIC_PLAY_X) - text_width(type, size) / 2, ty, size, ORANGE);
-                    if (t == PLAY_SONG || t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER ||
-                        !SDL_strncasecmp(music_page_setting(r->arg), "random:", 7)) { /* (the song, or the folder) */
+                    if (t == PLAY_SONG || !SDL_strncasecmp(music_page_setting(r->arg), "random:", 7)) {
                         char song[160], up[256];
                         const char *set = music_page_setting(r->arg);
-                        shorten(up, sizeof up, t == PLAY_SONG ? set : strchr(set, ':') + 1, t == PLAY_SONG);
+                        shorten(up, sizeof up, t == PLAY_SONG ? set : set + 7, t == PLAY_SONG);
                         int sx = X(&v, MUSIC_SONG_X);
                         fit_text(song, sizeof song, up, c->w - S(&v, MUSIC_SONG_MARGIN) - sx, size);
                         text_draw(c, song, sx, ty, size, ORANGE);
@@ -16517,8 +16502,7 @@ static int pm_frame(Image *sb, int *shown)
     memset(sb->px, 0, (size_t)sb->w * sb->h * 3);
     View v = view_fit(sb);
     static const uint8_t panel[3] = {10, 10, 14}, line[3] = {188, 188, 196};
-    int rect[4 * 8], nr = 0; /* (the overlay's pieces: the notes, the talkers, a box or the menu) */
-    int tc_rect[4 * TC_SHOWN], tc_rn = 0; /* (the chat's lines: blended, their strips half see-through) */
+    int rect[4 * 8], nr = 0; /* (the overlay's pieces: the notes, the chat's lines, the talkers, a box or the menu) */
     char text[96];
     static const uint8_t mic_on[3] = {120, 220, 120};
     if (pm_open < 0 && talking) { /* who is talking: a note each at the side, under the kill feed (and the vote's) */
@@ -16577,35 +16561,13 @@ static int pm_frame(Image *sb, int *shown)
             snprintf(nm, sizeof nm, "%s: ", tc_line[i].name);
             while (ls > S(&v, 7) && text_width(nm, ls) + text_width(tc_line[i].text, ls) > S(&v, 300)) ls--;
             int w = text_width(nm, ls) + text_width(tc_line[i].text, ls), x = X(&v, right) - w, cy = Y(&v, by + 9 + 18 * k);
-            { /* its strip half see-through: every other pixel pure black (see-through where blended), the user's 2026-11-25 */
-                int sx = x - S(&v, 6), sy = Y(&v, by + 18 * k), sw = w + S(&v, 12), sh = S(&v, 17);
-                if (sx < 0) sw += sx, sx = 0;
-                if (sx + sw > sb->w) sw = sb->w - sx;
-                for (int yy = sy; yy < sy + sh && yy < sb->h; yy++)
-                    for (int xx = sx; xx < sx + sw; xx++) {
-                        uint8_t *px = sb->px + ((size_t)yy * sb->w + xx) * 3;
-                        if ((xx + yy) & 1) px[0] = 12, px[1] = 12, px[2] = 16;
-                        else px[0] = px[1] = px[2] = 0;
-                    }
-                tc_rect[4 * tc_rn] = sx, tc_rect[4 * tc_rn + 1] = sy, tc_rect[4 * tc_rn + 2] = sw, tc_rect[4 * tc_rn + 3] = sh;
-                tc_rn++;
-            }
+            draw_fill(sb, x - S(&v, 6), Y(&v, by + 18 * k), w + S(&v, 12), S(&v, 17), panel, 255);
             TextColor nc = WHITE;
             memcpy(nc.top, tc_line[i].col, 3), memcpy(nc.bottom, tc_line[i].col, 3);
-            { /* (a shadow of its own, near-black: the text's own pure black one see-through in the strip) */
-                TextColor dark = WHITE;
-                static const uint8_t d3[3] = {6, 6, 6};
-                memcpy(dark.top, d3, 3), memcpy(dark.bottom, d3, 3);
-                int o1 = S(&v, 1) > 1 ? S(&v, 1) : 1;
-                for (int dx = -o1; dx <= o1; dx += o1)
-                    for (int dy = -o1; dy <= o1; dy += o1) {
-                        if (!dx && !dy) continue;
-                        text_draw(sb, nm, x + dx, text_top_for_center(cy, ls) + dy, ls, dark);
-                        text_draw(sb, tc_line[i].text, x + text_width(nm, ls) + dx, text_top_for_center(cy, ls) + dy, ls, dark);
-                    }
-            }
             text_draw(sb, nm, x, text_top_for_center(cy, ls), ls, nc);
             text_draw(sb, tc_line[i].text, x + text_width(nm, ls), text_top_for_center(cy, ls), ls, WHITE);
+            rect[4 * nr] = x - S(&v, 6), rect[4 * nr + 1] = Y(&v, by + 18 * k), rect[4 * nr + 2] = w + S(&v, 12), rect[4 * nr + 3] = S(&v, 17);
+            nr++; /* (each line its own piece: its strip only, the game round it) */
             k++;
         }
     }
@@ -16754,7 +16716,6 @@ static int pm_frame(Image *sb, int *shown)
         nr++;
     }
     overlay_with_lines(sb, rect, nr);
-    Psyz_VideoSetOverlayBlend(tc_rn ? tc_rect : NULL, tc_rn); /* (the chat's lines blended; none: none) */
     static int shot;
     if (getenv("TM2PC_NET_MENU_SHOT") && shot < 4 && key != shown_key) { /* tests: the first few looks, as BMPs */
         char path[512];
