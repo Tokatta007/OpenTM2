@@ -16805,6 +16805,17 @@ static int pm_frame(Image *sb, int *shown)
             k++;
         }
     }
+    /* split screen (the user's 2026-11-26): the menu, the chat's keyboard, and the vote's box in their player's own view
+     * only (the others play on); the page's scale and place for that view (v restored after them) */
+    View v_all = v;
+    int vr[4] = {0, 0, sb->w, sb->h};
+    int hudlay_view_rect(int view, int w, int h, int r[4]); /* vplus/hud_layout.c */
+    int split = pm_open >= 0 && hudlay_view_rect(pm_open, sb->w, sb->h, vr);
+    if (split) {
+        v.s = vr[2] / 640.0f < vr[3] / 480.0f ? vr[2] / 640.0f : vr[3] / 480.0f;
+        v.ox = vr[0] + (vr[2] - (int)(640 * v.s + 0.5f)) / 2;
+        v.oy = vr[1] + (vr[3] - (int)(480 * v.s + 0.5f)) / 2;
+    }
     if (tc_on && pm_open >= 0) { /* the chat's keyboard: over the game's lower middle */
         float bx = 150, bw = 340, by = 196, bh = 206;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
@@ -16862,9 +16873,9 @@ static int pm_frame(Image *sb, int *shown)
                              chosen_c[3] = {115, 61, 27};
         static const char *const yn[2] = {"YES", "NO"};
         int items = np_sure ? 2 : 5;
-        float s = sb->h / 240.0f;
-        if (sb->w / 320.0f < s) s = sb->w / 320.0f;
-        float ox = (sb->w - 320 * s) / 2, oy = (sb->h - 240 * s) / 2;
+        float s = vr[3] / 240.0f; /* (the player's view: the whole window, or theirs in a split screen) */
+        if (vr[2] / 320.0f < s) s = vr[2] / 320.0f;
+        float ox = vr[0] + (vr[2] - 320 * s) / 2, oy = vr[1] + (vr[3] - 240 * s) / 2;
         const char *title = np_sure ? "QUIT THE MATCH?" : "BATTLE PAUSED"; /* (the single-player pause's title, the user's) */
         int tf = gfont_width(6, title) > 312 ? 0 : 6; /* (as compose_pause: a long title in the items' font) */
         /* (the game's 320x240, as compose_pause: the title's baseline at 60, the items' from 140, 20 apart) */
@@ -16877,7 +16888,7 @@ static int pm_frame(Image *sb, int *shown)
             NP_TEXT(chosen ? 1 : 0, it, 140 + 20 * k, chosen ? chosen_c : item_c);
         }
 #undef NP_TEXT
-        np_blend[0] = 0, np_blend[1] = 0, np_blend[2] = sb->w, np_blend[3] = sb->h, np_blended = 1; /* (the whole screen
+        np_blend[0] = vr[0], np_blend[1] = vr[1], np_blend[2] = vr[2], np_blend[3] = vr[3], np_blended = 1; /* (the view
                                     * darkened by half behind the words, as the single-player pause's: the user's) */
     } else if (pm_open >= 0 && !pv_on && !tc_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
         int items = np_sure ? 2 : 5;
@@ -16973,6 +16984,7 @@ static int pm_frame(Image *sb, int *shown)
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
     }
+    v = v_all;
     overlay_with_lines(sb, rect, nr);
     if (np_blended) Psyz_VideoSetOverlayDim(np_blend, 1); /* (the online menu: after the overlay, which clears them; the
                                                            * other pieces' own pixels stay as they are) */

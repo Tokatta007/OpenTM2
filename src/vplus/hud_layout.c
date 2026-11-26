@@ -743,6 +743,25 @@ int hudlay_divider_rects(int w, int h, int r[2][4]) /* the lines for a w x h ove
     if (kind == 3) { r[n][0] = vx; r[n][1] = h / 2; r[n][2] = t; r[n][3] = h - h / 2; n++; }
     return n;
 }
+/* A split screen's view v (0..: this PC's players in order) in a w x h window: r = x, y, w, h. 0: one view (the whole
+ * window). From the dividers drawn this frame: 1 side by side, 2 top and bottom, 3-5 three or four views (four.c) */
+int hudlay_view_rect(int view, int w, int h, int r[4])
+{
+    if (div_kind <= 0 || M.vblanks > div_seen + 6 || view < 0) return 0;
+    if (div_kind == 1 || div_kind == 2) {
+        if (view > 1) return 0;
+        int side = div_kind == 1;
+        r[0] = side && view ? w / 2 : 0, r[1] = !side && view ? h / 2 : 0;
+        r[2] = side ? (view ? w - w / 2 : w / 2) : w, r[3] = side ? h : (view ? h - h / 2 : h / 2);
+        return 1;
+    }
+    int four_view_box(int p, float *x, float *y, float *w, float *h); /* four.c: in the screen's 640 x 480 */
+    float x, y, vw, vh;
+    if (!four_view_box(view, &x, &y, &vw, &vh)) return 0;
+    r[0] = (int)(x * w / 640), r[1] = (int)(y * h / 480);
+    r[2] = (int)((x + vw) * w / 640) - r[0], r[3] = (int)((y + vh) * h / 480) - r[1];
+    return 1;
+}
 static unsigned char *div_px;
 void hudlay_dividers(int kind)
 {
