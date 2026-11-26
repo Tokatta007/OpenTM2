@@ -16724,7 +16724,7 @@ static int pm_frame(Image *sb, int *shown)
         nr++;
     } else if (pm_open >= 0 && !pv_on && !tc_on && np_on && gfont_ready(0) && gfont_ready(6)) {
         /* the online menu in the single-player pause's look (the user's 2026-11-26): the game's fonts and colors (compose_pause),
-         * its items 20 apart; no box and no edge (the user's): the words straight on the game */
+         * its items 20 apart; no box and no edge (the user's): the words straight on the game, darkened by half */
         static const uint8_t title_c[3] = {115, 84, 35}, item_c[3] = {93, 30, 23},
                              chosen_c[3] = {115, 61, 27};
         static const char *const yn[2] = {"YES", "NO"};
@@ -16735,7 +16735,6 @@ static int pm_frame(Image *sb, int *shown)
         const char *title = np_sure ? "QUIT THE MATCH?" : "BATTLE PAUSED"; /* (the single-player pause's title, the user's) */
         int tf = gfont_width(6, title) > 312 ? 0 : 6; /* (as compose_pause: a long title in the items' font) */
         /* (the game's 320x240, as compose_pause: the title's baseline at 60, the items' from 140, 20 apart) */
-        int rx = (int)ox, ry = (int)(oy + 30 * s), rw = (int)(320 * s), rh = (int)(205 * s);
 #define NP_TEXT(font, text, gy, color) \
     gfont_draw(sb, font, text, ox + (159 - (gfont_width(font, text) >> 1)) * s, oy + (gy) * s, s, color)
         NP_TEXT(tf, title, 60, title_c);
@@ -16745,7 +16744,8 @@ static int pm_frame(Image *sb, int *shown)
             NP_TEXT(chosen ? 1 : 0, it, 140 + 20 * k, chosen ? chosen_c : item_c);
         }
 #undef NP_TEXT
-        np_blend[0] = rx, np_blend[1] = ry, np_blend[2] = rw, np_blend[3] = rh, np_blended = 1; /* (blended: black see-through) */
+        np_blend[0] = 0, np_blend[1] = 0, np_blend[2] = sb->w, np_blend[3] = sb->h, np_blended = 1; /* (the whole screen
+                                    * darkened by half behind the words, as the single-player pause's: the user's) */
     } else if (pm_open >= 0 && !pv_on && !tc_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
         int items = np_sure ? 2 : 5;
         float bx = 220, bw = 200, rh = 24, bh = 56 + rh * (float)items, by = 240 - bh / 2;
@@ -16841,7 +16841,8 @@ static int pm_frame(Image *sb, int *shown)
         nr++;
     }
     overlay_with_lines(sb, rect, nr);
-    if (np_blended) Psyz_VideoSetOverlayBlend(np_blend, 1); /* (the online menu: after the overlay, which clears them) */
+    if (np_blended) Psyz_VideoSetOverlayDim(np_blend, 1); /* (the online menu: after the overlay, which clears them; the
+                                                           * other pieces' own pixels stay as they are) */
     static int shot;
     if (getenv("TM2PC_NET_MENU_SHOT") && shot < 4 && key != shown_key) { /* tests: the first few looks, as BMPs */
         char path[512];
