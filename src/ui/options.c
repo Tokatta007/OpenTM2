@@ -16154,8 +16154,8 @@ int vp_watching(int player);
 static void overlay_with_lines(Image *sb, int *rect, int n) /* our rects, and the split lines */
 {
     static const uint8_t black[3] = {0, 0, 0};
-    int all[8][4], k = 0, lines[2][4];
-    for (int i = 0; i < n && k < 6; i++) memcpy(all[k++], rect + 4 * i, sizeof all[0]);
+    int all[12][4], k = 0, lines[2][4];
+    for (int i = 0; i < n && k < 10; i++) memcpy(all[k++], rect + 4 * i, sizeof all[0]);
     int nl = hudlay_divider_rects(sb->w, sb->h, lines);
     for (int i = 0; i < nl; i++) { draw_fill(sb, lines[i][0], lines[i][1], lines[i][2], lines[i][3], black, 255); memcpy(all[k++], lines[i], sizeof all[0]); }
     hudlay_overlay_ui(1);
@@ -16179,7 +16179,49 @@ static int pv_on, pv_kind, pv_sel;    /* the box shown; 1 the vote to go back to
 /* Start opens the pause menu's items over the running game (the user's 2026-11-07: as local play's, Photo Mode as
  * PLAYERS, and the game never stops): RESUME, OPTIONS (the pages beside the match, mf_open), PLAYERS (the list below:
  * O back to these), QUIT (sure? then this machine leaves the match: a computer driver takes the car) */
-static const char *const np_items[4] = {"RESUME", "OPTIONS", "PLAYERS", "QUIT"};
+static const char *const np_items[5] = {"RESUME", "OPTIONS", "PLAYERS", "TEXT CHAT", "QUIT"};
+/* TEXT CHAT (the user's 2026-11-25): the keyboard over the game (this player's car held meanwhile, as in the menu),
+ * Start sends: the lobby's chat (one chat in the lobby and the match), the lines under the kill feed a while */
+static int tc_on;                     /* this PC's player typing (pm_open's) */
+enum { TC_SHOWN = 3, TC_MS = 8000 };
+static struct { char name[24], text[48]; uint8_t col[3]; uint32_t at; } tc_line[TC_SHOWN]; /* (the newest last) */
+static int tc_next = -1;              /* the next lobby chat line to show (-1: from the match's start on) */
+static const char *pm_node_name(int node); /* (below) */
+static void tc_poll(void) /* the chat's new lines: under the kill feed a while */
+{
+    Lobby *l = netplay_lobby();
+    if (!l) return;
+    int speaker;
+    const char *text;
+    if (tc_next < 0) { /* (the lines said before the match: not again) */
+        tc_next = lobby_chat_first(l);
+        while (lobby_chat_lines(l, tc_next, NULL, NULL)) tc_next++;
+        return;
+    }
+    if (tc_next < lobby_chat_first(l)) tc_next = lobby_chat_first(l);
+    while (lobby_chat_lines(l, tc_next, &speaker, &text)) {
+        tc_next++;
+        memmove(&tc_line[0], &tc_line[1], sizeof tc_line[0] * (TC_SHOWN - 1));
+        snprintf(tc_line[TC_SHOWN - 1].name, sizeof tc_line[0].name, "%s", pm_node_name(speaker));
+        snprintf(tc_line[TC_SHOWN - 1].text, sizeof tc_line[0].text, "%s", text);
+        upper(tc_line[TC_SHOWN - 1].name);
+        /* the name's color: its team's (team games), else its player's own (a color each, by the match's player number) */
+        static const uint8_t own[8][3] = {{250, 186, 52}, {120, 200, 230}, {200, 140, 235}, {150, 220, 120},
+                                          {245, 120, 170}, {80, 210, 190}, {235, 105, 85}, {120, 140, 250}};
+        const LobbyView *v = lobby_view(l);
+        int h = speaker >= 0 && speaker < SES_MAX_NODES && v->start.first[speaker] != 0xFF ? v->start.first[speaker] : speaker;
+        int team = h >= 0 && net_teams() ? vp_team_of_human(h) : -1;
+        memcpy(tc_line[TC_SHOWN - 1].col, team >= 0 && team < BATTLE_TEAM_COLORS ? TEAM_COLOR[team] : own[(h < 0 ? 0 : h) % 8], 3);
+        tc_line[TC_SHOWN - 1].at = SDL_GetTicks() ? (uint32_t)SDL_GetTicks() : 1;
+        fprintf(stderr, "text chat: %s: %s\n", tc_line[TC_SHOWN - 1].name, text);
+    }
+}
+static int tc_count(void) /* the lines shown now */
+{
+    int n = 0;
+    for (int i = 0; i < TC_SHOWN; i++) n += tc_line[i].at && (uint32_t)SDL_GetTicks() - tc_line[i].at < TC_MS;
+    return n;
+}
 static int np_on, np_sel, np_sure, np_sure_sel; /* the menu shown (else the Players list), its row; QUIT's question */
 static int net_quit_asked;            /* QUIT chosen: the battle quits at the next step (net/game_tm2.c, ui_net_quit_take) */
 static int net_quit_leaving;          /* (then) the menus leave the server for the title (ui_ScrollText) */
@@ -16259,6 +16301,23 @@ static void pm_input(void)
             continue;
         }
         if (p != pm_open) continue;
+        if (tc_on) { /* typing: Start sends, O erases (and backs out once empty) */
+            naming_pad = p;
+            int done = naming_input(0);
+            naming_pad = -1;
+            if (done) {
+                if (done == 1 && naming.text[0] && l) {
+                    lobby_chat(l, naming.text);
+                    fprintf(stderr, "text chat: sent \"%s\"\n", naming.text);
+                }
+                naming.active = 0;
+                tc_on = 0;
+                pm_open = -1;
+                menu_sound(done == 1 ? 1 : 0);
+            }
+            pm_prev[p] = 0xFFFF; /* (the press that closed it not seen again) */
+            continue;
+        }
         if (pv_on) { /* the vote's box: YES / NO, X answers, O / Select / Start close it */
             if ((pv_kind == 1 && !b_ask) || (pv_kind == 2 && !vote)) { pm_open = -1; pv_on = 0; continue; } /* (over, or answered) */
             if (pressed & (B_LEFT | B_RIGHT | B_UP | B_DOWN)) { pv_sel = !pv_sel; menu_sound(0); }
@@ -16288,8 +16347,8 @@ static void pm_input(void)
                 }
                 continue;
             }
-            if (pressed & B_UP) { np_sel = (np_sel + 3) % 4; menu_sound(0); }
-            if (pressed & B_DOWN) { np_sel = (np_sel + 1) % 4; menu_sound(0); }
+            if (pressed & B_UP) { np_sel = (np_sel + 4) % 5; menu_sound(0); }
+            if (pressed & B_DOWN) { np_sel = (np_sel + 1) % 5; menu_sound(0); }
             if (pressed & B_CIRCLE) { pm_open = -1; np_on = 0; menu_sound(0); continue; }
             if (pressed & B_CROSS) {
                 menu_sound(1);
@@ -16297,7 +16356,13 @@ static void pm_input(void)
                 else if (np_sel == 1) { /* the pages beside the match (their own picture over it) */
                     if (mf_open(p)) { pm_open = -1; np_on = 0; }
                 } else if (np_sel == 2) { np_on = 0; pm_sel = 0; pm_sub = -1; }
-                else { np_sure = 1; np_sure_sel = 1; }
+                else if (np_sel == 3) { /* the chat's keyboard */
+                    name_start(0);
+                    naming.max = 40;
+                    tc_on = 1;
+                    np_on = 0;
+                    fprintf(stderr, "text chat: open\n");
+                } else { np_sure = 1; np_sure_sel = 1; }
             }
             continue;
         }
@@ -16366,9 +16431,13 @@ static int pm_frame(Image *sb, int *shown)
     }
     if (!netplay_in_match() || !feats_in_battle() || killcam_replaying) {
         pm_open = -1;
+        if (tc_on) { naming.active = 0; tc_on = 0; }
+        if (!netplay_in_match()) { tc_next = -1; memset(tc_line, 0, sizeof tc_line); }
         return 0;
     }
     pm_input();
+    tc_poll();
+    int tc_n = tc_count();
     static const char *kick_at; /* tests: TM2PC_NET_TEST_KICKVOTE_AT, the host starts a vote to kick the last machine then */
     static int kick_read;
     if (!kick_read) { kick_read = 1; kick_at = getenv("TM2PC_NET_TEST_KICKVOTE_AT"); }
@@ -16383,6 +16452,23 @@ static int pm_frame(Image *sb, int *shown)
     static const char *back_at; /* tests: TM2PC_NET_TEST_BACKVOTE_AT=V, this machine calls (or votes yes on) the vote then */
     static int back_read;
     if (!back_read) { back_read = 1; back_at = getenv("TM2PC_NET_TEST_BACKVOTE_AT"); }
+    { /* tests: TM2PC_NET_TEST_CHAT_AT=V:text, this machine says it then; TM2PC_NET_TEST_TYPING_AT=V:text, the chat's keyboard
+       * open then with that typed (its look) */
+        static const char *say, *typing;
+        static int read;
+        if (!read) { read = 1; say = getenv("TM2PC_NET_TEST_CHAT_AT"); typing = getenv("TM2PC_NET_TEST_TYPING_AT"); }
+        if (say && M.vblanks >= strtoull(say, NULL, 10) && netplay_lobby() && strchr(say, ':')) {
+            lobby_chat(netplay_lobby(), strchr(say, ':') + 1);
+            say = NULL;
+        }
+        if (typing && M.vblanks >= strtoull(typing, NULL, 10) && strchr(typing, ':') && pm_open < 0) {
+            name_start(0);
+            naming.max = 40;
+            snprintf(naming.text, sizeof naming.text, "%s", strchr(typing, ':') + 1);
+            tc_on = 1, pm_open = 0, np_on = 0;
+            typing = NULL;
+        }
+    }
     if (back_at && M.vblanks >= strtoull(back_at, NULL, 10) && netplay_lobby() && (b_state != LOBBY_BACK_RUNNING || b_ask)) {
         int no = strchr(back_at, 'n') != NULL; /* (V followed by n: a no) */
         back_at = NULL;
@@ -16394,7 +16480,7 @@ static int pm_frame(Image *sb, int *shown)
     if (netplay_lobby()) lobby_back_counts(netplay_lobby(), &b_total, &b_secs);
     unsigned talking = 0; /* (the machines talking now, this PC's too) */
     for (int k = 0; k < SES_MAX_NODES && netplay_lobby(); k++) if (voice_io_talking(netplay_lobby(), k)) talking |= 1u << k;
-    if (pm_open < 0 && !vote && !bnote && !talking) return 0;
+    if (pm_open < 0 && !vote && !bnote && !talking && !tc_n) return 0;
     int8_t node_of[16];
     int n = pm_humans(node_of);
     Lobby *l = netplay_lobby();
@@ -16406,6 +16492,9 @@ static int pm_frame(Image *sb, int *shown)
     PM_MIX(np_on); PM_MIX(np_sel); PM_MIX(np_sure); PM_MIX(np_sure_sel);
     PM_MIX(b_state); PM_MIX(b_caller); PM_MIX(b_yes); PM_MIX(b_no); PM_MIX(b_needed); PM_MIX(b_ask);
     PM_MIX(b_total); PM_MIX(b_secs); PM_MIX(pv_on); PM_MIX(pv_kind); PM_MIX(pv_sel);
+    PM_MIX(tc_on); PM_MIX(tc_n); PM_MIX(naming.row); PM_MIX(naming.col); PM_MIX(naming.caps);
+    for (const char *q = naming.text; tc_on && *q; q++) PM_MIX(*q);
+    for (int i = 0; i < TC_SHOWN; i++) PM_MIX(tc_line[i].at);
 #undef PM_MIX
     static uint32_t shown_key;
     if (*shown == 2 && key == shown_key) return 1;
@@ -16413,11 +16502,11 @@ static int pm_frame(Image *sb, int *shown)
     memset(sb->px, 0, (size_t)sb->w * sb->h * 3);
     View v = view_fit(sb);
     static const uint8_t panel[3] = {10, 10, 14}, line[3] = {188, 188, 196};
-    int rect[8], nr = 0;
+    int rect[4 * 8], nr = 0; /* (the overlay's pieces: the notes, the chat's lines, the talkers, a box or the menu) */
     char text[96];
     static const uint8_t mic_on[3] = {120, 220, 120};
     if (pm_open < 0 && talking) { /* who is talking: a note each at the side, under the kill feed (and the vote's) */
-        float bx = 470, by = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0), bw = 160, bh = 18;
+        float bx = 470, by = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0) + 18 * tc_n, bw = 160, bh = 18;
         for (int k = 0; k < SES_MAX_NODES && nr < 2; k++) {
             if (!((talking >> k) & 1)) continue;
             draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
@@ -16430,7 +16519,7 @@ static int pm_frame(Image *sb, int *shown)
         }
         int talkers = 0; /* (their notes: one overlay piece, from the first to the last) */
         for (int k = 0; k < SES_MAX_NODES; k++) talkers += (talking >> k) & 1;
-        float top = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0);
+        float top = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0) + 18 * tc_n;
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, top), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, (bh + 3) * talkers);
         nr++;
     }
@@ -16459,6 +16548,41 @@ static int pm_frame(Image *sb, int *shown)
             snprintf(text, sizeof text, "(%d/%d)", b_state == LOBBY_BACK_PASSED ? b_yes : b_total - b_yes, b_total);
             text_draw(sb, text, X(&v, cx) - text_width(text, ls) / 2, text_top_for_center(Y(&v, by + 43), ls), ls, WHITE);
         }
+        rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
+        nr++;
+    }
+    if (tc_n) { /* the chat's lines: under the kill feed (and the votes' notes), "NAME: text", the newest last */
+        float by = 122 + (vote ? 52 : 0) + (bnote ? 64 : 0), right = 630;
+        int k = 0;
+        for (int i = 0; i < TC_SHOWN; i++) {
+            if (!tc_line[i].at || (uint32_t)SDL_GetTicks() - tc_line[i].at >= TC_MS) continue;
+            int ls = S(&v, 10);
+            char nm[32];
+            snprintf(nm, sizeof nm, "%s: ", tc_line[i].name);
+            while (ls > S(&v, 7) && text_width(nm, ls) + text_width(tc_line[i].text, ls) > S(&v, 300)) ls--;
+            int w = text_width(nm, ls) + text_width(tc_line[i].text, ls), x = X(&v, right) - w, cy = Y(&v, by + 9 + 18 * k);
+            draw_fill(sb, x - S(&v, 6), Y(&v, by + 18 * k), w + S(&v, 12), S(&v, 17), panel, 255);
+            TextColor nc = WHITE;
+            memcpy(nc.top, tc_line[i].col, 3), memcpy(nc.bottom, tc_line[i].col, 3);
+            text_draw(sb, nm, x, text_top_for_center(cy, ls), ls, nc);
+            text_draw(sb, tc_line[i].text, x + text_width(nm, ls), text_top_for_center(cy, ls), ls, WHITE);
+            rect[4 * nr] = x - S(&v, 6), rect[4 * nr + 1] = Y(&v, by + 18 * k), rect[4 * nr + 2] = w + S(&v, 12), rect[4 * nr + 3] = S(&v, 17);
+            nr++; /* (each line its own piece: its strip only, the game round it) */
+            k++;
+        }
+    }
+    if (tc_on && pm_open >= 0) { /* the chat's keyboard: over the game's lower middle */
+        float bx = 150, bw = 340, by = 196, bh = 206;
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
+        lettering();
+        int ts = S(&v, 14);
+        text_draw(sb, "TEXT CHAT", X(&v, 320) - text_width("TEXT CHAT", ts) / 2, text_top_for_center(Y(&v, by + 14), ts), ts, TITLE);
+        plain_text();
+        draw_naming_at(&v, (int)bx + 15, (int)by + 28, (int)by + 66, 31, 24, 13, 0);
+        int ls = S(&v, 9);
+        const char *legend = "START: SEND    O: ERASE / BACK";
+        text_draw(sb, legend, X(&v, 320) - text_width(legend, ls) / 2, text_top_for_center(Y(&v, by + bh - 10), ls), ls, PALE);
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
     }
@@ -16497,8 +16621,8 @@ static int pm_frame(Image *sb, int *shown)
         text_draw(sb, "SELECT: VOTE", X(&v, bx + 8), text_top_for_center(Y(&v, by + 33), ls), ls, WHITE); /* (Select: the vote's box) */
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
-    } else if (pm_open >= 0 && !pv_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
-        int items = np_sure ? 2 : 4;
+    } else if (pm_open >= 0 && !pv_on && !tc_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
+        int items = np_sure ? 2 : 5;
         float bx = 220, bw = 200, rh = 24, bh = 56 + rh * (float)items, by = 240 - bh / 2;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
@@ -16516,7 +16640,7 @@ static int pm_frame(Image *sb, int *shown)
         plain_text();
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
-    } else if (pm_open >= 0 && !pv_on) { /* the Players list */
+    } else if (pm_open >= 0 && !pv_on && !tc_on) { /* the Players list */
         int rows = n + (vote ? 1 : 0) + (b_ask ? 1 : 0) + 1;
         float bx = 110, bw = 420, rh = 22, bh = 52 + rh * (float)rows + (pm_sub >= 0 ? 0 : 0), by = 240 - bh / 2;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
