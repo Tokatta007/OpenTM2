@@ -86,6 +86,7 @@ void lobby_back_vote(Lobby *l, int yes);   /* this machine's: none running, a ye
 /* the vote's state (LOBBY_BACK_*); its caller (node), yes and no (machines), needed; *mine: this machine has voted */
 int lobby_back_progress(const Lobby *l, int *caller, int *yes, int *no, int *needed, int *mine);
 void lobby_back_clear(Lobby *l);           /* (back in the lobby) none */
+int lobby_back_counts(const Lobby *l, int *total, int *secs); /* the machines that may vote; its seconds left */
 /* this machine's players: spectators (watching every match, never playing) or players; and as it is now */
 void lobby_set_spectate(Lobby *l, int on);
 void lobby_set_spectate_player(Lobby *l, int i, int on); /* one of this machine's players (split screen) */

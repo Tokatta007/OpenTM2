@@ -26,6 +26,7 @@ enum { PLAYER_BYTES = LOBBY_NAME + 5 + 128 + 8 + 1 + 2 };
 struct Lobby {
     struct { /* the vote to go back to the lobby (a match on): the host's tally, every machine's copy (lobby_back_progress) */
         uint8_t round, caller, yes, no, needed, state; /* state: LOBBY_BACK_* */
+        uint8_t total, secs;                    /* the machines that may vote; the seconds left (the host's, sent) */
         uint8_t vote[SES_MAX_NODES];            /* (host) each machine's: 0 none, 1 yes, 2 no */
         uint32_t at, ended;                     /* (host) its start; its end (the result shown a while) */
         uint8_t mine_round;                     /* (each machine) the round this machine voted in */
@@ -294,10 +295,11 @@ static void send_info(Lobby *l) /* (a machine) its players, once in */
  * Any machine calls it (its players' vote: yes); every other machine yes or no; more than half the match's machines
  * yes: passed (the host's game ends the match at one step on every machine: net/game_tm2.c); half or more no, or 30 s:
  * failed. The result shown a few seconds, then none. One vote a machine (as the kick vote's). */
-enum { BACK_SECS = 30, BACK_SHOWN_MS = 4000 };
+enum { BACK_SECS = 30, BACK_SHOWN_MS = 3000 };
 static void back_send(Lobby *l)
 {
-    uint8_t m[7] = {L_BACK_STATE, l->back.round, l->back.caller, l->back.yes, l->back.no, l->back.needed, l->back.state};
+    uint8_t m[9] = {L_BACK_STATE, l->back.round, l->back.caller, l->back.yes, l->back.no, l->back.needed, l->back.state,
+                    l->back.total, l->back.secs};
     for (int n = 0; n < SES_MAX_NODES; n++)
         if (n != l->node && l->view.m[n].present) ses_app_send(l->ses, n, m, (int)sizeof m);
 }
@@ -309,7 +311,9 @@ static void back_tally(Lobby *l)
         total++;
         yes += l->back.vote[n] == 1, no += l->back.vote[n] == 2;
     }
-    l->back.yes = (uint8_t)yes, l->back.no = (uint8_t)no, l->back.needed = (uint8_t)(total / 2 + 1);
+    l->back.yes = (uint8_t)yes, l->back.no = (uint8_t)no, l->back.needed = (uint8_t)(total / 2 + 1), l->back.total = (uint8_t)total;
+    uint32_t gone = l->now - l->back.at;
+    l->back.secs = (uint8_t)(gone >= BACK_SECS * 1000u ? 0 : (BACK_SECS * 1000u - gone + 999) / 1000);
     if (l->back.state == LOBBY_BACK_RUNNING) {
         if (yes >= l->back.needed) l->back.state = LOBBY_BACK_PASSED;
         else if (no * 2 >= total || l->now - l->back.at >= BACK_SECS * 1000u) l->back.state = LOBBY_BACK_FAILED;
@@ -348,6 +352,13 @@ void lobby_back_vote(Lobby *l, int yes)
         ses_app_send(l->ses, l->host_node, m, (int)sizeof m);
     }
 }
+int lobby_back_counts(const Lobby *l, int *total, int *secs)
+{
+    if (!l || l->back.state == LOBBY_BACK_NONE) return 0;
+    if (total) *total = l->back.total;
+    if (secs) *secs = l->back.secs;
+    return 1;
+}
 int lobby_back_progress(const Lobby *l, int *caller, int *yes, int *no, int *needed, int *mine)
 {
     if (!l || l->back.state == LOBBY_BACK_NONE) return LOBBY_BACK_NONE;
@@ -369,7 +380,9 @@ static void back_tick(Lobby *l) /* (host) its time out; a result shown a while, 
 {
     if (!l->host) return;
     if (l->back.state == LOBBY_BACK_RUNNING) {
-        if (l->now - l->back.at >= BACK_SECS * 1000u) back_tally(l);
+        uint32_t gone = l->now - l->back.at; /* (each second: its countdown to every machine) */
+        uint8_t secs = (uint8_t)(gone >= BACK_SECS * 1000u ? 0 : (BACK_SECS * 1000u - gone + 999) / 1000);
+        if (gone >= BACK_SECS * 1000u || secs != l->back.secs) back_tally(l);
     } else if (l->back.state == LOBBY_BACK_FAILED && l->now - l->back.ended >= BACK_SHOWN_MS) {
         l->back.state = LOBBY_BACK_NONE;
         back_send(l);
@@ -410,6 +423,7 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
     } else if (!l->host && from == l->host_node && d[0] == L_BACK_STATE && len >= 7) {
         l->back.round = d[1], l->back.caller = d[2], l->back.yes = d[3], l->back.no = d[4], l->back.needed = d[5];
         l->back.state = d[6];
+        if (len >= 9) l->back.total = d[7], l->back.secs = d[8];
     } else if (d[0] >= LOBBY_EXT_FIRST) {
         if (l->ext) l->ext(l->ext_ctx, from, d, len);
     } else if (l->host && d[0] == L_TABLE && len >= 2 + 128 && from != l->node && from < SES_MAX_NODES) {

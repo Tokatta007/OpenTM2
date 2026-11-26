@@ -1666,6 +1666,7 @@ void netplay_match_end(void)
     if (!ng.ses) return;
     if (lob) lobby_on_match(lob, NULL, NULL);
     if (lob && lobby_is_host(lob)) lobby_set_match_on(lob, 0);
+    if (lob && lobby_is_host(lob)) lobby_back_clear(lob); /* (a vote to go back to the lobby still running: over with the match) */
     ng.gave_up = ng.watch = ng.wait_stage = 0;
     ses_free(ng.ses);
     ng.ses = NULL;
