@@ -410,6 +410,7 @@ typedef struct {
     int keys;                         /* a binding row: controller and keyboard columns */
     int extra;                        /* a binding row for an extra control (bindings.h): its index + 1 */
     int energy;                       /* a binding row for an energy attack's own button (arg: player * 8 + attack) */
+    int padrow;                       /* a binding row for Start / Select (bindings.h BIND_START ...): + 1 (arg: player * 16 + it) */
     int meter;                        /* the mic test: a level read live, the open mic's threshold marked on it */
     int music;                        /* a Custom Music row: playback and song columns */
     int tiny;                         /* drawn smaller still (the button rows) */
@@ -731,6 +732,8 @@ static int get_energy_button(int a) { return bind_energy_button(a / 16, a % 16);
 static void set_energy_button(int a, int v) { bind_set_energy_button(a / 16, a % 16, v); changed |= SAVE_CONTROLS; }
 static int get_extra_button(int a) { return bind_extra_button(a); }
 static void set_extra_button(int a, int v) { bind_set_extra_button(a, v); changed |= SAVE_CONTROLS; }
+static int get_pad_row(int a) { return bind_pad_button(a / 16, a % 16, 0); }
+static void set_pad_row(int a, int v) { if (bind_set_pad_button(a / 16, a % 16, 0, v)) changed |= SAVE_CONTROLS; }
 
 /* Custom Music: each track's playback (default, random, in order, a song)
  * and, for a song, which one */
@@ -1054,22 +1057,34 @@ static void set_binding(int a, int v) { bind_set(a / 16, a % 16, v + 1); changed
  * the extra controls') */
 static int binding_col_ok(const Row *r, int col)
 {
-    int action = !r->extra && !r->energy;
-    return col == 0 || (col == 1 && action) || (col == 2 && (r->extra || r->arg / 16 < 2));
+    int action = !r->extra && !r->energy; /* (the actions, Start and Select: an Alt column) */
+    return col == 0 || (col == 1 && action) || (col == 2 && (r->extra || (r->padrow ? r->arg / 16 == 0 : r->arg / 16 < 2)));
 }
 static int binding_col(const Row *r) { return binding_col_ok(r, bind_col) ? bind_col : 0; }
-static void binding_clear(Row *r, int col) /* (Triangle, or Delete while capturing: NONE; an energy attack's first four
-                                            * with Easy Energy Attacks: back to their D-pad direction) */
+static int binding_clear(Row *r, int col) /* (Triangle, or Delete while capturing: NONE; an energy attack's first four
+                                           * with Easy Energy Attacks: back to their D-pad direction). 0: refused (Start's
+                                           * own button: a player could not pause) */
 {
     int p = r->arg / 16, a = r->arg % 16;
-    if (r->extra) { if (col == 2) bind_set_extra_key(r->extra - 1, 0); else bind_set_extra_button(r->extra - 1, 0); return; }
-    if (r->energy) { if (col == 2) bind_set_energy_key(p, a, 0); else bind_set_energy_button(p, a, 0); return; }
+    if (r->padrow) {
+        if (col == 2) bind_set_pad_key(a, 0);
+        else return bind_set_pad_button(p, a, col, 0);
+        return 1;
+    }
+    if (r->extra) { if (col == 2) bind_set_extra_key(r->extra - 1, 0); else bind_set_extra_button(r->extra - 1, 0); return 1; }
+    if (r->energy) { if (col == 2) bind_set_energy_key(p, a, 0); else bind_set_energy_button(p, a, 0); return 1; }
     if (col == 2) bind_set_key(p, a, 0);
     else if (col == 1) bind_set_alt_button(p, a, 0);
     else bind_clear(p, a);
+    return 1;
 }
 static void binding_set_button(Row *r, int col, int button) /* (button: 1.., as the capture's) */
 {
+    if (col == 1 && r->padrow) {
+        bind_set_pad_button(r->arg / 16, r->arg % 16, 1, button);
+        changed |= SAVE_CONTROLS;
+        return;
+    }
     if (col == 1 && !r->extra && !r->energy) {
         bind_set_alt_button(r->arg / 16, r->arg % 16, button);
         changed |= SAVE_CONTROLS;
@@ -5233,6 +5248,21 @@ static void build(PageId page)
                 xh->col1 = "CONTROLLER";
                 xh->col2 = "KEYBOARD";
                 add(ROW_HEADER, k ? "Music and more" : "Match and online", NULL);
+                if (!k) {
+                    xh->col_alt = "CONTROLLER ALT";
+                    static const char *const pad_desc[BIND_PADS] = {
+                        "Opens the pause menu. Online, it opens the menu over the match. Its controller button can be "
+                        "changed but not cleared.",
+                        "Normal Select actions combined with a D-pad press, plus the vote box online and skins in car select."};
+                    for (int w = 0; w < BIND_PADS; w++) {
+                        Row *pr = add_choice(bind_pad_names[w], pad_desc[w], get_pad_row, set_pad_row, p * 16 + w,
+                                             bind_button_names, BIND_BUTTONS_ALL + 1);
+                        pr->tiny = 1;
+                        pr->press = 1;
+                        pr->keys = 1;
+                        pr->padrow = w + 1;
+                    }
+                }
             }
             Row *r = add_choice(bind_extra_names[i], p && i == BIND_SCOREBOARD ? "Set on player 1's page. Works on every controller."
                                 : p ? "Player 1's controller and keyboard only."
@@ -8219,19 +8249,19 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                 }
                 TextColor vc = r->locked || (r->dim && r->kind == ROW_CHOICE && r->dim(r->arg, r->get(r->arg))) ? GRAY : ORANGE;
                 if (r->keys) {
-                    int action = !r->extra && !r->energy, col = binding_col(r), p_of = r->arg / 16;
+                    int action = !r->extra && !r->energy && !r->padrow, col = binding_col(r), p_of = r->arg / 16;
                     if (i == capturing) {
                         const char *msg = col == 2 ? "PRESS A KEY" : "PRESS A BUTTON";
                         int mx = col == 2 ? right - text_width(msg, size) : X(&v, col ? ALT_COLUMN : PAD_COLUMN) - text_width(msg, size) / 2;
                         text_draw(c, msg, mx, ty, size, ORANGE);
                     } else {
                         int button = action ? r->get(r->arg) + 1 : r->get(r->arg);
-                        int alt = action ? bind_alt_button(p_of, r->arg % 16) : 0;
+                        int alt = action ? bind_alt_button(p_of, r->arg % 16) : r->padrow ? bind_pad_button(p_of, r->arg % 16, 1) : 0;
                         char key[64];
-                        int k = r->energy ? bind_energy_key(r->arg / 16, r->arg % 16)
+                        int k = r->padrow ? bind_pad_key(r->arg % 16) : r->energy ? bind_energy_key(r->arg / 16, r->arg % 16)
                               : r->extra ? bind_extra_key(r->extra - 1) : bind_key(r->arg / 16, r->arg % 16);
                         shorten(key, sizeof key, bind_key_name(k), 0);
-                        int has_keys = r->extra || p_of < 2;
+                        int has_keys = r->extra || (r->padrow ? p_of == 0 : p_of < 2);
                         if (i == sel) { /* the marked column (Left / Right: the user's 2026-11-26) */
                             int b = col == 1 ? alt : button, pad = S(&v, BAR_PAD);
                             const char *bn = b >= 1 && b <= BIND_TOUCHPAD
@@ -8240,8 +8270,9 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                             if (col == 2) draw_bar(&v, right - text_width(key, size) - pad, right + pad, cy, size);
                             else draw_bar(&v, cx - bw / 2 - pad, cx + bw / 2 + pad, cy, size);
                         }
-                        draw_button(&v, button, X(&v, PAD_COLUMN), cy, size, vc, glyph_kind);
-                        if (action) draw_button(&v, alt, X(&v, ALT_COLUMN), cy, size, vc, glyph_kind);
+                        /* (Start's own button: never cleared, in a color of its own: the user's) */
+                        draw_button(&v, button, X(&v, PAD_COLUMN), cy, size, r->padrow == BIND_START + 1 ? PALE : vc, glyph_kind);
+                        if (action || r->padrow) draw_button(&v, alt, X(&v, ALT_COLUMN), cy, size, vc, glyph_kind);
                         if (has_keys) text_draw(c, key, right - text_width(key, size), ty, size, vc);
                     }
                 } else if (r->music) {
@@ -8849,8 +8880,8 @@ static int run(PageId start)
             Row *cr = &rows[capturing];
             int ccol = binding_col(cr);
             if (key == SDL_SCANCODE_DELETE) { /* (Delete: the column cleared, as Triangle) */
-                binding_clear(cr, ccol);
-                changed |= SAVE_CONTROLS;
+                if (binding_clear(cr, ccol)) changed |= SAVE_CONTROLS;
+                else denied_sound();
                 key = 0;
                 capturing = -1;
             }
@@ -8896,7 +8927,8 @@ static int run(PageId start)
                     break;
                 }
             if (capturing >= 0 && key) {
-                if (cr->energy) bind_set_energy_key(cr->arg / 16, cr->arg % 16, key);
+                if (cr->padrow) bind_set_pad_key(cr->arg % 16, key);
+                else if (cr->energy) bind_set_energy_key(cr->arg / 16, cr->arg % 16, key);
                 else if (cr->extra) bind_set_extra_key(cr->extra - 1, key);
                 else bind_set_key(cr->arg / 16, cr->arg % 16, key);
                 changed |= SAVE_CONTROLS;
@@ -9476,9 +9508,12 @@ static int run(PageId start)
                     dirty = 1;
                 }
             } else if (r->press && r->keys && (pressed & B_TRIANGLE)) { /* the marked column cleared (NONE) */
-                binding_clear(r, binding_col(r));
-                changed |= SAVE_CONTROLS;
-                menu_sound(1);
+                if (binding_clear(r, binding_col(r))) {
+                    changed |= SAVE_CONTROLS;
+                    menu_sound(1);
+                } else {
+                    denied_sound(); /* (Start's own button: kept) */
+                }
                 dirty = 1;
             } else if (r->press && (pressed & (B_CROSS | B_START))) { /* (Enter on a keyboard too: it cycled the button) */
                 capturing = sel; /* buttons and keys held now (this X) do not count: only new presses */

@@ -55,6 +55,15 @@ const char *bind_key_name(int scancode); /* for the Controls page */
 #define BIND_PTT 2     /* push to talk (online voice chat, held) */
 #define BIND_SCOREBOARD 3 /* the scoreboard in a battle (held): the touchpad and Tab by default, on any controller */
 #define BIND_QUIT 4    /* "QUIT OPENTM2?" (runtime/gpu_psyz.c): Escape by default, no controller button (Tegu's, 2026-11-23) */
+/* Start and Select (the user's 2026-11-26): rows of their own, each player's, used in a match (the menus always take
+ * the controller's own Start / Select, Enter / Backspace). which: 0 Start, 1 Select; col: 0 the controller's, 1 its
+ * Alt; a button 1..BIND_BUTTONS_ALL, 0 none. Start's own column is never none (a player could not pause) */
+enum { BIND_START, BIND_SELECT, BIND_PADS };
+extern const char *const bind_pad_names[BIND_PADS];
+int bind_pad_button(int player, int which, int col);
+int bind_set_pad_button(int player, int which, int col, int button); /* 0: refused (Start's own, none) */
+int bind_pad_key(int which);                                        /* player 1's keyboard */
+void bind_set_pad_key(int which, int scancode);
 #define BIND_TEXT_CHAT 5 /* online, in a match: the chat's keyboard at once (T by default; the user's 2026-11-26) */
 #define BIND_EXTRAS 6
 extern const char *const bind_extra_names[BIND_EXTRAS];

@@ -158,6 +158,33 @@ void bind_set_pad_type(int player, int type)
 }
 
 static unsigned char chosen[4][BIND_ACTIONS]; /* 0: the layout's button; BIND_NONE: none */
+const char *const bind_pad_names[BIND_PADS] = {"Start", "Select"};
+static unsigned char pad_chosen[4][BIND_PADS][2]; /* 0: the default (Start / Select itself; the Alt: none); BIND_NONE */
+static int pad_key[BIND_PADS] = {SDL_SCANCODE_RETURN, SDL_SCANCODE_BACKSPACE};
+static const char *const pad_keys[BIND_PADS] = {"start", "select"}; /* (their ini names: p1_start, p1_start_alt ...) */
+int bind_pad_button(int player, int which, int col)
+{
+    if (player < 0 || player > 3 || which < 0 || which >= BIND_PADS || col < 0 || col > 1) return 0;
+    int v = pad_chosen[player][which][col];
+    return v == BIND_NONE ? 0 : v ? v : col ? 0 : which == BIND_START ? 2 : 1;
+}
+int bind_set_pad_button(int player, int which, int col, int button)
+{
+    if (player < 0 || player > 3 || which < 0 || which >= BIND_PADS || col < 0 || col > 1 || button < 0 || button > BIND_BUTTONS_ALL)
+        return 0;
+    if (!button && which == BIND_START && !col) return 0; /* (Start's own: never none) */
+    int def = col ? 0 : which == BIND_START ? 2 : 1;
+    pad_chosen[player][which][col] = (unsigned char)(button == def ? 0 : button ? button : BIND_NONE);
+    return 1;
+}
+int bind_pad_key(int which) { return which >= 0 && which < BIND_PADS ? pad_key[which] : 0; }
+static void free_key(int scancode);
+void bind_set_pad_key(int which, int scancode)
+{
+    if (which < 0 || which >= BIND_PADS) return;
+    free_key(scancode);
+    pad_key[which] = scancode;
+}
 static unsigned char alt_chosen[4][BIND_ACTIONS]; /* 0: the default (alt_default); BIND_NONE: none; else the button */
 static int alt_default(int action) /* the left stick's directions: Steer left / right (2, 3), Forward (4), Reverse (5) */
 {
@@ -211,6 +238,8 @@ static void free_key(int scancode)
             if (scancode && keys[p][a] == scancode) keys[p][a] = 0;
     for (int i = 0; i < BIND_EXTRAS; i++)
         if (scancode && extra_key[i] == scancode) extra_key[i] = 0;
+    for (int i = 0; i < BIND_PADS; i++)
+        if (scancode && pad_key[i] == scancode) pad_key[i] = 0;
     for (int p = 0; p < 2; p++)
         for (int i = 0; i < BIND_ENERGY; i++)
             if (scancode && energy_key[p][i] == scancode) energy_key[p][i] = 0;
@@ -252,6 +281,7 @@ const char *bind_key_name(int scancode)
     case SDL_SCANCODE_DOWN: return "Down arrow";
     case SDL_SCANCODE_LEFT: return "Left arrow";
     case SDL_SCANCODE_RIGHT: return "Right arrow";
+    case SDL_SCANCODE_RETURN: return "Enter"; /* (SDL's "Return": the key says Enter) */
     }
     const char *n = SDL_GetScancodeName((SDL_Scancode)scancode);
     return n && *n ? n : "?";
@@ -316,6 +346,7 @@ void bind_reset(int player)
     if (player >= 0 && player <= 3) {
         memset(chosen[player], 0, sizeof chosen[player]);
         memset(alt_chosen[player], 0, sizeof alt_chosen[player]); /* (the layout's reset: the left stick back too) */
+        memset(pad_chosen[player], 0, sizeof pad_chosen[player]);
     }
 }
 
@@ -338,6 +369,20 @@ int bind_ini_key(const char *key, const char *val)
             return 1;
         }
         if (!strcmp(key + 3, "energy_dpad")) { easy_energy[p] = on; return 1; }
+        for (int w = 0; w < BIND_PADS; w++) { /* Start, Select */
+            size_t n = strlen(pad_keys[w]);
+            if (strncmp(key + 3, pad_keys[w], n)) continue;
+            const char *rest = key + 3 + n;
+            if (!*rest || !strcmp(rest, "_alt")) {
+                int b = chosen_of(val), col = *rest != 0;
+                if (b >= 0 && !(b == BIND_NONE && w == BIND_START && !col)) pad_chosen[p][w][col] = (unsigned char)b;
+                return 1;
+            }
+            if (!strcmp(rest, "_key")) {
+                if (p == 0) pad_key[w] = strcmp(val, "none") ? (int)SDL_GetScancodeFromName(val) : 0;
+                return 1;
+            }
+        }
         if (!strcmp(key + 3, "analog_steering")) { analog_steer[p] = on; return 1; }
         if (!strcmp(key + 3, "analog_throttle")) { analog_throttle[p] = on; return 1; }
         if (!strcmp(key + 3, "no_backwards_steering")) { steer_keep[p] = on; return 1; }
@@ -421,6 +466,11 @@ static void write_actions(FILE *f, int p, const char *prefix)
                 keys[p][a] ? SDL_GetScancodeName((SDL_Scancode)keys[p][a]) : "none");
     }
     write_energy(f, p, prefix, 1);
+    for (int w = 0; w < BIND_PADS; w++) { /* Start, Select (their keys: player 1's, the keyboard's) */
+        if (pad_chosen[p][w][0]) fprintf(f, "%s%s = %s\n", prefix, pad_keys[w], chosen_key(pad_chosen[p][w][0]));
+        if (pad_chosen[p][w][1]) fprintf(f, "%s%s_alt = %s\n", prefix, pad_keys[w], chosen_key(pad_chosen[p][w][1]));
+        if (p == 0) fprintf(f, "%s%s_key = %s\n", prefix, pad_keys[w], pad_key[w] ? SDL_GetScancodeName((SDL_Scancode)pad_key[w]) : "none");
+    }
 }
 
 void bind_ini_write(FILE *f)
@@ -449,6 +499,7 @@ void bind_player1_defaults(void)
 {
     memset(chosen[0], 0, sizeof chosen[0]);
     memset(alt_chosen[0], 0, sizeof alt_chosen[0]);
+    memset(pad_chosen[0], 0, sizeof pad_chosen[0]);
     for (int a = 0; a < BIND_ACTIONS; a++) {
         for (int b = 0; b < BIND_ACTIONS; b++) /* one key, one use */
             if (keys[1][b] == default_keys[a]) keys[1][b] = 0;
@@ -478,6 +529,7 @@ void bind_player2_defaults(void)
 {
     memset(chosen[1], 0, sizeof chosen[1]);
     memset(alt_chosen[1], 0, sizeof alt_chosen[1]);
+    memset(pad_chosen[1], 0, sizeof pad_chosen[1]);
     memset(keys[1], 0, sizeof keys[1]);
     memset(energy_button[1], 0, sizeof energy_button[1]);
     memset(energy_key[1], 0, sizeof energy_key[1]);
@@ -533,6 +585,7 @@ void bind_player_defaults(int p)
     if (p < 2 || p > 3) return;
     memset(chosen[p], 0, sizeof chosen[p]);
     memset(alt_chosen[p], 0, sizeof alt_chosen[p]);
+    memset(pad_chosen[p], 0, sizeof pad_chosen[p]);
     memset(energy_button[p], 0, sizeof energy_button[p]);
     keypad34[p - 2] = 0;
     jump_combo[p] = easy_energy[p] = 0;
