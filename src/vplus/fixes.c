@@ -15,6 +15,7 @@ static uint32_t spec_parked;
 static uint64_t spec_round_gv;
 static int spec_done;
 static void spectators_frame(void);
+static void back_frame(void);
 void killcam_keep(void *p, size_t n);
 uint32_t killcam_input(int kind, int player, uint32_t live); /* killcam.c */
 void killcam_forget(void);
@@ -2679,6 +2680,7 @@ void vp_lives_frame(void)
 {
     team_locks_frame();
     spectators_frame();
+    back_frame();
     vp_messages_clock_check();
     dt_ricochet_check();
     spawn_check_frame();
@@ -6401,6 +6403,23 @@ static void spectators_frame(void)
         fprintf(stderr, "spectator: player %d parked out of the round (%s)\n", h + 1, rr == h ? "parked" : "destroyed");
     }
 }
+/* ---- The vote to go back to the lobby passed (online; the user's 2026-11-25) ----
+ * The host's flag in the inputs (net/game_tm2.c cb_advance): the step it comes in ends the match on every machine, as
+ * the port's own end of a battle (the podium round's way); ui_MainLoop then quits the session (no round restart, no
+ * playlist vote, no tournament stage): back to the lobby. Kept with the network states. */
+static int back_req, back_done;
+void vp_back_input(int on) { if (on) back_req = 1; }
+void vp_back_reset(void) { back_req = back_done = 0; }
+int vp_back_requested(void) { return back_req; }
+static void back_frame(void)
+{
+    if (!back_req || back_done) return;
+    back_done = 1;
+    duo_ended = 1;
+    vp_port_event = 1;
+    guest_call(GA(0x800D181Cu), 3, 1, 0, 0); /* rtScheduleEvent: the round over */
+    fprintf(stderr, "back to the lobby: the vote passed, the match ends\n");
+}
 static void versus_frame(void) /* the boss round: at its start every player not in it out of the arena (they watch) */
 {
     if (versus.on && versus.podium && versus.sat_out && !versus.podium_ended && vp_gv() >= versus.round_gv + 4) {
@@ -7019,7 +7038,8 @@ void vp_keep_register(void)
     KEEP(bf_last); KEEP(bf_ticks); KEEP(bf_refill_at); KEEP(bf_roulette_at); KEEP(win_at); KEEP(vs_at); KEEP(freeze_fired); KEEP(fired);
     KEEP(pickup_step); KEEP(pickup_taken_step); KEEP(pickup_kind0); KEEP(pickup_node); KEEP(pickup_model); KEEP(pickup_models_ready);
     KEEP(pk_id); KEEP(pk_child);
-    KEEP(spec_round_gv); KEEP(spec_done); KEEP(spec_parked); /* (a split screen's spectators: spectators_frame) */ /* (the slots' kinds and looks: vp_pickups_restore) */
+    KEEP(spec_round_gv); KEEP(spec_done); KEEP(spec_parked);
+    KEEP(back_req); KEEP(back_done); /* (the vote to go back to the lobby: back_frame) */ /* (a split screen's spectators: spectators_frame) */ /* (the slots' kinds and looks: vp_pickups_restore) */
     KEEP(burn_wait); KEEP(jc_opp); /* (Deathmatch's computer cars wait the last death's burning: a machine in mid-match had 180, the
                                     * host 420; the Juggernaut car's parked record) */
     KEEP(test_round_gv); KEEP(test_round_fired); KEEP(test_round_n); /* (tests, trailer: the round's kills, as the host's) */

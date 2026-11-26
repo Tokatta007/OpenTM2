@@ -17,12 +17,19 @@
 enum { CH_HELLO = 0x48, CH_LOBBY = 0x4C, CH_MATCH = 0x4D }; /* the first byte of a packet: 'H', 'L', 'M' */
 enum { HELLO = 1, WELCOME = 2, REFUSED = 3 };                 /* the handshake */
 enum { RELAY_AFTER_MS = 3000 }; /* a joining machine unanswered this long: through the relay */
-enum { L_INFO = 1, L_SET = 2, L_STATE = 3, L_START = 4, L_VOTE = 5, L_TABLE = 6, L_REJOIN = 7, L_PINGS = 8, L_SKIN = 9 };     /* the lobby's messages (ses_app_send) */
+enum { L_INFO = 1, L_SET = 2, L_STATE = 3, L_START = 4, L_VOTE = 5, L_TABLE = 6, L_REJOIN = 7, L_PINGS = 8, L_SKIN = 9,
+       L_BACK = 10, L_BACK_STATE = 11 }; /* (L_BACK: a machine's vote to go back to the lobby; L_BACK_STATE: the host's tally) */     /* the lobby's messages (ses_app_send) */
 enum { HELLO_EVERY_MS = 500, HELLO_GIVE_UP_MS = 10000, PENDING_MS = 10000, STATE_EVERY_MS = 100, BANNED_MAX = 16, PINGS_EVERY_MS = 2000 };
 static const uint8_t MAGIC[4] = {'T', 'M', '2', 'L'};
 enum { PLAYER_BYTES = LOBBY_NAME + 5 + 128 + 8 + 1 + 2 };
 
 struct Lobby {
+    struct { /* the vote to go back to the lobby (a match on): the host's tally, every machine's copy (lobby_back_progress) */
+        uint8_t round, caller, yes, no, needed, state; /* state: LOBBY_BACK_* */
+        uint8_t vote[SES_MAX_NODES];            /* (host) each machine's: 0 none, 1 yes, 2 no */
+        uint32_t at, ended;                     /* (host) its start; its end (the result shown a while) */
+        uint8_t mine_round;                     /* (each machine) the round this machine voted in */
+    } back;
     SesVoiceFn voice;                           /* the voices as they come (voice_io.c) */
     void *voice_ctx;
     uint32_t pending_id[SES_MAX_NODES];         /* (host) the number each machine given a node said in its hello */
@@ -283,6 +290,91 @@ static void send_info(Lobby *l) /* (a machine) its players, once in */
     *w++ = (uint8_t)l->spectate; /* (which of its players only watch) */
     ses_app_send(l->ses, l->host_node, m, (int)(w - m));
 }
+/* ---- the vote to go back to the lobby (a match on; the user's 2026-11-25) ----
+ * Any machine calls it (its players' vote: yes); every other machine yes or no; more than half the match's machines
+ * yes: passed (the host's game ends the match at one step on every machine: net/game_tm2.c); half or more no, or 30 s:
+ * failed. The result shown a few seconds, then none. One vote a machine (as the kick vote's). */
+enum { BACK_SECS = 30, BACK_SHOWN_MS = 4000 };
+static void back_send(Lobby *l)
+{
+    uint8_t m[7] = {L_BACK_STATE, l->back.round, l->back.caller, l->back.yes, l->back.no, l->back.needed, l->back.state};
+    for (int n = 0; n < SES_MAX_NODES; n++)
+        if (n != l->node && l->view.m[n].present) ses_app_send(l->ses, n, m, (int)sizeof m);
+}
+static void back_tally(Lobby *l)
+{
+    int total = 0, yes = 0, no = 0;
+    for (int n = 0; n < SES_MAX_NODES; n++) {
+        if (!l->view.m[n].present || !l->view.m[n].count) continue;
+        total++;
+        yes += l->back.vote[n] == 1, no += l->back.vote[n] == 2;
+    }
+    l->back.yes = (uint8_t)yes, l->back.no = (uint8_t)no, l->back.needed = (uint8_t)(total / 2 + 1);
+    if (l->back.state == LOBBY_BACK_RUNNING) {
+        if (yes >= l->back.needed) l->back.state = LOBBY_BACK_PASSED;
+        else if (no * 2 >= total || l->now - l->back.at >= BACK_SECS * 1000u) l->back.state = LOBBY_BACK_FAILED;
+        if (l->back.state != LOBBY_BACK_RUNNING) {
+            l->back.ended = l->now ? l->now : 1;
+            fprintf(stderr, "lobby: the vote to go back to the lobby %s (%d yes, %d no of %d)\n",
+                    l->back.state == LOBBY_BACK_PASSED ? "passed" : "failed", yes, no, total);
+        }
+    }
+    back_send(l);
+}
+static void back_take(Lobby *l, int node, int round, int choice) /* (host) a machine's call or vote */
+{
+    if (node < 0 || node >= SES_MAX_NODES || (choice != 1 && choice != 2)) return;
+    if (l->back.state != LOBBY_BACK_RUNNING) { /* (none running: a yes calls one) */
+        if (choice != 1 || (l->back.state != LOBBY_BACK_NONE && l->back.state != LOBBY_BACK_FAILED)) return;
+        memset(l->back.vote, 0, sizeof l->back.vote);
+        l->back.round++;
+        if (!l->back.round) l->back.round = 1;
+        l->back.caller = (uint8_t)node;
+        l->back.state = LOBBY_BACK_RUNNING;
+        l->back.at = l->now ? l->now : 1;
+        fprintf(stderr, "lobby: machine %d called a vote to go back to the lobby\n", node);
+    } else if (round != l->back.round || l->back.vote[node]) return; /* (another round's, or voted already) */
+    l->back.vote[node] = (uint8_t)choice;
+    back_tally(l);
+}
+void lobby_back_vote(Lobby *l, int yes)
+{
+    if (!l || l->node < 0) return;
+    int round = l->back.state == LOBBY_BACK_RUNNING ? l->back.round : 0;
+    l->back.mine_round = l->back.state == LOBBY_BACK_RUNNING ? l->back.round : 0; /* (a call: the caller's, below) */
+    if (l->host) back_take(l, l->node, round, yes ? 1 : 2);
+    else {
+        uint8_t m[3] = {L_BACK, (uint8_t)round, (uint8_t)(yes ? 1 : 2)};
+        ses_app_send(l->ses, l->host_node, m, (int)sizeof m);
+    }
+}
+int lobby_back_progress(const Lobby *l, int *caller, int *yes, int *no, int *needed, int *mine)
+{
+    if (!l || l->back.state == LOBBY_BACK_NONE) return LOBBY_BACK_NONE;
+    if (caller) *caller = l->back.caller;
+    if (yes) *yes = l->back.yes;
+    if (no) *no = l->back.no;
+    if (needed) *needed = l->back.needed;
+    if (mine) *mine = l->back.mine_round == l->back.round || l->back.caller == l->node;
+    return l->back.state;
+}
+void lobby_back_clear(Lobby *l) /* (the match over, back in the lobby: none) */
+{
+    if (!l) return;
+    l->back.state = LOBBY_BACK_NONE;
+    memset(l->back.vote, 0, sizeof l->back.vote);
+    if (l->host) back_send(l);
+}
+static void back_tick(Lobby *l) /* (host) its time out; a result shown a while, then none */
+{
+    if (!l->host) return;
+    if (l->back.state == LOBBY_BACK_RUNNING) {
+        if (l->now - l->back.at >= BACK_SECS * 1000u) back_tally(l);
+    } else if (l->back.state == LOBBY_BACK_FAILED && l->now - l->back.ended >= BACK_SHOWN_MS) {
+        l->back.state = LOBBY_BACK_NONE;
+        back_send(l);
+    }
+}
 static void on_app(void *ctx, int from, const uint8_t *d, int len)
 {
     Lobby *l = ctx;
@@ -313,6 +405,11 @@ static void on_app(void *ctx, int from, const uint8_t *d, int len)
         if (d[1] >= mc->count) return;
         mc->p[d[1]].skin = (int8_t)d[2];
         l->dirty = 1;
+    } else if (l->host && d[0] == L_BACK && len >= 3 && from != l->node && from < SES_MAX_NODES) {
+        back_take(l, from, d[1], d[2]);
+    } else if (!l->host && from == l->host_node && d[0] == L_BACK_STATE && len >= 7) {
+        l->back.round = d[1], l->back.caller = d[2], l->back.yes = d[3], l->back.no = d[4], l->back.needed = d[5];
+        l->back.state = d[6];
     } else if (d[0] >= LOBBY_EXT_FIRST) {
         if (l->ext) l->ext(l->ext_ctx, from, d, len);
     } else if (l->host && d[0] == L_TABLE && len >= 2 + 128 && from != l->node && from < SES_MAX_NODES) {
@@ -804,6 +901,7 @@ void lobby_lan_search_free(LanSearch *s)
 void lobby_poll(Lobby *l, uint32_t now_ms)
 {
     l->now = now_ms;
+    back_tick(l);
     if (l->host) lan_answer(l);
     uint8_t buf[2600];
     char addr[48];

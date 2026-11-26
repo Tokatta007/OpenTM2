@@ -200,6 +200,18 @@ void rt_live_shot(void)
         snprintf(path, sizeof path, "%s/burst-%03d.bmp", shot_dir, burst_i++);
         gpu_backend->capture(path, 0);
     }
+    { /* TM2PC_LIVE_SHOT_VB=V1,V2,...: the screen as presented (overlays included) at those VBlanks, vb-V.bmp */
+        static const char *vb_list;
+        static int vb_read;
+        if (!vb_read) { vb_read = 1; vb_list = getenv("TM2PC_LIVE_SHOT_VB"); }
+        if (vb_list && *vb_list && M.vblanks >= strtoull(vb_list, NULL, 10)) {
+            char path[512];
+            snprintf(path, sizeof path, "%s/vb-%llu.bmp", shot_dir, strtoull(vb_list, NULL, 10));
+            gpu_backend->capture(path, 0);
+            const char *comma = strchr(vb_list, ',');
+            vb_list = comma ? comma + 1 : NULL;
+        }
+    }
     if (every < 0) every = getenv("TM2PC_LIVE_SHOT") ? atoi(getenv("TM2PC_LIVE_SHOT")) : 0;
     if (every <= 0 || time(NULL) < next) return;
     next = time(NULL) + every;

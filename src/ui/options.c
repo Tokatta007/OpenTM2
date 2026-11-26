@@ -16212,6 +16212,15 @@ static const char *pm_node_name(int node)
     const LobbyView *v = l ? lobby_view(l) : NULL;
     return v && node >= 0 && node < SES_MAX_NODES && v->m[node].count ? v->m[node].p[0].name : "A PLAYER";
 }
+/* the vote to go back to the lobby (net/lobby.c): its state; *ask: running and this machine not voted (its YES / NO row) */
+static int pm_back(int *caller, int *yes, int *no, int *needed, int *ask)
+{
+    Lobby *l = netplay_lobby();
+    int mine = 0, st = l ? lobby_back_progress(l, caller, yes, no, needed, &mine) : LOBBY_BACK_NONE;
+    *ask = st == LOBBY_BACK_RUNNING && !mine;
+    return st;
+}
+static const uint8_t BACK_SKY[3] = {120, 200, 240}; /* (its note's color: not the kick vote's) */
 static void pm_input(void)
 {
     uint16_t input_player_menu_buttons(int p);
@@ -16220,6 +16229,8 @@ static void pm_input(void)
     if (local < 1) local = 1;
     int8_t node_of[16];
     int n = pm_humans(node_of), target, yes, needed, vote = pm_vote(&target, &yes, &needed);
+    int b_caller = 0, b_yes = 0, b_no = 0, b_needed = 0, b_ask = 0, b_state = pm_back(&b_caller, &b_yes, &b_no, &b_needed, &b_ask);
+    int b_row = vote ? 1 : 0; /* (the back vote's YES / NO row: after the kick vote's) */
     for (int p = 0; p < local && p < 4; p++) {
         uint16_t b = (uint16_t)(input_player_menu_buttons(p) | (p == 0 ? net_test_menu_buttons() : 0)), pressed = (uint16_t)(b & ~pm_prev[p]);
         pm_prev[p] = b;
@@ -16229,15 +16240,15 @@ static void pm_input(void)
         if (test_at && p == 0 && pm_open < 0 && M.vblanks >= strtoull(test_at, NULL, 10)) { test_at = NULL; pressed = B_START; }
         if (pm_test_open && p == 0 && pm_open < 0) { pm_test_open = 0; pressed = B_START; }
         if (pm_open < 0) {
-            if (pressed & B_START) { /* the menu (a kick vote running: the Players list at once, to vote) */
-                pm_open = p; pm_sel = 0; pm_sub = -1; np_on = !vote; np_sel = 0; np_sure = 0;
+            if (pressed & B_START) { /* the menu (a vote running: the Players list at once, to vote) */
+                pm_open = p; pm_sel = 0; pm_sub = -1; np_on = !vote && !b_ask; np_sel = 0; np_sure = 0;
                 menu_sound(1);
                 fprintf(stderr, "%s menu: open\n", np_on ? "online" : "players");
             }
             continue;
         }
         if (p != pm_open) continue;
-        int rows = n + (vote ? 1 : 0);
+        int rows = n + (vote ? 1 : 0) + (b_ask ? 1 : 0) + 1; /* (the last: the call to go back to the lobby) */
         if (pressed & B_START) { pm_open = -1; np_on = 0; menu_sound(0); continue; }
         if (np_on) { /* the menu's items */
             if (np_sure) { /* QUIT: sure? (YES on top, NO highlighted, as the tournament's) */
@@ -16289,8 +16300,24 @@ static void pm_input(void)
         if (pressed & B_UP) { pm_sel = (pm_sel + rows - 1) % (rows ? rows : 1); menu_sound(0); }
         if (pressed & B_DOWN) { pm_sel = (pm_sel + 1) % (rows ? rows : 1); menu_sound(0); }
         if (pressed & B_CIRCLE) { np_on = 1; menu_sound(0); continue; } /* (back to the menu) */
-        if (vote && pm_sel == 0 && (pressed & (B_LEFT | B_RIGHT))) { pm_sub_sel = !pm_sub_sel; menu_sound(0); }
+        if (((vote && pm_sel == 0) || (b_ask && pm_sel == b_row)) && (pressed & (B_LEFT | B_RIGHT))) { pm_sub_sel = !pm_sub_sel; menu_sound(0); }
         if (pressed & B_CROSS) {
+            if (b_ask && pm_sel == b_row) { /* the vote to go back to the lobby: YES or NO */
+                if (l) lobby_back_vote(l, pm_sub_sel == 0);
+                fprintf(stderr, "players menu: voted %s on going back to the lobby\n", pm_sub_sel == 0 ? "yes" : "no");
+                pm_sub_sel = 0;
+                pm_sel = 0;
+                menu_sound(1);
+                continue;
+            }
+            if (pm_sel == rows - 1) { /* the call: a vote to go back to the lobby (none running) */
+                if (l && (b_state == LOBBY_BACK_NONE || b_state == LOBBY_BACK_FAILED)) {
+                    lobby_back_vote(l, 1);
+                    fprintf(stderr, "players menu: called a vote to go back to the lobby\n");
+                    menu_sound(1);
+                } else menu_sound(0);
+                continue;
+            }
             if (vote && pm_sel == 0) { /* the vote: YES (this machine's vote) or NO (left at that) */
                 if (pm_sub_sel == 0 && l) lobby_kick_vote(l, target);
                 fprintf(stderr, "players menu: voted %s on kicking %s\n", pm_sub_sel == 0 ? "yes" : "no", pm_node_name(target));
@@ -16300,7 +16327,7 @@ static void pm_input(void)
                 menu_sound(1);
                 continue;
             }
-            int h = pm_sel - (vote ? 1 : 0);
+            int h = pm_sel - (vote ? 1 : 0) - (b_ask ? 1 : 0);
             if (h >= 0 && h < n && node_of[h] >= 0 && node_of[h] != lobby_node(l)) { pm_sub = h; pm_sub_sel = 0; menu_sound(1); }
         }
     }
@@ -16328,9 +16355,19 @@ static int pm_frame(Image *sb, int *shown)
         if (last >= 0) lobby_kick_vote(netplay_lobby(), last);
     }
     int target = -1, yes = 0, needed = 0, vote = pm_vote(&target, &yes, &needed);
+    int b_caller = 0, b_yes = 0, b_no = 0, b_needed = 0, b_ask = 0, b_state = pm_back(&b_caller, &b_yes, &b_no, &b_needed, &b_ask);
+    static const char *back_at; /* tests: TM2PC_NET_TEST_BACKVOTE_AT=V, this machine calls (or votes yes on) the vote then */
+    static int back_read;
+    if (!back_read) { back_read = 1; back_at = getenv("TM2PC_NET_TEST_BACKVOTE_AT"); }
+    if (back_at && M.vblanks >= strtoull(back_at, NULL, 10) && netplay_lobby() && (b_state != LOBBY_BACK_RUNNING || b_ask)) {
+        back_at = NULL;
+        lobby_back_vote(netplay_lobby(), 1);
+        fprintf(stderr, "players menu: (test) a yes to go back to the lobby\n");
+    }
+    int bnote = b_state != LOBBY_BACK_NONE; /* (its note: running, or its result a while) */
     unsigned talking = 0; /* (the machines talking now, this PC's too) */
     for (int k = 0; k < SES_MAX_NODES && netplay_lobby(); k++) if (voice_io_talking(netplay_lobby(), k)) talking |= 1u << k;
-    if (pm_open < 0 && !vote && !talking) return 0;
+    if (pm_open < 0 && !vote && !bnote && !talking) return 0;
     int8_t node_of[16];
     int n = pm_humans(node_of);
     Lobby *l = netplay_lobby();
@@ -16340,6 +16377,7 @@ static int pm_frame(Image *sb, int *shown)
     PM_MIX(size.w); PM_MIX(size.h); PM_MIX(pm_open); PM_MIX(pm_sel); PM_MIX(pm_sub); PM_MIX(pm_sub_sel); PM_MIX(net_mute_node);
     PM_MIX(vote); PM_MIX(target); PM_MIX(yes); PM_MIX(needed); PM_MIX(n); PM_MIX(talking); PM_MIX(0x5A11);
     PM_MIX(np_on); PM_MIX(np_sel); PM_MIX(np_sure); PM_MIX(np_sure_sel);
+    PM_MIX(b_state); PM_MIX(b_caller); PM_MIX(b_yes); PM_MIX(b_no); PM_MIX(b_needed); PM_MIX(b_ask);
 #undef PM_MIX
     static uint32_t shown_key;
     if (*shown == 2 && key == shown_key) return 1;
@@ -16351,7 +16389,7 @@ static int pm_frame(Image *sb, int *shown)
     char text[96];
     static const uint8_t mic_on[3] = {120, 220, 120};
     if (pm_open < 0 && talking) { /* who is talking: a note each at the side, under the kill feed (and the vote's) */
-        float bx = 470, by = vote ? 148 : 96, bw = 160, bh = 18;
+        float bx = 470, by = 96 + (vote ? 52 : 0) + (bnote ? 64 : 0), bw = 160, bh = 18;
         for (int k = 0; k < SES_MAX_NODES && nr < 2; k++) {
             if (!((talking >> k) & 1)) continue;
             draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
@@ -16364,8 +16402,29 @@ static int pm_frame(Image *sb, int *shown)
         }
         int talkers = 0; /* (their notes: one overlay piece, from the first to the last) */
         for (int k = 0; k < SES_MAX_NODES; k++) talkers += (talking >> k) & 1;
-        float top = vote ? 148 : 96;
+        float top = 96 + (vote ? 52 : 0) + (bnote ? 64 : 0);
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, top), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, (bh + 3) * talkers);
+        nr++;
+    }
+    if (pm_open < 0 && bnote) { /* the vote to go back to the lobby: its note under the kill feed (and the kick vote's), its
+                                 * own color; START (the menu) to vote */
+        float bx = 380, by = 96 + (vote ? 52 : 0), bw = 250, bh = 58;
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
+        draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, BACK_SKY, 255);
+        int ls = S(&v, 10);
+        TextColor sky = WHITE;
+        memcpy(sky.top, BACK_SKY, 3), memcpy(sky.bottom, BACK_SKY, 3);
+        if (b_state == LOBBY_BACK_RUNNING) snprintf(text, sizeof text, "%s CALLED A VOTE TO GO BACK TO THE LOBBY", pm_node_name(b_caller));
+        else snprintf(text, sizeof text, "%s", b_state == LOBBY_BACK_PASSED ? "BACK TO THE LOBBY: THE VOTE PASSED"
+                                                                          : "THE VOTE TO GO BACK TO THE LOBBY FAILED");
+        upper(text);
+        while (ls > S(&v, 7) && text_width(text, ls) > S(&v, bw - 12)) ls--;
+        text_draw(sb, text, X(&v, bx + 6), text_top_for_center(Y(&v, by + 13), ls), ls, sky);
+        ls = S(&v, 11);
+        snprintf(text, sizeof text, "YES %d   NO %d   (%d NEEDED)", b_yes, b_no, b_needed);
+        text_draw(sb, text, X(&v, bx + 6), text_top_for_center(Y(&v, by + 31), ls), ls, WHITE);
+        if (b_ask) text_draw(sb, "START: VOTE", X(&v, bx + 6), text_top_for_center(Y(&v, by + 47), ls), ls, PALE);
+        rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
     }
     if (pm_open < 0 && vote) { /* the vote's note: at the side, under the kill feed; START (the menu) to vote */
@@ -16399,7 +16458,7 @@ static int pm_frame(Image *sb, int *shown)
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
     } else if (pm_open >= 0) { /* the Players list */
-        int rows = n + (vote ? 1 : 0);
+        int rows = n + (vote ? 1 : 0) + (b_ask ? 1 : 0) + 1;
         float bx = 110, bw = 420, rh = 22, bh = 52 + rh * (float)rows + (pm_sub >= 0 ? 0 : 0), by = 240 - bh / 2;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, 1.5f) > 1 ? S(&v, 1.5f) : 1, line, 255);
@@ -16422,8 +16481,20 @@ static int pm_frame(Image *sb, int *shown)
             }
             y += rh;
         }
+        if (b_ask) { /* the vote to go back to the lobby: YES / NO */
+            int cy = Y(&v, y + rh / 2), row = vote ? 1 : 0;
+            snprintf(text, sizeof text, "BACK TO THE LOBBY? (%d/%d)", b_yes, b_needed);
+            TextColor sky = WHITE;
+            memcpy(sky.top, BACK_SKY, 3), memcpy(sky.bottom, BACK_SKY, 3);
+            if (pm_sel == row) draw_bar(&v, X(&v, bx + 6), X(&v, bx + bw - 6), cy, ls);
+            text_draw(sb, text, X(&v, bx + 14), text_top_for_center(cy, ls), ls, sky);
+            const char *yn[2] = {"YES", "NO"};
+            for (int k = 0; k < 2; k++)
+                text_draw(sb, yn[k], X(&v, bx + bw - 120 + 56 * k), text_top_for_center(cy, ls), ls, pm_sel == row && pm_sub_sel == k ? ORANGE : GRAY);
+            y += rh;
+        }
         for (int h = 0; h < n; h++, y += rh) {
-            int row = h + (vote ? 1 : 0), node = node_of[h], cy = Y(&v, y + rh / 2);
+            int row = h + (vote ? 1 : 0) + (b_ask ? 1 : 0), node = node_of[h], cy = Y(&v, y + rh / 2);
             const LobbyView *lv = l ? lobby_view(l) : NULL;
             if (row == pm_sel && pm_sub < 0) draw_bar(&v, X(&v, bx + 6), X(&v, bx + bw - 6), cy, ls);
             snprintf(text, sizeof text, "%s", match_human_name(h));
@@ -16447,6 +16518,16 @@ static int pm_frame(Image *sb, int *shown)
                               pm_sub_sel == k ? ORANGE : GRAY);
                 }
             }
+        }
+        { /* the last row: the call to go back to the lobby (a vote running: its count) */
+            int row = rows - 1, cy = Y(&v, y + rh / 2), can = b_state == LOBBY_BACK_NONE || b_state == LOBBY_BACK_FAILED;
+            if (row == pm_sel && pm_sub < 0) draw_bar(&v, X(&v, bx + 6), X(&v, bx + bw - 6), cy, ls);
+            if (can) snprintf(text, sizeof text, "VOTE: BACK TO LOBBY");
+            else if (b_state == LOBBY_BACK_RUNNING) snprintf(text, sizeof text, "BACK TO LOBBY: YES %d  NO %d  (%d NEEDED)", b_yes, b_no, b_needed);
+            else snprintf(text, sizeof text, "BACK TO LOBBY: PASSED");
+            TextColor sky = WHITE;
+            memcpy(sky.top, BACK_SKY, 3), memcpy(sky.bottom, BACK_SKY, 3);
+            text_draw(sb, text, X(&v, bx + 14), text_top_for_center(cy, ls), ls, can ? WHITE : sky);
         }
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
@@ -17436,7 +17517,10 @@ static int battle_results(int result, int mode)
         image_free(&canvas);
         return 0;
     }
-    if (netplay_in_match() && net_pl.on && netplay_lobby() && (net_pl.n > 0 || !lobby_is_host(netplay_lobby())) &&
+    int vp_back_requested(void);
+    if (netplay_in_match() && vp_back_requested() && netplay_lobby()) /* (the vote to go back to the lobby: no playlist vote) */
+        lobby_back_clear(netplay_lobby());
+    if (netplay_in_match() && !vp_back_requested() && net_pl.on && netplay_lobby() && (net_pl.n > 0 || !lobby_is_host(netplay_lobby())) &&
         !lobby_migrated_at(netplay_lobby(), NULL)) { /* (a joiner: the host's playlist on, its matches the host's alone: the
                                                      * vote's screen for every player, not the host's only: SuperflyKev's and
                                                      * Navi's, 2026-11-25) */ /* a server's playlist: the final scoreboard a while, then the vote, then on */
@@ -17709,6 +17793,13 @@ void ui_MainLoop(CPU *c) /* rtMainLoop: one round, its result */
         void interp_snap(void), interp_frame_start(void); /* vplus/interp.c */
         interp_snap();
         interp_frame_start();
+    }
+    int vp_back_requested(void); /* vplus/fixes.c: the vote to go back to the lobby passed */
+    if (netplay_in_match() && vp_back_requested()) { /* the match over: the session quits, back to the lobby */
+        battle_new_match = 1;
+        c->r[2] = 2;
+        fprintf(stderr, "back to the lobby: the session quits\n");
+        return;
     }
     if (duel_active) { /* the co-op duel: one round, then the runner quits */
         int dr = (int)c->r[2];

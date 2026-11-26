@@ -238,6 +238,13 @@ static void cb_advance(void *ctx, const RbInput *inputs)
         }
         ng.cur[p][0] |= 0x0008;                                         /* (no Start online: nobody pauses everyone) */
     }
+    { /* the host's flag: the vote to go back to the lobby passed (the input of every machine's same step) */
+        int back = 0;
+        for (int p = 0; p < ng.humans && p < NG_PLAYERS; p++)
+            if (ng.cur[p][2] & 0x0008) back = 1, ng.cur[p][2] &= ~0x0008u;
+        void vp_back_input(int on); /* vplus/fixes.c */
+        vp_back_input(back);
+    }
     static int in_log = -1; /* tests: TM2PC_NET_INPUT_LOG, each step's agreed inputs (two machines' logs compared) */
     if (in_log < 0) in_log = getenv("TM2PC_NET_INPUT_LOG") != NULL;
     if (in_log) {
@@ -1086,7 +1093,15 @@ static void frame_body(void)
     state_apply(); /* (a state that came early: this is its step) */
     RbInput local[RB_MAX_SLOTS];
     memset(local, 0, sizeof local);
-    for (int j = 0; j < ng.count && ng.first + j < RB_MAX_SLOTS; j++) local[ng.first + j] = pack(ng.live[j]);
+    for (int j = 0; j < ng.count && ng.first + j < RB_MAX_SLOTS; j++) {
+        uint32_t w[NG_KINDS];
+        memcpy(w, ng.live[j], sizeof w);
+        /* (the host, the vote to go back to the lobby passed: a flag in its first player's input from now on, 0x0008 of the
+         * easy word (no button there); every machine ends the match at the step it comes in: cb_advance) */
+        if (j == 0 && lob && lobby_is_host(lob) && lobby_back_progress(lob, NULL, NULL, NULL, NULL, NULL) == LOBBY_BACK_PASSED)
+            w[2] |= 0x0008;
+        local[ng.first + j] = pack(w);
+    }
     ng.advanced = 0;
     if (ng.node == ng.host && !ng.pushed) { /* the match's first step: the host's state to every machine */
         ng.pushed = 1;
@@ -1624,6 +1639,8 @@ int netplay_match_begin(void)
         for (int j = 0; v->start.first[n] != 0xFF && j < v->m[n].count && v->start.first[n] + j < NG_PLAYERS; j++)
             snprintf(ng.names[v->start.first[n] + j], sizeof ng.names[0], "%s", v->m[n].p[j].name);
     ng.humans = v->start.humans;
+    void vp_back_reset(void); /* vplus/fixes.c: no vote to go back to the lobby passed yet */
+    vp_back_reset();
     void vp_set_spectators(uint32_t humans); /* vplus/fixes.c: a split screen's spectators, parked out each round */
     vp_set_spectators(v->start.spec & (v->start.humans >= 32 ? ~0u : (1u << v->start.humans) - 1u));
     if (v->start.spec) fprintf(stderr, "network: spectators in the start (humans %08x): parked out each round\n", (unsigned)v->start.spec);
