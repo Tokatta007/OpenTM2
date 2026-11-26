@@ -16666,6 +16666,35 @@ static int pm_frame(Image *sb, int *shown)
         text_draw(sb, "SELECT: VOTE", X(&v, bx + 8), text_top_for_center(Y(&v, by + 33), ls), ls, WHITE); /* (Select: the vote's box) */
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
+    } else if (pm_open >= 0 && !pv_on && !tc_on && np_on && gfont_ready(0) && gfont_ready(6)) {
+        /* the online menu in the single-player pause's look (the user's 2026-11-26): the game's fonts and colors (compose_pause),
+         * its items 20 apart, on a black box (the overlay can't darken the running game behind it) */
+        static const uint8_t black[3] = {0, 0, 0}, title_c[3] = {115, 84, 35}, item_c[3] = {93, 30, 23},
+                             chosen_c[3] = {115, 61, 27};
+        static const char *const yn[2] = {"YES", "NO"};
+        int items = np_sure ? 2 : 5;
+        float s = sb->h / 240.0f;
+        if (sb->w / 320.0f < s) s = sb->w / 320.0f;
+        float ox = (sb->w - 320 * s) / 2, oy = (sb->h - 240 * s) / 2;
+        const char *title = np_sure ? "QUIT THE MATCH?" : "MENU";
+        int tf = gfont_width(6, title) > 296 ? 0 : 6;
+        /* (the game's 320x240; the fonts' y is the baseline: the title's at +30, the items' from +58, 20 apart) */
+        float gh = 52 + 20.0f * items, gy0 = 120 - gh / 2, gw = (float)gfont_width(tf, title) + 32;
+        if (gw < 200) gw = 200;
+        float gx = 160 - gw / 2;
+        int rx = (int)(ox + gx * s), ry = (int)(oy + gy0 * s), rw = (int)(gw * s), rh = (int)(gh * s);
+        draw_fill(sb, rx, ry, rw, rh, black, 255);
+#define NP_TEXT(font, text, gy, color) \
+    gfont_draw(sb, font, text, ox + (159 - (gfont_width(font, text) >> 1)) * s, oy + (gy) * s, s, color)
+        NP_TEXT(tf, title, gy0 + 30, title_c);
+        for (int k = 0; k < items; k++) {
+            const char *it = np_sure ? yn[k] : np_items[k];
+            int chosen = np_sure ? np_sure_sel == k : np_sel == k;
+            NP_TEXT(chosen ? 1 : 0, it, gy0 + 58 + 20 * k, chosen ? chosen_c : item_c);
+        }
+#undef NP_TEXT
+        rect[4 * nr] = rx, rect[4 * nr + 1] = ry, rect[4 * nr + 2] = rw, rect[4 * nr + 3] = rh;
+        nr++;
     } else if (pm_open >= 0 && !pv_on && !tc_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
         int items = np_sure ? 2 : 5;
         float bx = 220, bw = 200, rh = 24, bh = 56 + rh * (float)items, by = 240 - bh / 2;
