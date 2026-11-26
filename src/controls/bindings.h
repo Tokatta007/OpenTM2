@@ -55,7 +55,8 @@ const char *bind_key_name(int scancode); /* for the Controls page */
 #define BIND_PTT 2     /* push to talk (online voice chat, held) */
 #define BIND_SCOREBOARD 3 /* the scoreboard in a battle (held): the touchpad and Tab by default, on any controller */
 #define BIND_QUIT 4    /* "QUIT OPENTM2?" (runtime/gpu_psyz.c): Escape by default, no controller button (Tegu's, 2026-11-23) */
-#define BIND_EXTRAS 5
+#define BIND_TEXT_CHAT 5 /* online, in a match: the chat's keyboard at once (T by default; the user's 2026-11-26) */
+#define BIND_EXTRAS 6
 extern const char *const bind_extra_names[BIND_EXTRAS];
 int bind_extra_button(int i);
 void bind_set_extra_button(int i, int button);

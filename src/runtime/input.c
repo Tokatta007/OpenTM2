@@ -526,6 +526,16 @@ int input_scoreboard_held(void)
     return 0;
 }
 
+/* Text chat (online, in a match): its key (T by default) or its button on player 1's controller held */
+int input_text_chat_held(void)
+{
+    static long long test = -2; /* tests: TM2PC_TEST_TEXT_CHAT=V, held for 6 VBlanks from VBlank V */
+    if (test == -2) test = getenv("TM2PC_TEST_TEXT_CHAT") ? atoll(getenv("TM2PC_TEST_TEXT_CHAT")) : -1;
+    if (test >= 0 && M.vblanks >= (uint64_t)test && M.vblanks < (uint64_t)test + 6) return 1;
+    SDL_UpdateGamepads();
+    return input_extra_held(BIND_TEXT_CHAT, input_keys(0), gamepad_bits_ex(pads[0], 0));
+}
+
 /* Any gamepad's touchpad held (the Controls page's capture: not a PS1 button) */
 int input_pad_touchpad(void)
 {

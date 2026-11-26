@@ -5224,15 +5224,23 @@ static void build(PageId page)
             r->keys = 1;
             r->energy = 1;
         }
-        add(ROW_HEADER, "Music, voice and more", NULL);
-        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT, BIND_SCOREBOARD, BIND_QUIT}; /* previous song above next song (the user's) */
+        /* Match and online, then Music and more (the user's 2026-11-26); previous song above next song (the user's) */
+        static const int extra_order[BIND_EXTRAS] = {BIND_SCOREBOARD, BIND_TEXT_CHAT, BIND_PTT, 1, 0, BIND_QUIT};
         for (int k = 0; k < BIND_EXTRAS; k++) {
             int i = extra_order[k];
+            if (k == 0 || k == 3) {
+                Row *xh = add(ROW_HEADER, "", NULL);
+                xh->col1 = "CONTROLLER";
+                xh->col2 = "KEYBOARD";
+                add(ROW_HEADER, k ? "Music and more" : "Match and online", NULL);
+            }
             Row *r = add_choice(bind_extra_names[i], p && i == BIND_SCOREBOARD ? "Set on player 1's page. Works on every controller."
                                 : p ? "Player 1's controller and keyboard only."
                                 : i == BIND_SCOREBOARD ? "Hold it in a battle to see the scores. Works on every controller."
                                 : i == BIND_PTT ? "Online: hold it to talk (voice chat). No controller button by default."
                                 : i == BIND_QUIT ? "Asks to quit OpenTM2. Escape by default; no controller button by default."
+                                : i == BIND_TEXT_CHAT ? "Online: opens the chat's keyboard in a match. Start sends, and you're "
+                                                        "back in the game. T by default."
                                                 : "Custom music on Random or In order. No controller button by default.",
                                 get_extra_button, set_extra_button, i, bind_button_names, BIND_TOUCHPAD + 1);
             r->tiny = 1;
@@ -16452,6 +16460,20 @@ static void pm_input(void)
     int n = pm_humans(node_of), target, yes, needed, vote = pm_vote(&target, &yes, &needed);
     int b_caller = 0, b_yes = 0, b_no = 0, b_needed = 0, b_ask = 0, b_state = pm_back(&b_caller, &b_yes, &b_no, &b_needed, &b_ask);
     int b_row = vote ? 1 : 0; /* (the back vote's YES / NO row: after the kick vote's) */
+    { /* Text chat's own button (Controls; T by default): its keyboard straight from the match, back to the game after it */
+        int input_text_chat_held(void); /* runtime/input.c */
+        static int tc_was = 1;           /* (held when the match started: not a press) */
+        int held = input_text_chat_held();
+        if (held && !tc_was && pm_open < 0 && !pv_on && l) {
+            name_start(0);
+            naming.max = 40;
+            naming.text[0] = 0;
+            tc_on = 1, pm_open = 0, np_on = 0;
+            pm_prev[0] = 0xFFFF; /* (its press not seen as the keyboard's) */
+            menu_sound(0);
+        }
+        tc_was = held;
+    }
     for (int p = 0; p < local && p < 4; p++) {
         uint16_t b = (uint16_t)(input_player_menu_buttons(p) | (p == 0 ? net_test_menu_buttons() : 0)), pressed = (uint16_t)(b & ~pm_prev[p]);
         pm_prev[p] = b;

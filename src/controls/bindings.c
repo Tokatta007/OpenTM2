@@ -78,12 +78,14 @@ static const char *const button_keys[BIND_TOUCHPAD + 1] = {
     "ls_up", "ls_down", "ls_left", "ls_right", "touchpad",
 };
 
-const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk", "Scoreboard", "Quit game"};
-static const char *const extra_keys[BIND_EXTRAS] = {"next_song", "previous_song", "push_to_talk", "scoreboard", "quit_game"}; /* (their ini names) */
-static int extra_button[BIND_EXTRAS] = {0, 0, 0, BIND_TOUCHPAD, 0}; /* the songs and talking: none by default (not by
+const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk", "Scoreboard", "Quit game",
+                                                   "Text chat"};
+static const char *const extra_keys[BIND_EXTRAS] = {"next_song", "previous_song", "push_to_talk", "scoreboard", "quit_game",
+                                                    "text_chat"}; /* (their ini names) */
+static int extra_button[BIND_EXTRAS] = {0, 0, 0, BIND_TOUCHPAD, 0, 0}; /* the songs and talking: none by default (not by
                                                                   * accident); the scoreboard: the touchpad (the user's) */
 static int extra_key[BIND_EXTRAS] = {SDL_SCANCODE_PAGEDOWN, SDL_SCANCODE_PAGEUP, SDL_SCANCODE_V, SDL_SCANCODE_TAB,
-                                       SDL_SCANCODE_ESCAPE};
+                                       SDL_SCANCODE_ESCAPE, SDL_SCANCODE_T};
 static int is_extra_key(const char *key) /* an extra control's ini name (or its _key): player 1's, unprefixed */
 {
     for (int i = 0; i < BIND_EXTRAS; i++) {
