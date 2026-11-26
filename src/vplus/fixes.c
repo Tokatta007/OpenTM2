@@ -2085,7 +2085,7 @@ void F_800D181C_orig(CPU *c);
 /* The winner's moment (the user's 2026-11-24): the match's last round end waits WIN_HOLD VBlanks more, the winner's name
  * and picture over the cars once the final kill cam is over (ui/options.c win_frame). The replay's end the same wait, so
  * the kill cam's replay schedules what the battle did. */
-#define WIN_HOLD 120
+#define WIN_HOLD 180 /* (3 s: a second more, the user's 2026-11-26) */
 int ui_round_ends_match(int value); /* ui/options.c */
 static int win_value = -1;
 static uint64_t win_end; /* (the round's end, VBlanks: the moment's overlay off 4 before it, so the results' picture of
