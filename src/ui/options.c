@@ -2044,8 +2044,6 @@ static void build_battle(PageId page)
         rows[row_count - 1].text = battle_text[0];
         add_choice("Spawn shield", "The shield a car comes back with, after losing a life.", get_gt_flag, set_gt_flag,
                    GT_SPAWN_SHIELD, shield_values, SHIELD_STEPS);
-        add_choice("Mines", "How long a dropped mine stays: until 15 seconds after its owner is destroyed, or 15 seconds "
-                   "after it is laid.", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
         if (t->mode == MODE_JUGGERNAUT)
             add_page("Juggernaut", PAGE_BATTLE_JUGG, "The Juggernaut's toughness, damage and ammo.");
         if (t->mode == MODE_GUN_GAME)
@@ -2207,6 +2205,9 @@ static void build_battle(PageId page)
             add_choice(energy_names[e], e == ENERGY_VOLLEY ? "Up, Down, Up, Up: any car's volley (always off online)."
                        : e == ENERGY_INVISIBILITY ? "This energy attack on or off (always off online)." : "This energy attack on or off.",
                        get_gt_energy, set_gt_energy, e, onoff_values, 2);
+            if (e == ENERGY_MINES) /* (beside the mines, the user's 2026-11-26) */
+                add_choice("Timer", "How long a dropped mine stays: until 15 seconds after its owner is destroyed, or "
+                           "15 seconds after it is laid.", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
         }
         break;
     case PAGE_BATTLE_HAZARDS:
