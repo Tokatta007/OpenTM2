@@ -731,8 +731,8 @@ static void set_extra_button(int a, int v) { bind_set_extra_button(a, v); change
 
 /* Custom Music: each track's playback (default, random, in order, a song)
  * and, for a song, which one */
-enum { PLAY_DEFAULT, PLAY_RANDOM, PLAY_ORDER, PLAY_SONG, PLAY_OFF };
-static const char *const playback_values[] = {"DEFAULT", "RANDOM", "IN ORDER", "SONG", "OFF"};
+enum { PLAY_DEFAULT, PLAY_RANDOM, PLAY_ORDER, PLAY_FOLDER_RANDOM, PLAY_FOLDER_ORDER, PLAY_SONG, PLAY_OFF };
+static const char *const playback_values[] = {"DEFAULT", "RANDOM", "IN ORDER", "FOLDER RANDOM", "FOLDER IN ORDER", "SONG", "OFF"};
 
 static int music_file_index(int slot)
 {
@@ -747,12 +747,17 @@ static int music_playback(int slot)
     const char *set = music_page_setting(slot);
     if (music_page_has_off(slot) && (!*set || !SDL_strcasecmp(set, "off"))) return PLAY_OFF;
     if (!*set || !SDL_strcasecmp(set, "default")) return PLAY_DEFAULT;
+    const char *dir = music_page_dir(slot); /* (the arena's own folder: random:DIR, order:DIR) */
+    if (dir && !SDL_strncasecmp(set, "random:", 7) && !SDL_strcasecmp(set + 7, dir)) return PLAY_FOLDER_RANDOM;
+    if (dir && !SDL_strncasecmp(set, "order:", 6) && !SDL_strcasecmp(set + 6, dir)) return PLAY_FOLDER_ORDER;
     if (!SDL_strncasecmp(set, "random", 6)) return PLAY_RANDOM;
-    if (!SDL_strcasecmp(set, "order")) return PLAY_ORDER;
+    if (!SDL_strncasecmp(set, "order", 5)) return PLAY_ORDER;
     return PLAY_SONG;
 }
 
 static int get_music_at_end(int a) { (void)a; return music_next_at_end(); }
+static int get_music_original(int a) { (void)a; return music_include_original(); }
+static void set_music_original(int a, int v) { (void)a; music_set_include_original(v); changed |= SAVE_MUSIC; }
 static void set_music_at_end(int a, int v) { (void)a; music_set_next_at_end(v); changed |= SAVE_MUSIC; }
 static void set_music_file(int slot, int i)
 {
@@ -765,7 +770,8 @@ static void set_music_file(int slot, int i)
 /* Square: the next playback (a song: the one chosen before, or the first) */
 static void next_playback(int slot)
 {
-    int now = music_playback(slot), t = now == PLAY_OFF ? PLAY_DEFAULT : (now + 1) % 4;
+    int now = music_playback(slot), t = now == PLAY_OFF ? PLAY_DEFAULT : (now + 1) % (PLAY_SONG + 1);
+    if ((t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER) && !music_page_dir(slot)) t = PLAY_SONG; /* (an arena's row only) */
     if (t == PLAY_SONG && music_file_total <= 0) t = PLAY_DEFAULT;
     if (music_page_has_off(slot) && now != PLAY_OFF && t == PLAY_DEFAULT) { /* the showdown: back to Off */
         music_page_set(slot, "off");
@@ -781,6 +787,11 @@ static void next_playback(int slot)
         for (int k = 0; k < music_file_total; k++)
             if (!SDL_strcasecmp(last[slot], music_files[k])) i = k;
         set_music_file(slot, i);
+    } else if (t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER) { /* its own folder (music/<arena>) */
+        char set[300];
+        snprintf(set, sizeof set, "%s:%s", t == PLAY_FOLDER_RANDOM ? "random" : "order", music_page_dir(slot));
+        music_page_set(slot, set);
+        changed |= SAVE_MUSIC;
     } else {
         music_page_set(slot, keys[t]);
         changed |= SAVE_MUSIC;
@@ -5041,6 +5052,10 @@ static void build(PageId page)
         static const char *const at_end_values[2] = {"REPEAT", "NEXT SONG"};
         add_choice("When a song ends", "For tracks set to Random or In order: the next song plays (Random: another at random), "
                    "or the same song starts over.", get_music_at_end, set_music_at_end, 0, at_end_values, 2)->small = 1;
+        add_choice("Include the arena's original song", "On: an arena's original song is one of the songs its Random, In "
+                   "order, or folder plays. Each arena has a folder in the music folder for its own songs (Folder Random, Folder "
+                   "In Order).",
+                   get_music_original, set_music_original, 0, onoff_values, 2)->small = 1;
         Row *h = add(ROW_HEADER, "Tracks", NULL);
         h->col1 = "PLAYBACK";
         h->col2 = "SONG";
@@ -5055,7 +5070,7 @@ static void build(PageId page)
                                 : !strcmp(music_page_name(i), "Versus podium")
                                 ? "A Versus Tournament's podium and final standings. Default: the menus' music; or Random, "
                                   "In order, a song."
-                                : "How each track plays: Default, Random, In order, or the song you choose.",
+                                : "How each track plays: Default, Random, In order, Folder Random (an arena's own folder), Folder In Order, or the song you choose.",
                                 get_zero, set_none, i, playback_values, 1);
             r->small = 1;
             r->music = 1;
@@ -8137,10 +8152,11 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                     int t = music_playback(r->arg);
                     const char *type = playback_values[t];
                     text_draw(c, type, X(&v, MUSIC_PLAY_X) - text_width(type, size) / 2, ty, size, ORANGE);
-                    if (t == PLAY_SONG || !SDL_strncasecmp(music_page_setting(r->arg), "random:", 7)) {
+                    if (t == PLAY_SONG || t == PLAY_FOLDER_RANDOM || t == PLAY_FOLDER_ORDER ||
+                        !SDL_strncasecmp(music_page_setting(r->arg), "random:", 7)) { /* (the song, or the folder) */
                         char song[160], up[256];
                         const char *set = music_page_setting(r->arg);
-                        shorten(up, sizeof up, t == PLAY_SONG ? set : set + 7, t == PLAY_SONG);
+                        shorten(up, sizeof up, t == PLAY_SONG ? set : strchr(set, ':') + 1, t == PLAY_SONG);
                         int sx = X(&v, MUSIC_SONG_X);
                         fit_text(song, sizeof song, up, c->w - S(&v, MUSIC_SONG_MARGIN) - sx, size);
                         text_draw(c, song, sx, ty, size, ORANGE);

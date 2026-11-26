@@ -127,7 +127,7 @@ const VpChange vp_changes[VP_COUNT] = {
     [VP_BAL_GUN_RANGE] = { "bal_gun_range", "Machine gun range", VP_CAT_BALANCING,
         "Machine-gun bullets fly 25% farther before they fade, as in the PC version." },
     [VP_BAL_PICKUP_PASS] = { "bal_pickup_pass", "Shots through pickups", VP_CAT_BALANCING,
-        "Ricochet bombs, missiles, bullets and Dark Tooth's swoop pass through pickups. The original could trap a ricochet bomb between a pickup and a wall." },
+        "Ricochet bombs, missiles, bullets, and Dark Tooth's swoop pass through pickups. The original could trap a ricochet bomb between a pickup and a wall." },
     [VP_BAL_SLAM] = { "bal_slam", "Mr. Slam balancing", VP_CAT_CHARACTERS,
         "No pickups or special while his arm swings. His shield and machine guns still work." },
     [VP_AI_UNJAM] = { "ai_unjam", "Computer cars unjam", VP_CAT_BALANCING,

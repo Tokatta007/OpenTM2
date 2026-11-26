@@ -50,21 +50,21 @@ static Slot slots[] = {
     {"HONG", "Hong Kong", "Hong Kong", "", -1},
     /* the secret arenas (the game's levels 10..12) play another arena's track: their own rows (the user's 2026-11-25),
      * default: that track as the disc has it */
-    {"SWAMP", "Suicide Swamp (a secret arena): default (the disc track it plays), random, order, its folder or a file",
+    {"SWAMP", "Suicide Swamp (a secret arena): default (the disc track it plays), random, order, its folder, or a file",
      "Suicide Swamp", "", -2},
-    {"CYBURBIA", "Cyburbia (a secret arena): default (the disc track it plays), random, order, its folder or a file",
+    {"CYBURBIA", "Cyburbia (a secret arena): default (the disc track it plays), random, order, its folder, or a file",
      "Cyburbia", "", -2},
-    {"ROOFTOPS", "Roof Tops (a secret arena): default (the disc track it plays), random, order, its folder or a file",
+    {"ROOFTOPS", "Roof Tops (a secret arena): default (the disc track it plays), random, order, its folder, or a file",
      "Roof Tops", "", -2},
     {"TMLEVELS", "Dark Tooth (boss): his whole fight, both its songs", "Dark Tooth", "", -1},
     {"TMLOGO", "title screen and menus (in the Dark Tooth fight: the Dark Tooth setting)", "Menus", "", -1},
     {"BLANK", "silence on the disc (where the game uses it is not known yet)", NULL, "", -1},
     {"MODARENA", "a mod arena: default (its own music.wav / .mp3 / .flac / .ogg, else a random arena's track from the disc), "
-     "random, order or a file", "Mod arenas", "", -2},
-    {"PODIUM", "a Versus Tournament's podium and final standings: default (the menus' music), random, order or a file",
+     "random, order, or a file", "Mod arenas", "", -2},
+    {"PODIUM", "a Versus Tournament's podium and final standings: default (the menus' music), random, order, or a file",
      "Versus podium", "", -2},
-    {"MENULOOP", "the menus' loop after the title song: default (the game's own), random, order or a file", "Menu loop", "", -2},
-    {"SHOWDOWN", "a battle's final moments: off, default (the Dark Tooth track as set), random, order or a file",
+    {"MENULOOP", "the menus' loop after the title song: default (the game's own), random, order, or a file", "Menu loop", "", -2},
+    {"SHOWDOWN", "a battle's final moments: off, default (the Dark Tooth track as set), random, order, or a file",
      "Showdown", "", -2},
 };
 #define SHOWDOWN_SLOT (SLOT_COUNT - 1)
