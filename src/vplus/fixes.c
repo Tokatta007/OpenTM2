@@ -3742,6 +3742,23 @@ int four_views(void);
 void four_view_size(int player, int *w, int *h);
 int four_divider_kind(void);
 void F_800F9D48_orig(CPU *c);
+/* The target panel in a split view (the user's 2026-11-26): the game's split HUD draws it in the co-op tournament only
+ * (mode 2); here in every other mode too, each view's under its radar, through the layout. Customize HUD's Target still
+ * hides it (vp_HudTargetPanel). */
+static void split_target_panel(int who)
+{
+    static int off = -1; /* (tests: TM2PC_NO_SPLIT_TARGET=1, the game's split HUD alone) */
+    if (off < 0) off = getenv("TM2PC_NO_SPLIT_TARGET") != NULL;
+    if (off) return;
+    if (guest_call(GA(0x80121560u), 0, 0, 0, 0) == 2) return; /* gameGetMode: the co-op tournament's split HUD draws it */
+    /* (the split HUD has sent its list (its DrawOTag) by now: the panel in an order table of our own, as the banner's) */
+    const uint32_t ot = 0x80DF6C08u; /* (high RAM: an order table of 2, between BANNER_OT's and its sprites) */
+    hudlay_force(G_TL);
+    guest_call(GA(0x80141938u), ot, 2, 0, 0);                       /* ClearOTagR */
+    guest_call(GA(0x800FD0D0u), ot, (uint32_t)who, 0, 0);           /* hudDrawTargetPanel(ot, i) */
+    guest_call(GA(0x80141A30u), ot + 4, 0, 0, 0);                   /* DrawOTag */
+    hudlay_force(-1);
+}
 static void vp_HudDrawSplitHorizontal_body(CPU *c)
 {
     int who = (int)(c->r[4] & 3), player = who & 1;
@@ -3758,6 +3775,7 @@ static void vp_HudDrawSplitHorizontal_body(CPU *c)
         hudlay_begin(2, w, h);
         hudlay_player(who);
         F_800F9D48_orig(c);
+        split_target_panel(who);
         hudlay_force(G_TM);
         split_message_print(c, who, 157, 16);
         mode_status_print(c, who, 159, 28);
@@ -3777,6 +3795,7 @@ static void vp_HudDrawSplitHorizontal_body(CPU *c)
         return;
     }
     F_800F9D48_orig(c);
+    split_target_panel(player);
     split_message_print(c, player, 157, 16);
     mode_status_print(c, player, 159, 28);
     score_line_print(c, player, 11, 107, 2);
