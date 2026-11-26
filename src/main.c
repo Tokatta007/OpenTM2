@@ -747,8 +747,9 @@ int main(int argc, char **argv)
     if (settings_path || !M.headless) {
         if (disc) settings_set_disc(disc);
         settings_load(ini, !settings_path);
-        if (!settings_path) SDL_CreateDirectory(music_folder()); /* (play: the music folder there for the player's songs, a
-                                                                    * player's "it doesn't create one", 2026-11-22) */
+        if (!settings_path) SDL_CreateDirectory(music_folder()), music_make_folders(); /* (play: the music folder there for
+                                                    * the player's songs, a player's "it doesn't create one", 2026-11-22;
+                                                    * and each arena's, empty, the user's 2026-11-25) */
         { /* the video settings a report needs, in the log (Ryupichu's Wobble had to be asked for, 2026-11-22) */
             static const char *const wob[3] = {"ps1", "smooth", "none"}, *const fr[3] = {"original", "60", "uncapped"};
             fprintf(stderr, "video: wobble %s, frame rate %s, resolution %d%s, textures %s, hidden surfaces %s, widescreen %s\n",

@@ -22,7 +22,11 @@ int music_slot(int track);
  * the showdown's own setting (until a new round: 0). */
 int music_showdown(void);
 void music_showdown_play(int on);
-int music_page_has_off(int i); /* the row has an Off setting (the showdown) */
+int music_page_has_off(int i);
+const char *music_page_dir(int i); /* the row's arena folder (in the music folder), NULL none */
+int music_include_original(void);  /* an arena's own song among its random / order songs */
+void music_set_include_original(int on);
+void music_make_folders(void);     /* each arena's folder, created empty */ /* the row has an Off setting (the showdown) */
 /* The Versus Tournament's podium (ui/options.c): its own song's slot, or -1 (default: the menus' music). */
 int music_podium_slot(void);
 short *music_load(int slot, size_t *frames);

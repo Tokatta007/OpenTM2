@@ -40,7 +40,7 @@ typedef struct {
 } Slot;
 
 static Slot slots[] = {
-    {"FRWYSUB", "Hollywood", "Hollywood", "", -1},
+    {"FRWYSUB", "Los Angeles", "Los Angeles", "", -1},
     {"DISH", "Moscow", "Moscow", "", -1},
     {"PARIS", "Paris", "Paris", "", -1},
     {"LAVA", "Amazonia", "Amazonia", "", -1},
@@ -48,6 +48,14 @@ static Slot slots[] = {
     {"GLACIER", "Antarctica", "Antarctica", "", -1},
     {"DNMSWP", "Holland", "Holland", "", -1},
     {"HONG", "Hong Kong", "Hong Kong", "", -1},
+    /* the secret arenas (the game's levels 10..12) play another arena's track: their own rows (the user's 2026-11-25),
+     * default: that track as the disc has it */
+    {"SWAMP", "Suicide Swamp (a secret arena): default (the disc track it plays), random, order, its folder or a file",
+     "Suicide Swamp", "", -2},
+    {"CYBURBIA", "Cyburbia (a secret arena): default (the disc track it plays), random, order, its folder or a file",
+     "Cyburbia", "", -2},
+    {"ROOFTOPS", "Roof Tops (a secret arena): default (the disc track it plays), random, order, its folder or a file",
+     "Roof Tops", "", -2},
     {"TMLEVELS", "Dark Tooth (boss): his whole fight, both its songs", "Dark Tooth", "", -1},
     {"TMLOGO", "title screen and menus (in the Dark Tooth fight: the Dark Tooth setting)", "Menus", "", -1},
     {"BLANK", "silence on the disc (where the game uses it is not known yet)", NULL, "", -1},
@@ -77,6 +85,32 @@ void music_set_folder(const char *f)
 }
 
 static int is_off(const char *s) { return !*s || !SDL_strcasecmp(s, "off"); }
+/* each arena's own folder in the music folder (its name as the arena lists show it): folder random / folder in order
+ * play its songs only (the user's 2026-11-25); the music folder itself is every arena's */
+static const char *slot_dir(int i)
+{
+    static const struct { const char *da, *dir; } dirs[] = {
+        {"FRWYSUB", "Los Angeles"}, {"DISH", "Moscow"}, {"PARIS", "Paris"}, {"LAVA", "Amazonia"}, {"RFNEW", "New York"},
+        {"GLACIER", "Antarctica"}, {"DNMSWP", "Holland"}, {"HONG", "Hong Kong"}, {"SWAMP", "Suicide Swamp"},
+        {"CYBURBIA", "Cyburbia"}, {"ROOFTOPS", "Roof Tops"}};
+    if (i < 0) return NULL;
+    for (size_t k = 0; k < sizeof dirs / sizeof dirs[0]; k++)
+        if (!SDL_strcasecmp(slots[i].da, dirs[k].da)) return dirs[k].dir;
+    return NULL;
+}
+static int include_original; /* an arena's own disc song one of the songs its random / order plays (0: files only) */
+int music_include_original(void) { return include_original; }
+void music_set_include_original(int on) { include_original = on != 0; }
+static void in_folder(const char *name, char *out, size_t n);
+void music_make_folders(void) /* (each arena's folder, empty, for the player to fill) */
+{
+    for (int i = 0; i < SLOT_COUNT; i++) {
+        if (!slot_dir(i)) continue;
+        char path[1024];
+        in_folder(slot_dir(i), path, sizeof path);
+        SDL_CreateDirectory(path);
+    }
+}
 int music_showdown(void) { return !is_off(slots[SHOWDOWN_SLOT].setting); }
 int music_podium_slot(void) /* the Versus podium's own song (its slot), or -1: the menus' music (default) */
 {
@@ -114,6 +148,7 @@ void music_ini_key(const char *key, const char *val)
         return;
     }
     if (!SDL_strcasecmp(key, "at_end")) { next_at_end = SDL_strcasecmp(val, "repeat") != 0; return; }
+    if (!SDL_strcasecmp(key, "include_original")) { include_original = !SDL_strcasecmp(val, "on"); return; }
     for (int i = 0; i < SLOT_COUNT; i++)
         if (!SDL_strcasecmp(key, slots[i].da))
             snprintf(slots[i].setting, sizeof slots[i].setting, "%s", val);
@@ -124,11 +159,14 @@ void music_ini_write(FILE *f)
     fprintf(f, "[music]\n"
                "; Each music track of the disc: default (the disc), a file (in the folder\n"
                "; unless a full path), random (a random file from the folder, each time the\n"
-               "; track starts), random:FOLDER, or order (the folder's files in name order).\n"
+               "; track starts), random:FOLDER, order, or order:FOLDER (a folder's files in name order).\n"
+               "; An arena's own folder (music/Los Angeles, ...): random:Los Angeles, order:Los Angeles.\n"
                "; Files: WAV, MP3, FLAC, OGG.\n"
                "folder = %s\n"
                "; a song of a track set to random or order that ends: next (another song) or repeat\n"
-               "at_end = %s\n", folder_setting, next_at_end ? "next" : "repeat");
+               "at_end = %s\n"
+               "; an arena's own song among the songs its random or order plays: on or off\n"
+               "include_original = %s\n", folder_setting, next_at_end ? "next" : "repeat", include_original ? "on" : "off");
     for (int i = 0; i < SLOT_COUNT; i++) {
         if (*slots[i].where) fprintf(f, "; %s\n", slots[i].where);
         fprintf(f, "%s = %s\n", slots[i].da, *slots[i].setting ? slots[i].setting : i == SHOWDOWN_SLOT ? "off" : "default");
@@ -196,6 +234,16 @@ int music_slot(int track)
             if (!SDL_strcasecmp(slots[i].da, "TMLEVELS")) boss = i;
             if (!SDL_strcasecmp(slots[i].da, "TMLOGO")) logo = i;
         }
+    { /* a secret arena (levels 10..12): its own row's setting on the arena track it plays, else that track */
+        int lvl = mem_r8(&M.cpu, GA(0x8016475Cu) + 0x18);
+        static const char *const secret[3] = {"SWAMP", "CYBURBIA", "ROOFTOPS"};
+        int arena_track = 0;
+        for (int i = 0; i < SLOT_COUNT; i++) if (slot_dir(i) && slots[i].track >= 0 && slots[i].track == track) arena_track = 1;
+        if (lvl >= 10 && lvl <= 12 && arena_track && !mod_arena_on())
+            for (int i = 0; i < SLOT_COUNT; i++)
+                if (!SDL_strcasecmp(slots[i].da, secret[lvl - 10]))
+                    return *slots[i].setting && SDL_strcasecmp(slots[i].setting, "default") ? i : -1;
+    }
     int ma = mod_slot();
     if (ma >= 0 && mod_arena_on() && track == mod_arena_track) { /* a mod arena's music: the row's setting, else its own file */
         if (*slots[ma].setting && SDL_strcasecmp(slots[ma].setting, "default")) return ma;
@@ -254,10 +302,15 @@ static void free_files(char **found, int count)
 
 /* A random music file from dir, into out, not `avoid` if there is another;
  * 0 if there is none. */
-static int pick_random(const char *dir, const char *avoid, char *out, size_t n)
+static int pick_random(const char *dir, const char *avoid, char *out, size_t n, int with_disc)
 {
     char *found[256];
     int count = list_files(dir, found, 256);
+    if (with_disc && (!count || SDL_rand(count + 1) == count)) { /* (the arena's own song: one of them) */
+        free_files(found, count);
+        out[0] = 0;
+        return 2;
+    }
     if (!count)
         return 0;
     int k = SDL_rand(count);
@@ -270,17 +323,23 @@ static int pick_random(const char *dir, const char *avoid, char *out, size_t n)
     return 1;
 }
 
-/* order: one position in the folder, shared by every track set to it */
-static int order_pos = -1;
-
-static int pick_in_order(const char *dir, int step, char *out, size_t n)
+/* order: one position in each folder, shared by every track set to it (the music folder's, each arena's own); with
+ * the arena's own song, it first */
+static struct { char dir[512]; int pos; } order_at[16];
+static int pick_in_order(const char *dir, int step, char *out, size_t n, int with_disc)
 {
     char *found[256];
-    int count = list_files(dir, found, 256);
-    if (!count)
+    int count = list_files(dir, found, 256), k = 0;
+    while (k < 16 && order_at[k].dir[0] && strcmp(order_at[k].dir, dir)) k++;
+    if (k == 16) k = 0;
+    if (!order_at[k].dir[0]) snprintf(order_at[k].dir, sizeof order_at[k].dir, "%s", dir), order_at[k].pos = -1;
+    int total = count + (with_disc ? 1 : 0);
+    if (!total)
         return 0;
-    order_pos = order_pos < 0 ? 0 : ((order_pos + step) % count + count) % count;
-    snprintf(out, n, "%s/%s", dir, found[order_pos]);
+    int *pos = &order_at[k].pos;
+    *pos = *pos < 0 ? 0 : ((*pos + step) % total + total) % total;
+    if (with_disc && *pos == 0) { free_files(found, count); out[0] = 0; return 2; }
+    snprintf(out, n, "%s/%s", dir, found[*pos - (with_disc ? 1 : 0)]);
     free_files(found, count);
     return 1;
 }
@@ -342,6 +401,7 @@ const char *music_page_setting(int i)
     return s && *s->setting ? s->setting : s == &slots[SHOWDOWN_SLOT] ? "off" : "default";
 }
 int music_page_has_off(int i) { return page_slot(i) == &slots[SHOWDOWN_SLOT]; }
+const char *music_page_dir(int i) { Slot *s = page_slot(i); return s ? slot_dir((int)(s - slots)) : NULL; }
 
 void music_page_set(int i, const char *setting)
 {
@@ -354,7 +414,8 @@ int music_slot_changes(int slot)
     if (slot < 0 || slot >= SLOT_COUNT)
         return 0;
     const char *set = slots[slot].setting;
-    return !SDL_strcasecmp(set, "order") || !SDL_strcasecmp(set, "random") || !SDL_strncasecmp(set, "random:", 7);
+    return !SDL_strcasecmp(set, "order") || !SDL_strncasecmp(set, "order:", 6) || !SDL_strcasecmp(set, "random") ||
+           !SDL_strncasecmp(set, "random:", 7);
 }
 
 static short *decode(int slot, const char *path, size_t *frames);
@@ -374,17 +435,25 @@ static short *load_stepped(int slot, int step, size_t *frames)
         snprintf(path, sizeof path, "%s", history[++history_at]);
         return decode(slot, path, frames);
     }
+    int with_disc = include_original && slot_dir(slot) && step == 0; /* (an arena's own song one of them: as it starts) */
     if (!SDL_strcasecmp(set, "random") || !SDL_strncasecmp(set, "random:", 7)) {
         char dir[1024];
         if (set[6] == ':') in_folder(set + 7, dir, sizeof dir);
         else snprintf(dir, sizeof dir, "%s", folder);
-        if (!pick_random(dir, history_len ? history[history_at] : NULL, path, sizeof path)) {
+        int got = pick_random(dir, history_len ? history[history_at] : NULL, path, sizeof path, with_disc);
+        if (got == 2) { fprintf(stderr, "music %s: the arena's own song (random)\n", slots[slot].da); return NULL; }
+        if (!got) {
             fprintf(stderr, "music %s: no music files in %s\n", slots[slot].da, dir);
             return NULL;
         }
-    } else if (!SDL_strcasecmp(set, "order")) {
-        if (!pick_in_order(folder, step < 0 ? -1 : 1, path, sizeof path)) {
-            fprintf(stderr, "music %s: no music files in %s\n", slots[slot].da, folder);
+    } else if (!SDL_strcasecmp(set, "order") || !SDL_strncasecmp(set, "order:", 6)) {
+        char dir[1024];
+        if (set[5] == ':') in_folder(set + 6, dir, sizeof dir);
+        else snprintf(dir, sizeof dir, "%s", folder);
+        int got = pick_in_order(dir, step < 0 ? -1 : 1, path, sizeof path, with_disc);
+        if (got == 2) { fprintf(stderr, "music %s: the arena's own song (in order)\n", slots[slot].da); return NULL; }
+        if (!got) {
+            fprintf(stderr, "music %s: no music files in %s\n", slots[slot].da, dir);
             return NULL;
         }
     } else if (slot == mod_slot() && (!*set || !SDL_strcasecmp(set, "default"))) {
