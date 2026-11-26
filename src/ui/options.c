@@ -2374,6 +2374,8 @@ static struct {
 static char net_join_where[64], net_join_password[LOBBY_PASSWORD]; /* a private server's join: where, the password typed */
 static char net_last_join[64];        /* the address last joined (a refusal for its password: typed, then again) */
 static int net_pw_asked;              /* (that join) a password typed for it already */
+static int net_pw_prompt;             /* (host) Private chosen with no password: the password's keyboard opens (the user's
+                                       * 2026-11-26: a private server always has one; none typed, it stays Public) */
 static void net_password_apply(void) /* (host) the lobby asks for the password while the server is private */
 {
     Lobby *l = netplay_lobby();
@@ -2578,7 +2580,12 @@ static void set_net_server(int a, int v)
     case NS_SLOTS: net_slots_total(v + 2); rebuild_page = 1; break;
     case NS_HUMANS: net_slots_set(SLOT_HUMAN, v + 1); rebuild_page = 1; break;
     case NS_REPLACE: net_server.replace = v; break;
-    case NS_VISIBILITY: net_server.visibility = v; net_password_apply(); rebuild_page = 1; break;
+    case NS_VISIBILITY: /* (Private with no password: its keyboard at once, the page loop's net_pw_prompt) */
+        net_server.visibility = v;
+        if (v && !net_server.password[0]) net_pw_prompt = 1;
+        net_password_apply();
+        rebuild_page = 1;
+        break;
     case NS_VOICE: net_server.voice = v; rebuild_page = 1; break;
     case NS_FIXED_CPUS: net_slots_set(SLOT_CPU, v); rebuild_page = 1; break; /* (the slots' total kept) */
     case NS_TEAM_MODE: net_server.team_mode = v; break;
@@ -3468,8 +3475,7 @@ static void net_host_rows(void)
         add_choice("Public / Private", "Private: shown in the browser, but joining needs the server's password.", get_net_server,
                    set_net_server, NS_VISIBILITY, net_visibility_values, 2);
         if (net_server.visibility) {
-            add_page("Password", PAGE_ACTION, net_server.password[0] ? "Players type it when they join. Tell it to your friends."
-                                                                   : "Set a password: until then anyone can join.");
+            add_page("Password", PAGE_ACTION, "Players type it when they join. Tell it to your friends.");
             rows[row_count - 1].act = ACT_NET_PASSWORD;
             rows[row_count - 1].text = net_server.password[0] ? net_server.password : "NONE";
         }
@@ -9463,6 +9469,16 @@ static int run(PageId start)
         if (page == PAGE_FRIENDS) { /* (the friends' news: the page again each second) */
             static uint64_t friends_built;
             if (SDL_GetTicks() - friends_built >= 1000) { friends_built = SDL_GetTicks(); rebuild_page = 1; }
+        }
+        if (net_pw_prompt && !naming.active) { /* (host) Private chosen: its password typed at once */
+            net_pw_prompt = 0;
+            net_action(ACT_NET_PASSWORD, 0);
+            naming.prev = 0xFFFF; /* (the press that chose Private types nothing) */
+            dirty = 1;
+        } else if (net_server.visibility && !net_server.password[0] && !naming.active) { /* none typed, or cleared: Public */
+            net_server.visibility = 0;
+            net_password_apply();
+            rebuild_page = 1;
         }
         if (rebuild_page) { /* the Controls page shows another player */
             rebuild_page = 0;
