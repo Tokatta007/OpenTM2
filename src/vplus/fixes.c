@@ -2435,6 +2435,19 @@ static void test_kills(void) /* tests: TM2PC_TEST_KILL="1@2400,2@3000" destroys 
         guest_call(GA(0x800D6710u), 0, 0, 0, 0); /* eiffelTowerStartFall (a second call does nothing) */
         fprintf(stderr, "test: the Eiffel tower falls (round frame %d)\n", vp_round_frames());
     }
+    static int hurt_at = -2, hurt_h, hurt_pct; /* tests: TM2PC_TEST_HURT=N,H,P, human H (0..) set to P% of its health at the
+                                                * round's frame N (every machine the same; the damage looks, DaToastyMane's
+                                                * Hammerhead) */
+    if (hurt_at == -2) {
+        hurt_at = -1;
+        if (getenv("TM2PC_TEST_HURT")) sscanf(getenv("TM2PC_TEST_HURT"), "%d,%d,%d", &hurt_at, &hurt_h, &hurt_pct);
+    }
+    if (hurt_at >= 0 && vp_round_frames() == hurt_at && hurt_h >= 0 && hurt_h < CARS_HUMANS_MAX) {
+        uint32_t rec = HUMAN_REC(hurt_h);
+        int max_hp = (int16_t)mem_r16(&M.cpu, rec + 0x186);
+        mem_w32(&M.cpu, rec + 0x1F0, (uint32_t)(max_hp * hurt_pct / 100));
+        fprintf(stderr, "test: human %d's health %d%% (round frame %d)\n", hurt_h + 1, hurt_pct, vp_round_frames());
+    }
     static int flashed;
     if (!flashed && getenv("TM2PC_TEST_FLASH") && vp_gv() >= (getenv("TM2PC_TEST_FLASH_AT") ? strtoull(getenv("TM2PC_TEST_FLASH_AT"), 0, 10) : 2000)) { /* tests: a port message at VBlank 2000 */
         flashed = 1;
