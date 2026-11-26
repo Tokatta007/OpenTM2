@@ -238,10 +238,13 @@ static void cb_advance(void *ctx, const RbInput *inputs)
         }
         ng.cur[p][0] |= 0x0008;                                         /* (no Start online: nobody pauses everyone) */
     }
-    { /* the host's flag: the vote to go back to the lobby passed (the input of every machine's same step) */
+    { /* the host's flag: the vote to go back to the lobby passed (the input of every machine's same step), 0x8000 of the
+       * throttle word (0..4096: never set by play). (v1.0.17 had it at 0x0008 of the easy word, which is also the jump's
+       * weapon switch safety at 2 or 3: a match with such a player ended at its start; Tegu's, Enough Boxes's, and
+       * Ryupichu's report) */
         int back = 0;
         for (int p = 0; p < ng.humans && p < NG_PLAYERS; p++)
-            if (ng.cur[p][2] & 0x0008) back = 1, ng.cur[p][2] &= ~0x0008u;
+            if (ng.cur[p][3] & 0x8000) back = 1, ng.cur[p][3] &= ~0x8000u;
         void vp_back_input(int on); /* vplus/fixes.c */
         vp_back_input(back);
     }
@@ -1099,10 +1102,10 @@ static void frame_body(void)
     for (int j = 0; j < ng.count && ng.first + j < RB_MAX_SLOTS; j++) {
         uint32_t w[NG_KINDS];
         memcpy(w, ng.live[j], sizeof w);
-        /* (the host, the vote to go back to the lobby passed: a flag in its first player's input from now on, 0x0008 of the
-         * easy word (no button there); every machine ends the match at the step it comes in: cb_advance) */
+        /* (the host, the vote to go back to the lobby passed: a flag in its first player's input from now on, 0x8000 of the
+         * throttle word; every machine ends the match at the step it comes in: cb_advance) */
         if (j == 0 && lob && lobby_is_host(lob) && lobby_back_progress(lob, NULL, NULL, NULL, NULL, NULL) == LOBBY_BACK_PASSED)
-            w[2] |= 0x0008;
+            w[3] |= 0x8000;
         local[ng.first + j] = pack(w);
     }
     ng.advanced = 0;

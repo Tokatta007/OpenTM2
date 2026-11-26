@@ -40,6 +40,8 @@ def one(secs, script, pad):
     if os.environ.get('NET_PLAYLIST'):
         env.update(TM2PC_NET_PLAYLIST='4', TM2PC_NET_AUTOVOTE='1')
     extra = dict(extra, CBTest={'battle': ['lives = 1']})
+    if os.environ.get('NET_CONTROLS'):  # (the profile's [controls] lines: --machine-env K:NET_CONTROLS="jump_safety = 100")
+        extra['CBTest']['controls'] = [l.strip() for l in os.environ['NET_CONTROLS'].split(';')]
     if os.environ.get('NET_TIMED'):  # (a machine quits or comes in at a set time: the match at once, no countdown)
         env['TM2PC_NET_COUNTDOWN'] = '0'
     if os.environ.get('NET_VIDEO'):  # (other [video] lines: NET_VIDEO="textures = playstation;...")
