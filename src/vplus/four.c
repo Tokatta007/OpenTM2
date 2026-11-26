@@ -195,6 +195,9 @@ void vp_SessionLoad(CPU *c)
     }
     uint32_t balance2 = port_sym("portBalance2"); /* decomp request 124: the second balancing word (shots through pickups) */
     if (balance2) mem_w32(c, balance2, vp_balance_word2());
+    uint32_t mine_secs = port_sym("portBalanceMineSeconds"); /* decomp request 127: the mines' 15 s (0 would be the same) */
+    if (mine_secs) mem_w32(c, mine_secs, 15);
+    if (balance2) fprintf(stderr, "balance2: %X (mines %d s)\n", vp_balance_word2(), mine_secs ? 15 : 0);
     uint32_t visual = port_sym("portVisual"); /* decomp request 42 (CUSTOM_TOURNAMENT_ANSWERS.md): the taser and the lightning by depth, the taser lower */
     if (visual) mem_w32(c, visual, vp_visual_word());
     /* bit 10: computer Dark Tooths ordinary (his first phase, no boss parts; decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md): a Challenge Match's or a

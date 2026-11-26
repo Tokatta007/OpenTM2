@@ -115,6 +115,7 @@ int battle_type_playable(const GameType *t)
     a.jugg_invisible = b.jugg_invisible;
     a.sudden_death = b.sudden_death;   /* made: sudden death (the user's 2026-11-25) */
     a.sudden_death_end = b.sudden_death_end;
+    a.mines = b.mines;
     a.koth_move = b.koth_move;
     a.respawn = b.respawn; /* made: every mode (Last Car Standing's: with lives) */
     if (a.mode != MODE_LAST_CAR) a.mode = b.mode; /* the modes with respawns: made */
@@ -427,6 +428,7 @@ static void type_key(GameType *t, const char *key, const char *val)
         {"jugg_invisible", offsetof(GameType, jugg_invisible), 0, 1},
         {"sudden_death", offsetof(GameType, sudden_death), 0, 600},
         {"sudden_death_end", offsetof(GameType, sudden_death_end), 0, SUDDEN_END_COUNT - 1},
+        {"mines", offsetof(GameType, mines), 0, MINES_COUNT - 1},
     };
     static const struct { const char *key; size_t at; unsigned all; } masks[] = {
         {"drivers", offsetof(GameType, drivers), ALL_DRIVERS},
@@ -581,5 +583,6 @@ void battle_write(FILE *f)
         fprintf(f, "koth_hills = %d\nkoth_spots = %d\nhunted_teams = %d\njugg_invisible = %d\n", t->koth_hills, t->koth_spots,
                 t->hunted_teams, t->jugg_invisible);
         fprintf(f, "sudden_death = %d\nsudden_death_end = %d\n", t->sudden_death, t->sudden_death_end);
+        fprintf(f, "mines = %d\n", t->mines);
     }
 }

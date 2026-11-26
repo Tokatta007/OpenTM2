@@ -1601,7 +1601,9 @@ enum { GT_INFINITE, GT_HEALTH, GT_TURBO, GT_RESPAWN, GT_SPECIALS, GT_RECHARGE, G
        GT_SPAWN_SHIELD, GT_JUGG_HEALTH, GT_JUGG_HEAL, GT_JUGG_WEAPON, GT_JUGG_RAM, GT_JUGG_INFINITE, GT_JUGG_FORCE, GT_JUGG_CAR,
        GT_GUN_ORDER, GT_GUN_INFINITE, GT_GUN_AMMO, GT_HUNTED_COUNT, GT_HUNTED_ATTACK, GT_KOTH_MOVE,
        GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES, GT_SUDDEN,
-       GT_SUDDEN_END };
+       GT_SUDDEN_END, GT_MINES };
+/* how long a mine stays (decomp request 127: the user's two, never for good; MINES_x) */
+static const char *const mines_values[MINES_COUNT] = {"15 S AFTER DEATH", "15 SECONDS"};
 /* Last Car Standing's sudden death: its countdown once two cars are left (the user's 2026-11-25) */
 enum { SUDDEN_STEPS = 8 };
 static const int sudden_steps[SUDDEN_STEPS] = {0, 15, 30, 45, 60, 90, 120, 180};
@@ -1668,6 +1670,7 @@ static int get_gt_flag(int a)
            : a == GT_SPAWN_SHIELD ? step_of(shield_steps, SHIELD_STEPS, edit_gt.spawn_shield)
            : a == GT_SUDDEN ? step_of(sudden_steps, SUDDEN_STEPS, edit_gt.sudden_death)
            : a == GT_SUDDEN_END ? edit_gt.sudden_death_end
+           : a == GT_MINES ? edit_gt.mines
            : a == GT_JUGG_HEALTH ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_health)
            : a == GT_JUGG_HEAL ? edit_gt.jugg_full_heal
            : a == GT_JUGG_WEAPON ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_weapon)
@@ -1701,6 +1704,7 @@ static void set_gt_flag(int a, int v)
     else if (a == GT_SPAWN_SHIELD) edit_gt.spawn_shield = shield_steps[v % SHIELD_STEPS];
     else if (a == GT_SUDDEN) edit_gt.sudden_death = sudden_steps[v % SUDDEN_STEPS], rebuild_page = 1;
     else if (a == GT_SUDDEN_END) edit_gt.sudden_death_end = v % SUDDEN_END_COUNT;
+    else if (a == GT_MINES) edit_gt.mines = v % MINES_COUNT;
     else if (a == GT_JUGG_HEALTH) edit_gt.jugg_health = pct_steps[v % PCT_STEPS];
     else if (a == GT_JUGG_HEAL) edit_gt.jugg_full_heal = v;
     else if (a == GT_JUGG_WEAPON) edit_gt.jugg_weapon = pct_steps[v % PCT_STEPS];
@@ -1842,6 +1846,7 @@ static int rules_lines(const GameType *t, char lines[][48], int max)
     if (t->ai_targets == AI_TARGETS_HUMANS) LINE("CPU logic: only target humans");
     if (t->respawn) LINE("Respawn: %d s more", t->respawn);
     if (t->spawn_shield != d.spawn_shield) LINE("Spawn shield: %d s", t->spawn_shield);
+    if (t->mines == MINES_AFTER_LAID) LINE("Mines: 15 s after laid");
     if (t->mode == MODE_JUGGERNAUT) { /* the mode's own settings, always listed (the user's) */
         LINE("Juggernaut toughness: %d%%", t->jugg_health);
         LINE("Juggernaut weapons: %d%%, rams: %d%%", t->jugg_weapon, t->jugg_ram);
@@ -2039,6 +2044,8 @@ static void build_battle(PageId page)
         rows[row_count - 1].text = battle_text[0];
         add_choice("Spawn shield", "The shield a car comes back with, after losing a life.", get_gt_flag, set_gt_flag,
                    GT_SPAWN_SHIELD, shield_values, SHIELD_STEPS);
+        add_choice("Mines", "How long a dropped mine stays: until 15 seconds after its owner is destroyed, or 15 seconds "
+                   "after it is laid.", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
         if (t->mode == MODE_JUGGERNAUT)
             add_page("Juggernaut", PAGE_BATTLE_JUGG, "The Juggernaut's toughness, damage and ammo.");
         if (t->mode == MODE_GUN_GAME)

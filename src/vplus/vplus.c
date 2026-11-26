@@ -11,6 +11,7 @@
 #include <string.h>
 #include "vplus.h"
 #include "cars.h"
+#include "profile/battle.h"
 
 const char *const vp_category_names[VP_CAT_COUNT] = {
     [VP_CAT_BALANCING] = "Global Balancing",
@@ -297,6 +298,12 @@ unsigned vp_balance_word2(void)
 {
     int netplay_in_match(void); /* net/game_tm2.c */
     unsigned w = netplay_in_match() || vp_on(VP_BAL_PICKUP_PASS) ? 0x3u : 0u; /* (bit 1, request 125: Dark Tooth's swoop too) */
+    /* bits 2, 3 (request 127, BALANCE.md 27): a mine removed 15 s after it was laid (2) or after its owner's car was
+     * destroyed (3, the default); always one of them, every preset (the user's: no mine stays for good). The game
+     * type's (a server's for everyone); else (a tournament, Survival) the default */
+    int ui_battle_live(void);
+    const GameType *t = ui_battle_live() ? battle_match_type() : NULL;
+    w |= t && t->mines == MINES_AFTER_LAID ? 0x4u : 0x8u;
     if (getenv("TM2PC_BAL2_OFF")) w &= ~(unsigned)strtoul(getenv("TM2PC_BAL2_OFF"), NULL, 16); /* tests: these bits off (hex) */
     return w;
 }

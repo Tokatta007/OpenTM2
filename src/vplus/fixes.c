@@ -2719,8 +2719,27 @@ static void team_locks_frame(void)
     for (int s = 0; s < TEAM_LOCK_SLOTS; s++)
         if (mem_r8(&M.cpu, tab + (uint32_t)s) != t[s]) mem_w8(&M.cpu, tab + (uint32_t)s, t[s]);
 }
+/* tests: TM2PC_WRECK_DEBUG, each change of a player's wreck mark (decomp request 126: set at the death, cleared when the
+ * wreck is blown apart 22 s later or at a respawn) */
+static void wreck_debug(void)
+{
+    static int on = -1;
+    static uint32_t live;
+    static int was[CARS_HUMANS_MAX];
+    if (on < 0) on = getenv("TM2PC_WRECK_DEBUG") != NULL, live = on ? port_sym("portHumanWreckLive") : 0;
+    if (!live) return;
+    int humans = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int h = 0; h < humans && h < CARS_HUMANS_MAX; h++) {
+        int now = (int)mem_r32(&M.cpu, live + 4u * (uint32_t)h);
+        if (now != was[h])
+            fprintf(stderr, "wreck: player %d's mark %d at vblank %llu (hp %d)\n", h + 1, now, (unsigned long long)M.vblanks,
+                    (int32_t)mem_r32(&M.cpu, HUMAN_REC(h) + 0x1F0));
+        was[h] = now;
+    }
+}
 void vp_lives_frame(void)
 {
+    wreck_debug();
     cam_watchdog();
     team_locks_frame();
     spectators_frame();
