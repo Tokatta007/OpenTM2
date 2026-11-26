@@ -5187,11 +5187,11 @@ static void build(PageId page)
         for (int k = 0; k < BIND_ACTIONS; k++) {
             int a = action_order[k];
             if (k == 0 || k == 8) {
-                add(ROW_HEADER, k ? "Weapons" : "Driving", NULL);
-                Row *h = add(ROW_HEADER, "", NULL); /* (the column titles: a row of their own, the user's) */
+                Row *h = add(ROW_HEADER, "", NULL); /* (the column titles: a row of their own, above the section's name: the user's) */
                 h->col1 = "CONTROLLER";
                 h->col_alt = "CONTROLLER ALT";
                 h->col2 = p < 2 ? "KEYBOARD" : NULL;
+                add(ROW_HEADER, k ? "Weapons" : "Driving", NULL);
             }
             const char *desc = p >= 2 ? "Left and Right pick the column. X or Enter, then the new button. Triangle clears it."
                              : a == 4 ? "D-pad Up and the left stick's Up by default. Left and Right pick the column; X or "
@@ -5207,10 +5207,10 @@ static void build(PageId page)
             r->press = 1;
             r->keys = 1;
         }
-        add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
         Row *eh = add(ROW_HEADER, "", NULL);
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
+        add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
         static const int energy_order[BIND_ENERGY] = {0, 8, 1, 2, 3, 6, 4, 7, 5}; /* napalm and volley: their own rows, none by
                                                                           * default (Gibbers's), as the Energy page's order */
         for (int k = 0; k < BIND_ENERGY; k++) {
