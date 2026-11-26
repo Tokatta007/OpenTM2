@@ -22,6 +22,14 @@ int bind_layout_button(int layout, int action);
 /* The button an action has for a player: the player's own choice, or the
  * layout's. */
 int bind_button(int player, int action);
+/* NONE (the user's 2026-11-26, Triangle on a row): an action with no button of its own (its controller column) */
+#define BIND_NONE 0xFF
+void bind_clear(int player, int action);
+int bind_action_code(int action);                 /* the game's action number (0x18 accelerate ...) */
+/* the CONTROLLER ALT column: a second button for the same action (0 none). By default the left stick's directions for
+ * Forward, Reverse, and the steering (it was the D-pad's copy in a match: Tegu's, unbound Up / Down still drove) */
+int bind_alt_button(int player, int action);
+void bind_set_alt_button(int player, int action, int button); /* 0: none */
 /* Sets a player's button for an action (0: back to the layout's). */
 void bind_set(int player, int action, int button);
 /* Drops a player's own buttons (when the layout changes); the keyboard keys

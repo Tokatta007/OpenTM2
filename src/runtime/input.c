@@ -244,6 +244,18 @@ int input_stick_bits(int p)
     return m;
 }
 
+/* The actions (bit a) whose key is held while their controller button is NONE (no button to press: vplus/humans.c
+ * turns them into the actions themselves) */
+int input_none_action_keys(int player)
+{
+    const bool *keys = player >= 0 && player < 2 && !input_pads_off ? input_keys(NULL) : NULL;
+    int m = 0;
+    for (int a = 0; keys && a < BIND_ACTIONS; a++) {
+        int k = bind_key(player, a);
+        if (!bind_button(player, a) && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) m |= 1 << a;
+    }
+    return m;
+}
 /* A player's driving keys, as the PS1 buttons of their actions. */
 static uint16_t action_key_bits(const bool *keys, int player)
 {
@@ -326,8 +338,10 @@ static int cheat_shoulders(uint16_t bits)
 int feats_in_battle(void); /* profile/feat_hooks.c: a match is running */
 static uint16_t player_pad_bits(int p)
 {
-    /* in a battle, a left stick direction given its own action (Controls) is not the D-pad's (bind_lstick_mask) */
-    int own = pads[p] && feats_in_battle() ? bind_lstick_mask(p) : 0;
+    /* in a battle the left stick is not the D-pad's copy: its directions are bindings of their own (Controls' CONTROLLER
+     * ALT column: by default Forward, Reverse, and the steering; vplus/humans.c). Before, it always drove: unbound Up /
+     * Down still drove (Tegu's, 2026-11-26) */
+    int own = pads[p] && feats_in_battle() ? 0xF : 0;
     uint16_t bits = gamepad_bits_ex(pads[p], 0);
     if (pads[p] && !(input_pads_off && !pads_raw)) {
         int x = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTY);

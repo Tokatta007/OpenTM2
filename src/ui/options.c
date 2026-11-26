@@ -98,7 +98,7 @@ enum {
     SMALL_SIZE = 18, SMALL_PITCH = 24,  /* rows of long lists (the Vanilla Plus changes) */
     TINY_SIZE = 15, TINY_PITCH = 18,    /* the button rows of the Controls page */
     BATTLE_SIZE = 16,                   /* the Challenge Match pages' rows (beside their summary; SMALL_PITCH) */
-    VALUE_RIGHT = INNER_RIGHT, LEVEL_W = 200, PAD_COLUMN = INNER_RIGHT - 230, BAR_LEFT = LEGEND_X + 2, BAR_PAD = 12,
+    VALUE_RIGHT = INNER_RIGHT, LEVEL_W = 200, PAD_COLUMN = INNER_RIGHT - 259, ALT_COLUMN = INNER_RIGHT - 144, /* (Controls: CONTROLLER, CONTROLLER ALT, KEYBOARD) */ BAR_LEFT = LEGEND_X + 2, BAR_PAD = 12,
     /* Custom Music: the playback (centered) just past the longest track name,
      * the song from beside it, as far as the window allows (past the page
      * into the sides of a wide screen) */
@@ -414,6 +414,7 @@ typedef struct {
     int music;                        /* a Custom Music row: playback and song columns */
     int tiny;                         /* drawn smaller still (the button rows) */
     const char *col1, *col2;          /* a header's column titles (over the two value columns) */
+    const char *col_alt;              /* (Controls) the CONTROLLER ALT column's title, between them */
     int light;                        /* a connected controller (index + 1): lights up while used */
     int team;                         /* a car's team (color index + 1): a dot in its color left of the name */
     int lobby;                        /* the lobby: a player (1 + index) or a computer car (10 + index); its cell: lobby_cell[] */
@@ -484,6 +485,8 @@ static char results_title_tour[64];  /* and its title */
 static char results_lines[3][48];    /* without the scoreboard (Survival): a few lines under the title */
 static int row_count;
 static int capturing = -1;            /* the row waiting for a button or key (X on a binding row) */
+static int bind_col;                  /* (Controls) the column marked: 0 CONTROLLER, 1 CONTROLLER ALT, 2 KEYBOARD (Left /
+                                       * Right; X sets it, Triangle clears it: the user's 2026-11-26) */
 static uint16_t capture_pads;         /* controller buttons held when it started */
 enum { SAVE_GAMEPLAY = 1, SAVE_VIDEO = 2, SAVE_AUDIO = 4, SAVE_CONTROLS = 8, SAVE_VPLUS = 16, SAVE_MUSIC = 32,
        SAVE_BATTLE = 64 /* the Challenge Match setup: the profile */ };
@@ -1047,6 +1050,33 @@ static void set_keypad(int a, int v)
 /* a binding row's arg: player * 16 + action; values: the buttons 1..14 */
 static int get_binding(int a) { return bind_button(a / 16, a % 16) - 1; }
 static void set_binding(int a, int v) { bind_set(a / 16, a % 16, v + 1); changed |= SAVE_CONTROLS; }
+/* (Controls) a binding row's columns: 0 CONTROLLER, 1 CONTROLLER ALT (the actions only), 2 KEYBOARD (players 1-2's, and
+ * the extra controls') */
+static int binding_col_ok(const Row *r, int col)
+{
+    int action = !r->extra && !r->energy;
+    return col == 0 || (col == 1 && action) || (col == 2 && (r->extra || r->arg / 16 < 2));
+}
+static int binding_col(const Row *r) { return binding_col_ok(r, bind_col) ? bind_col : 0; }
+static void binding_clear(Row *r, int col) /* (Triangle, or Delete while capturing: NONE; an energy attack's first four
+                                            * with Easy Energy Attacks: back to their D-pad direction) */
+{
+    int p = r->arg / 16, a = r->arg % 16;
+    if (r->extra) { if (col == 2) bind_set_extra_key(r->extra - 1, 0); else bind_set_extra_button(r->extra - 1, 0); return; }
+    if (r->energy) { if (col == 2) bind_set_energy_key(p, a, 0); else bind_set_energy_button(p, a, 0); return; }
+    if (col == 2) bind_set_key(p, a, 0);
+    else if (col == 1) bind_set_alt_button(p, a, 0);
+    else bind_clear(p, a);
+}
+static void binding_set_button(Row *r, int col, int button) /* (button: 1.., as the capture's) */
+{
+    if (col == 1 && !r->extra && !r->energy) {
+        bind_set_alt_button(r->arg / 16, r->arg % 16, button);
+        changed |= SAVE_CONTROLS;
+        return;
+    }
+    r->set(r->arg, r->extra || r->energy ? button : button - 1);
+}
 static int get_volume(int a) { return (a ? settings_game.effects : settings_game.music) / 10; }
 static void set_volume(int a, int v)
 {
@@ -5151,20 +5181,34 @@ static void build(PageId page)
                    get_easy_energy, set_easy_energy, p, onoff_values, 2)->small = 1;
         add_choice("Layout", "The game's button layout. Changing it resets this player's controller buttons.",
                    get_keypad, set_keypad, p, keypad_values, 4)->small = 1; /* (last: right above the buttons it sets, the user's) */
-        Row *h = add(ROW_HEADER, "Buttons", NULL);
-        h->col1 = "CONTROLLER";
-        h->col2 = "KEYBOARD";
-        for (int a = 0; a < BIND_ACTIONS; a++) {
-            Row *r = add_choice(bind_action_names[a], /* (Left / Right only turn the controller's: Da Toasty Mane, 2026-11-22) */
-                                p < 2 ? "Press X or Enter, then the new button or key. Left and Right change the controller button."
-                                      : "Press X or Enter, then the new button. Left and Right change it too.",
-                                get_binding, set_binding, p * 16 + a, bind_button_names + 1, BIND_BUTTONS_ALL); /* (L3, R3, the right
-                                                                                    * stick too: turned into the actions) */
+        /* the actions by what they do (the user's 2026-11-26): driving, then the weapons; Forward and Reverse beside
+         * Accelerate and Brake */
+        static const int action_order[BIND_ACTIONS] = {0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 10, 11};
+        for (int k = 0; k < BIND_ACTIONS; k++) {
+            int a = action_order[k];
+            if (k == 0 || k == 8) {
+                add(ROW_HEADER, k ? "Weapons" : "Driving", NULL);
+                Row *h = add(ROW_HEADER, "", NULL); /* (the column titles: a row of their own, the user's) */
+                h->col1 = "CONTROLLER";
+                h->col_alt = "CONTROLLER ALT";
+                h->col2 = p < 2 ? "KEYBOARD" : NULL;
+            }
+            const char *desc = p >= 2 ? "Left and Right pick the column. X or Enter, then the new button. Triangle clears it."
+                             : a == 4 ? "D-pad Up and the left stick's Up by default. Left and Right pick the column; X or "
+                                        "Enter, then the new button or key; Triangle clears it."
+                             : a == 5 ? "D-pad Down and the left stick's Down by default. Left and Right pick the column; X "
+                                        "or Enter, then the new button or key; Triangle clears it."
+                             : a == 2 || a == 3 ? "The D-pad and the left stick by default. Left and Right pick the column; "
+                                                  "X or Enter, then the new button or key; Triangle clears it."
+                             : "Left and Right pick the column. X or Enter, then the new button or key. Triangle clears it.";
+            Row *r = add_choice(bind_action_names[a], desc, get_binding, set_binding, p * 16 + a, bind_button_names + 1,
+                                BIND_BUTTONS_ALL); /* (L3, R3, the sticks too: turned into the actions) */
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
         }
-        Row *eh = add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
+        add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
+        Row *eh = add(ROW_HEADER, "", NULL);
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
         static const int energy_order[BIND_ENERGY] = {0, 8, 1, 2, 3, 6, 4, 7, 5}; /* napalm and volley: their own rows, none by
@@ -8109,12 +8153,15 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
             if (r->kind == ROW_HEADER) {
                 int hs = S(&v, HEADER_SIZE), hy = Y(&v, y + (pitch - HEADER_SIZE) / 2 + 2);
                 text_draw(c, r->label, X(&v, LIST_X), hy, hs, COPPER);
+                int cs = page == PAGE_CONTROLS ? S(&v, 12) : hs, cy0 = page == PAGE_CONTROLS ? text_top_for_center(Y(&v, y + pitch / 2 + 1), cs) : hy;
                 if (r->col1)
-                    text_draw(c, r->col1, X(&v, r->music ? MUSIC_PLAY_X : PAD_COLUMN) - text_width(r->col1, hs) / 2, hy,
-                              hs, COPPER);
+                    text_draw(c, r->col1, X(&v, r->music ? MUSIC_PLAY_X : PAD_COLUMN) - text_width(r->col1, cs) / 2, cy0,
+                              cs, COPPER);
+                if (r->col_alt)
+                    text_draw(c, r->col_alt, X(&v, ALT_COLUMN) - text_width(r->col_alt, cs) / 2, cy0, cs, COPPER);
                 if (r->col2)
-                    text_draw(c, r->col2, r->music ? X(&v, MUSIC_SONG_X) : X(&v, list_right(page)) - text_width(r->col2, hs),
-                              hy, hs, COPPER);
+                    text_draw(c, r->col2, r->music ? X(&v, MUSIC_SONG_X) : X(&v, list_right(page)) - text_width(r->col2, cs),
+                              cy0, cs, COPPER);
             } else {
                 int size = S(&v, r->tiny ? TINY_SIZE : page == PAGE_HUD ? 13 : BATTLE_PAGE(page) ? BATTLE_SIZE : r->small ? SMALL_SIZE : ITEM_SIZE),
                     cy = Y(&v, y + pitch / 2);
@@ -8164,24 +8211,30 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                 }
                 TextColor vc = r->locked || (r->dim && r->kind == ROW_CHOICE && r->dim(r->arg, r->get(r->arg))) ? GRAY : ORANGE;
                 if (r->keys) {
+                    int action = !r->extra && !r->energy, col = binding_col(r), p_of = r->arg / 16;
                     if (i == capturing) {
-                        const char *msg = "PRESS A BUTTON OR KEY";
-                        text_draw(c, msg, right - text_width(msg, size), ty, size, ORANGE);
+                        const char *msg = col == 2 ? "PRESS A KEY" : "PRESS A BUTTON";
+                        int mx = col == 2 ? right - text_width(msg, size) : X(&v, col ? ALT_COLUMN : PAD_COLUMN) - text_width(msg, size) / 2;
+                        text_draw(c, msg, mx, ty, size, ORANGE);
                     } else {
-                        int button = r->extra || r->energy ? r->get(r->arg) : r->get(r->arg) + 1;
+                        int button = action ? r->get(r->arg) + 1 : r->get(r->arg);
+                        int alt = action ? bind_alt_button(p_of, r->arg % 16) : 0;
                         char key[64];
                         int k = r->energy ? bind_energy_key(r->arg / 16, r->arg % 16)
                               : r->extra ? bind_extra_key(r->extra - 1) : bind_key(r->arg / 16, r->arg % 16);
                         shorten(key, sizeof key, bind_key_name(k), 0);
-                        if (i == sel) { /* both columns marked too: X, then a button or a key sets either (the user's) */
-                            const char *bn = button >= 1 && button <= BIND_TOUCHPAD
-                                                 ? (glyph_kind == 2 ? bind_button_names_xbox : bind_button_names)[button] : "-";
-                            int bw = button >= 11 && button <= 14 ? size : text_width(bn, size), pad = S(&v, BAR_PAD);
-                            draw_bar(&v, X(&v, PAD_COLUMN) - bw / 2 - pad, X(&v, PAD_COLUMN) + bw / 2 + pad, cy, size);
-                            draw_bar(&v, right - text_width(key, size) - pad, right + pad, cy, size);
+                        int has_keys = r->extra || p_of < 2;
+                        if (i == sel) { /* the marked column (Left / Right: the user's 2026-11-26) */
+                            int b = col == 1 ? alt : button, pad = S(&v, BAR_PAD);
+                            const char *bn = b >= 1 && b <= BIND_TOUCHPAD
+                                                 ? (glyph_kind == 2 ? bind_button_names_xbox : bind_button_names)[b] : "-";
+                            int bw = b >= 11 && b <= 14 ? size : text_width(bn, size), cx = X(&v, col == 1 ? ALT_COLUMN : PAD_COLUMN);
+                            if (col == 2) draw_bar(&v, right - text_width(key, size) - pad, right + pad, cy, size);
+                            else draw_bar(&v, cx - bw / 2 - pad, cx + bw / 2 + pad, cy, size);
                         }
                         draw_button(&v, button, X(&v, PAD_COLUMN), cy, size, vc, glyph_kind);
-                        text_draw(c, key, right - text_width(key, size), ty, size, vc);
+                        if (action) draw_button(&v, alt, X(&v, ALT_COLUMN), cy, size, vc, glyph_kind);
+                        if (has_keys) text_draw(c, key, right - text_width(key, size), ty, size, vc);
                     }
                 } else if (r->music) {
                     int t = music_playback(r->arg);
@@ -8268,7 +8321,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
     static const char *const legend_page[] = {CROSS " = SELECT", CIRCLE " = BACK"};
     static const char *const legend_choice[] = {ARROWS " = CHANGE", CIRCLE " = BACK"};
     static const char *const legend_back[] = {CIRCLE " = BACK"};
-    static const char *const legend_press[] = {CROSS " = SET", ARROWS " = CHANGE", CIRCLE " = BACK"};
+    static const char *const legend_press[] = {CROSS " = SET", ARROWS " = COLUMN", TRIANGLE " = CLEAR", CIRCLE " = BACK"};
     static const char *const legend_waiting[] = {"PRESS A BUTTON OR KEY"};
     static const char *const legend_music[] = {SQUARE " = PLAYBACK", ARROWS " = SONG", CIRCLE " = BACK"};
     static const char *const legend_profile[] = {CROSS " = SIGN IN", SQUARE " = EDIT", CIRCLE " = BACK"};
@@ -8314,7 +8367,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
         return;
     }
     if (sel >= 0 && rows[sel].press && !rows[sel].locked) {
-        draw_legend(&v, legend_press, 3);
+        draw_legend(&v, legend_press, 4);
         return;
     }
     if (sel >= 0 && rows[sel].kind == ROW_CHOICE && (rows[sel].locked || rows[sel].info))
@@ -8786,9 +8839,18 @@ static int run(PageId start)
             int key = script ? 0 : input_new_key();
             capture_pads = pads_now;
             Row *cr = &rows[capturing];
+            int ccol = binding_col(cr);
+            if (key == SDL_SCANCODE_DELETE) { /* (Delete: the column cleared, as Triangle) */
+                binding_clear(cr, ccol);
+                changed |= SAVE_CONTROLS;
+                key = 0;
+                capturing = -1;
+            }
+            if (ccol == 2) new_pads = 0; /* (the keyboard's column: only a key) */
+            else key = 0;                /* (a controller's: only a button) */
             static int touch_before = 1; /* (held when the capture started: not a press) */
             int touch = !script && input_pad_touchpad();
-            if (touch && !touch_before && cr->extra) { /* the touchpad: only the extra controls (no PS1 button) */
+            if (touch && !touch_before && cr->extra && ccol != 2 && capturing >= 0) { /* the touchpad: only the extra controls (no PS1 button) */
                 cr->set(cr->arg, BIND_TOUCHPAD);
                 key = 0;
                 capturing = -1;
@@ -8796,31 +8858,31 @@ static int run(PageId start)
             touch_before = touch;
             int input_pad_stick_any(void);   /* runtime/input.c: any controller's right stick (bit d: BIND_STICK + d) */
             static int stick_before = 0xF;   /* (tilted when the capture started: not a press) */
-            int stick = script ? 0 : input_pad_stick_any(), stick_new = stick & ~stick_before;
+            int stick = script || ccol == 2 ? 0 : input_pad_stick_any(), stick_new = stick & ~stick_before;
             stick_before = stick;
             for (int d = 0; d < 4 && capturing >= 0; d++)
                 if (stick_new & (1 << d)) { /* the right stick flicked one way: that direction, as a button (Sage's) */
-                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_STICK + d : BIND_STICK + d - 1);
+                    binding_set_button(cr, ccol, BIND_STICK + d);
                     key = 0;
                     capturing = -1;
                 }
             int input_pad_lstick_any(void);  /* runtime/input.c: any controller's left stick (bit d: BIND_LSTICK + d) */
             static int lstick_before = 0xF, lstick_row = -1; /* (tilted when the capture started: not a press; the stick also
                                                                * moves through the menus, so each capture starts from it) */
-            int lstick = script ? 0 : input_pad_lstick_any();
+            int lstick = script || ccol == 2 ? 0 : input_pad_lstick_any();
             if (lstick_row != capturing) lstick_row = capturing, lstick_before = lstick;
             int lstick_new = lstick & ~lstick_before;
             lstick_before = lstick;
             for (int d = 0; d < 4 && capturing >= 0; d++)
                 if (lstick_new & (1 << d)) { /* the left stick flicked one way: that direction (before the D-pad it also
                                               * counts as in the menus: the user's, any control on the left stick) */
-                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_LSTICK + d : BIND_LSTICK + d - 1);
+                    binding_set_button(cr, ccol, BIND_LSTICK + d);
                     key = 0;
                     capturing = -1;
                 }
             for (unsigned k = 0; k < sizeof buttons / sizeof buttons[0]; k++)
                 if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS_ALL)) {
-                    cr->set(cr->arg, cr->extra || cr->energy ? buttons[k].button : buttons[k].button - 1);
+                    binding_set_button(cr, ccol, buttons[k].button);
                     key = 0;
                     capturing = -1;
                     break;
@@ -9396,6 +9458,20 @@ static int run(PageId start)
                 dirty = 1;
             } else if (r->press && r->locked) {
                 /* not this player's */
+            } else if (r->press && r->keys && (pressed & (B_LEFT | B_RIGHT))) { /* the column (the user's 2026-11-26) */
+                int cols[3], n = 0, at = 0;
+                for (int k = 0; k < 3; k++)
+                    if (binding_col_ok(r, k)) { if (k == binding_col(r)) at = n; cols[n++] = k; }
+                if (n > 1) {
+                    bind_col = cols[(at + ((pressed & B_LEFT) ? n - 1 : 1)) % n];
+                    menu_sound(0);
+                    dirty = 1;
+                }
+            } else if (r->press && r->keys && (pressed & B_TRIANGLE)) { /* the marked column cleared (NONE) */
+                binding_clear(r, binding_col(r));
+                changed |= SAVE_CONTROLS;
+                menu_sound(1);
+                dirty = 1;
             } else if (r->press && (pressed & (B_CROSS | B_START))) { /* (Enter on a keyboard too: it cycled the button) */
                 capturing = sel; /* buttons and keys held now (this X) do not count: only new presses */
                 capture_pads = script ? b : input_pad_buttons();
