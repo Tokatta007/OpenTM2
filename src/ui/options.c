@@ -17072,9 +17072,9 @@ static void scoreboard_frame(void)
             plain_text();
             rect[nr * 4] = X(&v, bx), rect[nr * 4 + 1] = Y(&v, by), rect[nr * 4 + 2] = S(&v, bw), rect[nr * 4 + 3] = S(&v, bh);
             nr++;
-            if (wp < 0 && watching && nr < 4) { /* in to watch (joined mid-match): when they play, above the banner */
-                const char *note = netplay_lobby() && lobby_spectating(netplay_lobby()) ? "SPECTATOR: SPECTATE OFF IN THE LOBBY TO PLAY"
-                                 : trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
+            if (wp < 0 && watching && nr < 4 && !(netplay_lobby() && lobby_spectating(netplay_lobby()))) {
+                /* in to watch (joined mid-match): when they play, above the banner (a spectator: no note, the user's 2026-11-26) */
+                const char *note = trun.on && trun.versus ? "YOU JOIN THE NEXT STAGE" : "YOU JOIN THE NEXT MATCH";
                 float nh = 22, ny = by - nh - 6;
                 lettering();
                 int ns = S(&v, 12), nw = text_width(note, ns) + S(&v, 28), nx = X(&v, 320) - nw / 2;
