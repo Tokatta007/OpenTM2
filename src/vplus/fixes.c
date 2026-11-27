@@ -6288,7 +6288,10 @@ static void team_split_pixels(int car, uint32_t body, uint32_t pix, int w, int h
 {
     const TeamSplit *sp = &team_split[car];
     if (!sp->n_merge && !sp->n_copy) return;
-    if (w != 128 || h != 128) { fprintf(stderr, "team colors: car %d's texture is %dx%d, not split\n", car, w, h); return; }
+    if ((w != 128 && !(car == 13 && w == 256)) || h != 128) { /* (Minion's body: 256 x 128) */
+        fprintf(stderr, "team colors: car %d's texture is %dx%d, not split\n", car, w, h);
+        return;
+    }
     uint8_t map[256], cp[256];
     for (int i = 0; i < 256; i++) map[i] = cp[i] = (uint8_t)i;
     for (int i = 0; i < sp->n_merge; i++) map[sp->merge[i][0]] = sp->merge[i][1];

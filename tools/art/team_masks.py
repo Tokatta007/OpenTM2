@@ -295,10 +295,11 @@ def main():
             if not p.exists():
                 continue
             w, h, rows_ = png_read(p)
-            sx, sy = w / 128, h / 128
+            tw, th = round(w / 6), round(h / 6)  # (the kit's 6x: the texture's own size, 128x128; Minion's 256x128)
+            sx, sy = w / tw, h / th
             cells = set()
-            for y in range(128):
-                for x in range(128):
+            for y in range(th):
+                for x in range(tw):
                     votes = 0
                     for yy in range(int(y * sy), max(int(y * sy) + 1, int((y + 1) * sy))):
                         for xx in range(int(x * sx), max(int(x * sx) + 1, int((x + 1) * sx))):
@@ -306,7 +307,7 @@ def main():
                             votes += 1 if (r > 200 and g < 90 and b > 200) else -1
                     if votes > 0:
                         cells.add((x, y))
-            mask_write(code, cells)
+            mask_write(code, cells, tw, th)
             print(f"{code}: {len(cells)} pixels take the team's color -> {MASK_DIR / (code + '.pbm')}")
     rows = lists()
     cd = CdImage(str(a.disc))
@@ -386,9 +387,10 @@ def main():
     out.append(" * merge: pixels from -> to everywhere (near-identical colors, freeing entries); copy: in the rects (not")
     out.append(" * the except ones), pixels from -> to, the CLUT's 'to' a copy of 'from' */")
     keeps = [sp["keep"] for sp in splits if sp and sp.get("keep")]
-    out.append("/* painted masks (tools/art/team_masks): a bit per pixel of the 128x128 texture, 1 = takes the copies */")
-    out.append("static const uint8_t team_keep[%d][2048] = {" % max(1, len(keeps)))
-    for k in keeps or [bytes(2048)]:
+    out.append("/* painted masks (tools/art/team_masks): a bit per pixel of the texture (128x128; Minion's 256x128), 1 = takes")
+    out.append(" * the copies */")
+    out.append("static const uint8_t team_keep[%d][4096] = {" % max(1, len(keeps)))
+    for k in keeps or [bytes(4096)]:
         out.append("    {%s}," % ", ".join(str(v) for v in k))
     out.append("};")
     out.append("typedef struct { uint8_t n_merge, n_copy, n_rect; uint8_t merge[128][2], copy[128][2], rect[8][5]; int8_t keep; } TeamSplit;")
