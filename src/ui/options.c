@@ -16538,11 +16538,13 @@ static void pm_input(void)
             naming_pad = p;
             int done = naming_input(0);
             naming_pad = -1;
+            static const char *send_at; /* tests: TM2PC_NET_TEST_SEND_AT=V, the keyboard's DONE then (as Start) */
+            static int send_read;
+            if (!send_read) send_read = 1, send_at = getenv("TM2PC_NET_TEST_SEND_AT");
+            if (!done && send_at && M.vblanks >= strtoull(send_at, NULL, 10)) send_at = NULL, done = name_done() ? 1 : 0;
             if (done) {
-                if (done == 1 && naming.text[0] && l) {
-                    lobby_chat(l, naming.text);
+                if (done == 1 && naming.text[0]) /* (sent by the keyboard's done, net_named: a chat line) */
                     fprintf(stderr, "text chat: sent \"%s\"\n", naming.text);
-                }
                 naming.active = 0;
                 tc_on = 0;
                 pm_open = -1;
@@ -16591,6 +16593,8 @@ static void pm_input(void)
                 } else if (np_sel == 2) { np_on = 0; pm_sel = 0; pm_sub = -1; }
                 else if (np_sel == 3) { /* the chat's keyboard */
                     name_start(0);
+                    naming.game_type = 4; /* a chat line (its own characters, 40), not a new profile's name: its done
+                                           * made a profile of every line and refused one over 16 (Tegu's, 2026-11-26) */
                     naming.max = 40;
                     tc_on = 1;
                     np_on = 0;
@@ -16696,6 +16700,7 @@ static int pm_frame(Image *sb, int *shown)
         }
         if (typing && M.vblanks >= strtoull(typing, NULL, 10) && strchr(typing, ':') && pm_open < 0) {
             name_start(0);
+            naming.game_type = 4;
             naming.max = 40;
             snprintf(naming.text, sizeof naming.text, "%s", strchr(typing, ':') + 1);
             tc_on = 1, pm_open = 0, np_on = 0;

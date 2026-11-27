@@ -44,6 +44,8 @@ def one(secs, script, pad):
         extra['CBTest']['battle'] += [l.strip() for l in os.environ['NET_BATTLE'].split(';')]
     if os.environ.get('NET_HUD'):  # (the profile's [hud] lines: NET_HUD="hud_mirror = on")
         extra['CBTest']['hud'] = [l.strip() for l in os.environ['NET_HUD'].split(';')]
+    if os.environ.get('NET_CONTROLS'):  # (the profile's [controls] lines: --machine-env K:NET_CONTROLS="jump_safety = 100")
+        extra['CBTest']['controls'] = [l.strip() for l in os.environ['NET_CONTROLS'].split(';')]
     if os.environ.get('NET_TIMED'):  # (a machine quits or comes in at a set time: the match at once, no countdown)
         env['TM2PC_NET_COUNTDOWN'] = '0'
     if os.environ.get('NET_VIDEO'):  # (other [video] lines: NET_VIDEO="textures = playstation;...")
