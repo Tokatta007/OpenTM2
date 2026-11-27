@@ -2521,6 +2521,9 @@ int ui_online(void) { return net_hosting || net_in_server || netplay_lobby() != 
 static int net_carsel_host_game;    /* (a joiner) car select under the host's game */
 static int net_return;              /* the title: straight back to the lobby (after car select) */
 static int net_ready[4];            /* the local players who chose their car (their cells solid) */
+/* a match over, back to the lobby: this PC's players not ready again (each readies up for the next one; the user's
+ * 2026-11-26: everyone ready in the last match stayed READY); the lobby told as its choices are next sent */
+static void net_unready(void) { for (int p = 0; p < 4; p++) net_ready[p] = 0; }
 static char net_text[4][48];        /* rows' values */
 static const char *const net_text_ptr[2] = {net_text[0], net_text[2]};
 static const char *const net_blank[1] = {""};
@@ -15130,6 +15133,7 @@ static int net_tour_over(CPU *c) /* an online tournament over (the title next: w
     battle_match_override(NULL);
     battle_type_override(NULL);
     apply_game_settings(); /* (this PC's difficulty again) */
+    net_unready();
     net_return = 1;
     c->r[2] = TITLE_SCREEN_FN;
     return 1;
@@ -15190,6 +15194,7 @@ void ui_ScrollText(CPU *c)
         battle_match_override(NULL);
         battle_type_override(NULL);
         battle_live = 0;
+        net_unready();
         net_return = 1;
         c->r[2] = TITLE_SCREEN_FN;
     } else if (battle_live && (mode == 3 || mode == 4) && (M.live_input || script) && text_ready()) {

@@ -2002,7 +2002,8 @@ static void lives_hud_put(int h)
 static int coop_out[CARS_HUMANS_MAX]; /* (by human) VP_COOP_SPECTATE: a player out of the tournament's lives, watching (3-4 players: out of a match's) */
 int vp_player_out(int p) { return p >= 0 && p < CARS_HUMANS_MAX && coop_out[p]; } /* vplus/four.c: an out player 3-4 watches */
 static int showdown_on; /* Final showdown music: switched this round */
-static void showdown_reset(void) { showdown_on = 0; music_showdown_play(0); }
+static int minion_music_on; /* the Minion fight song: switched this round */
+static void showdown_reset(void) { showdown_on = minion_music_on = 0; music_showdown_play(0); music_minion_play(0); }
 void killcam_new_round(void); /* killcam.c */
 /* A player down first sees their wreck for the game's own delay (the tournament's, before its restart: the delay
  * of the death's event), then watches the others: out of lives, to the end; with a respawn timer (Deathmatch's),
@@ -2668,6 +2669,7 @@ static void stage_clear_test(void)
 static void vp_duo_frame(void);
 static void duo_round_start(void);
 static void showdown_frame(void);
+static void minion_music_frame(void);
 static void watch_frame(void); /* (below, with the watching) */
 static void survival_watch_frame(void);
 static void versus_frame(void);
@@ -2829,6 +2831,7 @@ void vp_lives_frame(void)
      * Challenge rules' frame: in a co-op tournament, online or with 3-4 players, the view stayed on its first car, the
      * user's 2026-11-05) */
     survival_watch_frame();
+    minion_music_frame();
     showdown_frame();
     vp_duo_frame();
     spectate_frame();
@@ -7052,6 +7055,23 @@ void vp_team_palette(int car, int team, const uint16_t *in, uint16_t *out)
  * the respawn modes: a car or team one kill (point, Gun Game level) from
  * winning, or the time limit's last minute. Not in the tournament's last
  * level (Dark Tooth's), nor in a match with Dark Tooth. */
+/* The Minion fight's own song (Music: Minion fight, Navi's 2026-11-26): once a round, as a computer Minion (type 14) is
+ * in play (the tournament's, a custom tournament's or Survival's boss, an opponent picked), the boss track as the
+ * showdown switches to it, the row's song on it (music.c); the rest of the round, the showdown left out. Not in the
+ * Dark Tooth fight (its own music). Default: nothing happens. */
+static void minion_music_frame(void)
+{
+    if (minion_music_on || !music_minion() || !mem_r32(&M.cpu, GA(0x80180BCCu)) || mem_r8(&M.cpu, GA(0x80180A05u))) return;
+    int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int k = 0; k < n && k < cars_ai_max(); k++)
+        if ((int)((mem_r32(&M.cpu, AI_REC(k) + 0x30) >> 4) & 15) == 14 && ai_alive(k)) {
+            minion_music_on = 1;
+            fprintf(stderr, "music: the Minion fight's song (computer car %d)\n", k);
+            music_minion_play(1);
+            guest_call(GA(0x800D3944u), 0, 0, 0, 0); /* audioAlternateMusicTrack: track 10 */
+            return;
+        }
+}
 static void showdown_frame(void)
 {
     static const char *alt_test; /* tests: TM2PC_TEST_ALT_MUSIC="V1,V2": the boss music switch at those VBlanks, as
@@ -7065,7 +7085,7 @@ static void showdown_frame(void)
         alt_test = strchr(alt_test, ',');
         if (alt_test) alt_test++;
     }
-    if (showdown_on || !music_showdown() || !mem_r32(&M.cpu, GA(0x80180BCCu))) return;
+    if (showdown_on || minion_music_on || !music_showdown() || !mem_r32(&M.cpu, GA(0x80180BCCu))) return;
     int mode = mem_r8(&M.cpu, GA(0x8016475Cu)), level = mem_r8(&M.cpu, GA(0x8016475Cu) + 24);
     if (mode < 1 || mode > 4 || ((mode == 1 || mode == 2) && level == 8)) return;
     const GameType *t = battle_rules();

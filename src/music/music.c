@@ -64,6 +64,8 @@ static Slot slots[] = {
     {"PODIUM", "a Versus Tournament's podium and final standings: default (the menus' music), random, order, or a file",
      "Versus podium", "", -2},
     {"MENULOOP", "the menus' loop after the title song: default (the game's own), random, order, or a file", "Menu loop", "", -2},
+    {"MINION", "the Minion fight: while Minion is in the match as a computer car (a boss): default (the arena's song), "
+     "random, order, its folder, or a file", "Minion fight", "", -2},
     {"SHOWDOWN", "a battle's final moments: off, default (the Dark Tooth track as set), random, order, or a file",
      "Showdown", "", -2},
 };
@@ -92,7 +94,8 @@ static const char *slot_dir(int i)
     static const struct { const char *da, *dir; } dirs[] = {
         {"FRWYSUB", "Los Angeles"}, {"DISH", "Moscow"}, {"PARIS", "Paris"}, {"LAVA", "Amazonia"}, {"RFNEW", "New York"},
         {"GLACIER", "Antarctica"}, {"DNMSWP", "Holland"}, {"HONG", "Hong Kong"}, {"SWAMP", "Suicide Swamp"},
-        {"CYBURBIA", "Cyburbia"}, {"ROOFTOPS", "Roof Tops"}};
+        {"CYBURBIA", "Cyburbia"}, {"ROOFTOPS", "Roof Tops"},
+        {"TMLEVELS", "Dark Tooth"}, {"MINION", "Minion"}}; /* (his fight's own folder too: Navi's, 2026-11-26) */
     if (i < 0) return NULL;
     for (size_t k = 0; k < sizeof dirs / sizeof dirs[0]; k++)
         if (!SDL_strcasecmp(slots[i].da, dirs[k].da)) return dirs[k].dir;
@@ -127,6 +130,21 @@ int music_menuloop_slot(void) /* the menus' loop's own song (its slot), or -1: t
     return -1;
 }
 void music_showdown_play(int on) { showdown_playing = on; }
+/* the Minion fight (Navi's, 2026-11-26): its own song on the boss track while it is on (vplus/fixes.c minion_music_frame
+ * switches to that track as Minion comes into the match); default: nothing changes */
+static int minion_playing;
+static int minion_slot(void)
+{
+    for (int i = 0; i < SLOT_COUNT; i++)
+        if (!SDL_strcasecmp(slots[i].da, "MINION")) return i;
+    return -1;
+}
+int music_minion(void)
+{
+    int m = minion_slot();
+    return m >= 0 && *slots[m].setting && SDL_strcasecmp(slots[m].setting, "default");
+}
+void music_minion_play(int on) { minion_playing = on; }
 
 void music_ini_key(const char *key, const char *val)
 {
@@ -238,7 +256,8 @@ int music_slot(int track)
         int lvl = mem_r8(&M.cpu, GA(0x8016475Cu) + 0x18);
         static const char *const secret[3] = {"SWAMP", "CYBURBIA", "ROOFTOPS"};
         int arena_track = 0;
-        for (int i = 0; i < SLOT_COUNT; i++) if (slot_dir(i) && slots[i].track >= 0 && slots[i].track == track) arena_track = 1;
+        for (int i = 0; i < SLOT_COUNT; i++) if (slot_dir(i) && slots[i].track >= 0 && slots[i].track == track && SDL_strcasecmp(slots[i].da, "TMLEVELS"))
+                arena_track = 1; /* (an arena's: not Dark Tooth's, the showdown's track) */
         if (lvl >= 10 && lvl <= 12 && arena_track && !mod_arena_on())
             for (int i = 0; i < SLOT_COUNT; i++)
                 if (!SDL_strcasecmp(slots[i].da, secret[lvl - 10]))
@@ -251,6 +270,7 @@ int music_slot(int track)
     }
     if (boss >= 0 && logo >= 0 && mem_r8(&M.cpu, GA(0x80180A05u)) && (track == slots[boss].track || track == slots[logo].track))
         return *slots[boss].setting && SDL_strcasecmp(slots[boss].setting, "default") ? boss : -1;
+    if (minion_playing && boss >= 0 && track == slots[boss].track && music_minion()) return minion_slot();
     for (int i = 0; i < SLOT_COUNT; i++)
         if (slots[i].track == track) {
             const char *own = slots[SHOWDOWN_SLOT].setting; /* the showdown's own song on the boss track */
