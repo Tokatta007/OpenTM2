@@ -1419,10 +1419,12 @@ void vp_EnergyAttack(CPU *c) /* weaponFireEnergyAttack(car, human) */
          * the kind was one the game type has off, on and on until another attack replaced it (shuriken8147's Minion
          * volley, 2026-11-24); the request then taken, as the game's own refusals do */
         uint32_t req = car + (c->r[5] & 0xFF ? 0xECu : 0x60u);
-        /* a Custom Tournament: every energy attack, as the game's own tournament (the user's 2026-11-25); online still never
-         * the volley or invisibility */
+        /* a Custom Tournament: every energy attack, as the game's own tournament (the user's 2026-11-25); online never the
+         * volley or invisibility, whatever the game type says (a host's own type with them on: its menu hides those rows
+         * online, but the type kept them, and they fired; Ryupichu's, v1.0.19) */
         int ui_custom_tour_on(void), netplay_in_match(void);
-        unsigned allowed = ui_custom_tour_on() ? ~(netplay_in_match() ? BATTLE_ONLINE_NEVER_ENERGY : 0u) : t->energy;
+        unsigned allowed = ui_custom_tour_on() ? ~0u : t->energy;
+        if (netplay_in_match()) allowed &= ~BATTLE_ONLINE_NEVER_ENERGY;
         if (kind >= 100 && kind <= 106 && bit[kind - 100] >= 0 && !((allowed >> bit[kind - 100]) & 1) && mem_r8(c, req)) {
             if (c->r[5] & 0xFF) mem_w8(c, GA(0x80180A04u), 1); /* the "can't" sound, as the game's */
             mem_w8(c, req, 0);
