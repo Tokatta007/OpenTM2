@@ -442,6 +442,8 @@ void rbs_batch_begin(void)
 int rbs_rerun_step(int32_t step)
 {
     set_gv(gv_of(step));
+    void vp_spawn_rewind(void); /* vplus/fixes.c: the spawns the undone steps remembered, forgotten */
+    vp_spawn_rewind();
     return (int)guest_call(a_run, 0, 0, 0, 0);
 }
 void rbs_batch_end(void)

@@ -405,6 +405,15 @@ enum { SPAWN_RECENT = 16, SPAWN_RECENT_VBLANKS = 30 };
 static int32_t spawn_recent[SPAWN_RECENT][2];
 static uint64_t spawn_recent_at[SPAWN_RECENT];
 static int spawn_recent_n;
+/* online, a step run again (a rollback): the spawns remembered at this step or later were the undone steps' (port
+ * memory, not the game state the rollback put back). Kept, the re-run's start saw its own first run's cars on every
+ * start point, called each one crowded and sent every car to the same fallback node: twelve players' Suicide Swamp
+ * start all on one spot (Twistedmoto's video, 2026-11-26) */
+void vp_spawn_rewind(void)
+{
+    for (int k = 0; k < SPAWN_RECENT; k++)
+        if (spawn_recent_at[k] >= vp_gv()) spawn_recent_at[k] = 0;
+}
 static int64_t nearest_car2(int32_t x, int32_t y)
 {
     int64_t best = INT64_MAX;
@@ -444,6 +453,7 @@ void F_800F636C_orig(CPU *c);
 void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
 {
     int count = (int)c->r[4];
+    uint32_t pick_ra = c->r[31];
     spawn_count = count > 0 && count <= 15 ? count : 0;
     for (int k = 0; k < spawn_count; k++) spawn_taken[k] = mem_r8(c, START_TAKEN + (uint32_t)k); /* before the pick */
     F_800F636C_orig(c);
@@ -457,7 +467,7 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
                     (int32_t)mem_r32(c, ROUTE_NODES + 24u * (uint32_t)i + 4), (int16_t)mem_r16(c, ROUTE_NODES + 24u * (uint32_t)i + 8),
                     (int8_t)mem_r8(c, ROUTE_NODES + 24u * (uint32_t)i + 22));
     }
-    if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: the game picked node %d\n", id);
+    if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: the game picked node %d (from %08X)\n", id, pick_ra);
     if (!vp_on(VP_SPAWN_SPACING) || id < 0 || n <= 0 || n > 400 || count <= 0 || count > 15) return;
     int32_t x, y;
     /* the decomp's start along a route link (request 85, portStartLink: set, x, y, ...): the car's start puts it there,
@@ -476,7 +486,8 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
     const int64_t clear2 = (int64_t)SPAWN_CLEAR * SPAWN_CLEAR;
     if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: node %d nearest car %.0f (vblank %llu)\n", id, sqrt((double)nearest_car2(x, y)),
                                              (unsigned long long)vp_gv());
-    if (nearest_car2(x, y) >= clear2) { spawn_remember(x, y); return; } /* the game's pick is clear */
+    int64_t game_d = nearest_car2(x, y);
+    if (game_d >= clear2) { spawn_remember(x, y); return; } /* the game's pick is clear */
     /* the clearest start point not taken */
     int best = -1, best_k = -1;
     int64_t best_d = -1;
@@ -519,7 +530,14 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
                 int64_t d = nearest_car2(x, y);
                 if (d > best_d) { best_d = d; best = i; }
             }
-        if (best < 0) return;
+        /* (no clearer place than the game's own: keep it. Every node taken (Suicide Swamp's 8 are its 8 start points),
+         * the clearest was another car's too, the same one for every car: the humans placed again after the computer
+         * cars (humanCarPlaceAtStart twice, the second pick each a node of another human's) all went to node 0, onto its
+         * computer car and onto each other: twelve players on one spot, Twistedmoto's video 2026-11-26) */
+        if (best < 0 || best_d <= game_d) {
+            if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: node %d crowded, nothing clearer: kept\n", id);
+            return;
+        }
     }
     /* always logged (rare: a start point crowded), with where it puts the car: SupahFlyKev's and Slick!'s cars under
      * Amazonia and Antarctica, 2026-11-23, with no log of where they came in */
