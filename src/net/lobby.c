@@ -922,7 +922,16 @@ int lobby_lan_results(LanSearch *s, LobbyListing *out, int max)
             dup = 1;
             /* two masters' addresses: the public one. A master on the host's own network (the user's NAS) sees the host
              * through the router's loopback, as 192.168.0.1, and answered first: joining that, the router, failed */
-            if (addr_private(e->addr) && !addr_private(f.addr)) { int ping = e->ping; *e = f; e->ping = ping; }
+            if (addr_private(e->addr) && !addr_private(f.addr)) {
+                char who[sizeof e->who];
+                memcpy(who, e->who, sizeof who);
+                int ping = e->ping;
+                *e = f;
+                e->ping = ping;
+                if (!e->who[0]) memcpy(e->who, who, sizeof who);
+            }
+            /* the players from whichever master kept them (an older master cuts a listing before its names) */
+            if (!e->who[0] && f.who[0]) memcpy(e->who, f.who, sizeof e->who);
         }
         if (!dup && s->n < 32) s->found[s->n++] = f;
     }
