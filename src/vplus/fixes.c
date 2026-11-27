@@ -6179,10 +6179,14 @@ static uint16_t team_recolor(uint16_t e, int hue, int car) /* car: its strength 
     double mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
     double s = mx > 0 ? (mx - mn) / mx : 0, v = mx;
     double smin = team_smin[car < 0 || car > 14 ? 14 : car] / 100.0, gain = team_vgain[car < 0 || car > 14 ? 14 : car] / 100.0;
-    static int tune_car = -2, tune_smin, tune_gain; /* tests: TM2PC_TEAM_TUNE=car:smin:gain (hundredths), a car's strength */
+    static int tune_car = -2, tune_smin, tune_gain, tune_flat; /* tests: TM2PC_TEAM_TUNE=car:smin:gain[:flat] (hundredths), a
+                                                                * car's strength; flat: its paint's brightness evened out */
     if (tune_car == -2 && (tune_car = -1, getenv("TM2PC_TEAM_TUNE")))
-        if (sscanf(getenv("TM2PC_TEAM_TUNE"), "%d:%d:%d", &tune_car, &tune_smin, &tune_gain) != 3) tune_car = -1;
-    if (car == tune_car) smin = tune_smin / 100.0, gain = tune_gain / 100.0;
+        if (sscanf(getenv("TM2PC_TEAM_TUNE"), "%d:%d:%d:%d", &tune_car, &tune_smin, &tune_gain, &tune_flat) < 3) tune_car = -1;
+    if (car == tune_car) {
+        smin = tune_smin / 100.0, gain = tune_gain / 100.0;
+        if (tune_flat > 0 && v > 0.15) v = 0.75 + (v - 0.75) * (1 - tune_flat / 100.0); /* (not the dark seams and shadows) */
+    }
     double floor_team = hue == 0 ? 0.68 : hue == 55 ? 0.72 : 0; /* red not pink, yellow not pale */
     if (smin < floor_team) smin = floor_team;
     s = smin + (1 - smin) * s;
@@ -6356,11 +6360,25 @@ static void team_split_minion_carsel(uint32_t buf)
 {
     int vp_carsel_teams(void); /* ui/options.c */
     if (!vp_carsel_teams()) return;
-    uint32_t body = buf + 4u * (4u + mem_r32(&M.cpu, buf + 12) + 1u + 5u);
+    uint32_t count = mem_r32(&M.cpu, buf + 12);
+    uint32_t body = buf + 4u * (4u + count + 1u + 5u);
     uint32_t pblk = body - 12 + mem_r32(&M.cpu, body - 12), pix = pblk + 12;
     if (mem_r32(&M.cpu, body - 8) != (768u | 36u << 16) || mem_r32(&M.cpu, pblk + 4) != 640u) return; /* (not CARSEL) */
     int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
     team_split_with(&team_split_minion_select, 13, body, pix, w, h);
+    /* the 13 others: each car's body image, its CLUT at (768, 23 + car) and its 128 x 128 pixels the battle's (decomp
+     * TEAM_COLORS.md 5.1), split as in a match (its merges and copies: without them the merged pixels kept their own
+     * color in the paint, speckled panels: Warthog, Outlaw 2, Thumper, Sweet Tooth) */
+    uint32_t t = buf + 4u * (4u + count + 1u);
+    for (uint32_t img = 0; img < count && img < 64; img++) {
+        uint32_t flags = mem_r32(&M.cpu, t + 4), clut = flags & 8 ? mem_r32(&M.cpu, t + 8) : 0;
+        if (mem_r32(&M.cpu, t) != 0x10u || clut > 0x20Cu) break;
+        uint32_t xy = clut ? mem_r32(&M.cpu, t + 12) : 0, pb = t + 8 + clut;
+        int car = (int)(xy >> 16) - 23;
+        if (clut == 0x20Cu && (xy & 0xFFFF) == 768 && car >= 0 && car <= 12)
+            team_split_pixels(car, t + 8 + 12, pb + 12, (int)mem_r16(&M.cpu, pb + 8) * 2, (int)mem_r16(&M.cpu, pb + 10));
+        t += 8 + clut + mem_r32(&M.cpu, pb) + 4;
+    }
 }
 /* Dark Tooth in a team: his paint (Gibbers's masks: team_masks.py) is in several images of TMS\BB.TMS, each with its own
  * CLUT (decomp TEAM_COLORS.md 4: the body, the wheel hubs, his effects), so it is recolored in the file before it goes
