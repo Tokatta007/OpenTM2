@@ -6178,11 +6178,15 @@ static uint16_t team_recolor(uint16_t e, int hue, int car) /* car: its strength 
     double r = (e & 31) / 31.0, g = ((e >> 5) & 31) / 31.0, b = ((e >> 10) & 31) / 31.0;
     double mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
     double s = mx > 0 ? (mx - mn) / mx : 0, v = mx;
-    double smin = team_smin[car < 0 || car > 14 ? 14 : car] / 100.0;
+    double smin = team_smin[car < 0 || car > 14 ? 14 : car] / 100.0, gain = team_vgain[car < 0 || car > 14 ? 14 : car] / 100.0;
+    static int tune_car = -2, tune_smin, tune_gain; /* tests: TM2PC_TEAM_TUNE=car:smin:gain (hundredths), a car's strength */
+    if (tune_car == -2 && (tune_car = -1, getenv("TM2PC_TEAM_TUNE")))
+        if (sscanf(getenv("TM2PC_TEAM_TUNE"), "%d:%d:%d", &tune_car, &tune_smin, &tune_gain) != 3) tune_car = -1;
+    if (car == tune_car) smin = tune_smin / 100.0, gain = tune_gain / 100.0;
     double floor_team = hue == 0 ? 0.68 : hue == 55 ? 0.72 : 0; /* red not pink, yellow not pale */
     if (smin < floor_team) smin = floor_team;
     s = smin + (1 - smin) * s;
-    v *= team_vgain[car < 0 || car > 14 ? 14 : car] / 100.0;
+    v *= gain;
     if (hue == 55) v *= 1.3; /* yellow: bright, not olive */
     if (v > 1) v = 1;
     double h = hue / 60.0, f = h - floor(h), p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
@@ -6358,9 +6362,9 @@ static void team_split_minion_carsel(uint32_t buf)
     int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
     team_split_with(&team_split_minion_select, 13, body, pix, w, h);
 }
-/* Dark Tooth in a team: his paint (the hot pink: team_masks.py) is in three images of TMS\BB.TMS, each with its own CLUT
- * (decomp TEAM_COLORS.md 4: the body, the legs and turret, the ice cream cone), so it is recolored in the file before
- * it goes up. The container: 4 words, a key per image (his first 0xEA65), a word, then the images (TIMs), a word between
+/* Dark Tooth in a team: his paint (Gibbers's masks: team_masks.py) is in several images of TMS\BB.TMS, each with its own
+ * CLUT (decomp TEAM_COLORS.md 4: the body, the wheel hubs, his effects), so it is recolored in the file before it goes
+ * up. The container: 4 words, a key per image (his first 0xEA65), a word, then the images (TIMs), a word between
  * each two. */
 int vp_team_dark_tooth_file(uint32_t buf, int team) /* (vplus/mod_cars.c: car select's truck too) the entries changed */
 {
@@ -6368,13 +6372,13 @@ int vp_team_dark_tooth_file(uint32_t buf, int team) /* (vplus/mod_cars.c: car se
     if (team < 0 || count < 7 || count > 64 || mem_r32(&M.cpu, buf + 16) != 0xEA65u) return 0; /* (not his file) */
     uint32_t t = buf + 4u * (4u + count + 1u);
     int changed = 0;
-    for (uint32_t img = 0; img < count && img <= team_dt_image[2]; img++) {
+    for (uint32_t img = 0; img < count && img <= team_dt_image[TEAM_DT_IMAGES - 1]; img++) {
         uint32_t flags = mem_r32(&M.cpu, t + 4), clut = flags & 8 ? mem_r32(&M.cpu, t + 8) : 0;
         if (mem_r32(&M.cpu, t) != 0x10u || clut > 0x20Cu) {
             fprintf(stderr, "team colors: Dark Tooth's image %u is not where it should be\n", img);
             return changed;
         }
-        for (int j = 0; j < 3; j++) {
+        for (int j = 0; j < TEAM_DT_IMAGES; j++) {
             if (team_dt_image[j] != img || !clut) continue;
             uint32_t pal = t + 8 + 12;
             for (uint32_t i = 0; i < (clut - 12) / 2 && i < 256; i++)
