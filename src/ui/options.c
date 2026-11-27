@@ -2909,6 +2909,18 @@ static struct { int n, level, kind, choice; } net_tour_dec; /* (host) its last; 
 static int net_story_n, story_idx; /* (host) the story screens gone on from; (every machine) the ones come to */
 static void net_send_settings(void);
 void net_send_settings_now(void) { net_send_settings(); }
+/* a car this server's Drivers rows allow (a Challenge Match's: its rules as the host sends them, its match's over its type;
+ * -1 random and the mod cars: yes) */
+static int net_driver_ok(int car)
+{
+    Lobby *l = netplay_lobby();
+    if (!l || car < 0 || car > TOUR_DARK_TOOTH) return 1;
+    const LobbyView *v = lobby_view(l);
+    const NetSettings *ns = v->settings_len == (int)sizeof(NetSettings) ? (const NetSettings *)v->settings : NULL;
+    const GameType *gt = lobby_is_host(l) ? battle_match_type() : ns ? &ns->type : NULL;
+    int game = lobby_is_host(l) ? net_server.game : ns ? ns->game : -1;
+    return !gt || game != NET_GAME_CHALLENGE || battle_driver_allowed(gt, car);
+}
 static void net_send_settings(void) /* (host) the game as it is now */
 {
     Lobby *l = netplay_lobby();
@@ -3137,11 +3149,24 @@ static int net_sync(void)
         }
     if (getenv("TM2PC_NET_CAR")) { /* tests, trailer footage: this PC's players' cars ("7,3,6,11") */
         const char *q = getenv("TM2PC_NET_CAR");
+        static int given[4]; /* (once each: a car Drivers has off goes to Random, below, and stays) */
         for (int p = 0; p < 4 && *q; p++) {
-            if (net_car[p] < 0) net_car[p] = atoi(q);
+            if (net_car[p] < 0 && !given[p]) net_car[p] = atoi(q), given[p] = 1;
             q += strcspn(q, ",");
             if (*q == ',') q++;
         }
+    }
+    { /* a car the host's Drivers rows have off (chosen before the host turned it off): Random, the lobby's random car at
+       * the start (the user's 2026-11-27) */
+        for (int p = 0; p < play_players && p < 4; p++)
+            if (!net_driver_ok(net_car[p])) {
+                char line[96];
+                snprintf(line, sizeof line, "%s is off on this server: %s gets a random car.", profile_character_name(net_car[p]),
+                         player_name(p));
+                net_chat_add("SERVER", line);
+                net_car[p] = -1;
+                net_skin[p] = -1;
+            }
     }
     for (int p = 0; p < play_players && p < 4; p++) { /* this PC's players' choices */
         int car = net_car[p], team = net_teams() ? get_net_team(p) : -1, ready = net_ready[p];
@@ -3924,7 +3949,7 @@ static int net_host_start(void)
         for (int tries = 0; tries < 64 && cars[h] < 0; tries++) {
             int car = (int)SDL_rand(roster_n()), taken = 0;
             for (int q = 0; q < humans; q++) taken |= q != h && cars[q] == car;
-            if (!taken && random_car_ok(car)) cars[h] = (int8_t)car;
+            if (!taken && random_car_ok(car) && net_driver_ok(car)) cars[h] = (int8_t)car; /* (one the Drivers rows allow) */
         }
     }
     if (net_server.game == NET_GAME_TOURNAMENT && net_tour_loading && !net_tour_save_loaded()) { /* (LOAD, a gray slot) */
@@ -17558,7 +17583,7 @@ static void net_vote_overlay(void)
                     car += dir;
                     if (car < -1) car = PROFILE_CHARACTERS - 1;
                     if (car >= PROFILE_CHARACTERS) car = -1;
-                    if (car == -1 || cs_available(car)) break;
+                    if (car == -1 || (cs_available(car) && net_driver_ok(car))) break;
                 }
                 net_vote_lock[p] = 0;
                 menu_sound(0);
