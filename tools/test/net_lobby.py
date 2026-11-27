@@ -48,6 +48,8 @@ def one(secs, script, pad):
         extra['CBTest']['controls'] = [l.strip() for l in os.environ['NET_CONTROLS'].split(';')]
     if os.environ.get('NET_TIMED'):  # (a machine quits or comes in at a set time: the match at once, no countdown)
         env['TM2PC_NET_COUNTDOWN'] = '0'
+    if os.environ.get('NET_MUSIC'):  # ([music] lines: NET_MUSIC="MINION = Alpha Song.wav")
+        extra['music'] = [l.strip() for l in os.environ['NET_MUSIC'].split(';')]
     if os.environ.get('NET_VIDEO'):  # (other [video] lines: NET_VIDEO="textures = playstation;...")
         extra['ini'] = list(extra.get('ini', ())) + [l.strip() for l in os.environ['NET_VIDEO'].split(';')]
     print(cb.run('tm2pc-hooks.exe', os.environ['NET_NAME'], 'b', secs, os.environ.get('NET_SHOTS', '5000v'), env, extra))  # (NET_SHOTS: other shots)

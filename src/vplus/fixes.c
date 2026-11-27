@@ -7073,13 +7073,17 @@ void vp_team_palette(int car, int team, const uint16_t *in, uint16_t *out)
  * the respawn modes: a car or team one kill (point, Gun Game level) from
  * winning, or the time limit's last minute. Not in the tournament's last
  * level (Dark Tooth's), nor in a match with Dark Tooth. */
-/* The Minion fight's own song (Music: Minion fight, Navi's 2026-11-26): once a round, as a computer Minion (type 14) is
- * in play (the tournament's, a custom tournament's or Survival's boss, an opponent picked), the boss track as the
- * showdown switches to it, the row's song on it (music.c); the rest of the round, the showdown left out. Not in the
- * Dark Tooth fight (its own music). Default: nothing happens. */
+/* The Minion fight's own song (Music: Minion fight, Navi's 2026-11-26): the tournament's Minion fight only (the user's:
+ * not every match he is in): the game's tournament (modes 1 and 2; not a custom one) at level 4, Amazonia, reloaded after
+ * its stage with Minion its one opponent (sessionRun, decomp FOUR_PLAYERS.md). As he comes into play, the boss track as
+ * the showdown switches to it, the row's song on it (music.c); the rest of the round, the showdown left out. Default:
+ * nothing happens. */
 static void minion_music_frame(void)
 {
     if (minion_music_on || !music_minion() || !mem_r32(&M.cpu, GA(0x80180BCCu)) || mem_r8(&M.cpu, GA(0x80180A05u))) return;
+    int mode = mem_r8(&M.cpu, GA(0x8016475Cu)), level = mem_r8(&M.cpu, GA(0x8016475Cu) + 24);
+    int ui_custom_tour_on(void); /* ui/options.c */
+    if ((mode != 1 && mode != 2) || level != 4 || ui_custom_tour_on()) return;
     int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
     for (int k = 0; k < n && k < cars_ai_max(); k++)
         if ((int)((mem_r32(&M.cpu, AI_REC(k) + 0x30) >> 4) & 15) == 14 && ai_alive(k)) {

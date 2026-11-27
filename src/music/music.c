@@ -64,7 +64,7 @@ static Slot slots[] = {
     {"PODIUM", "a Versus Tournament's podium and final standings: default (the menus' music), random, order, or a file",
      "Versus podium", "", -2},
     {"MENULOOP", "the menus' loop after the title song: default (the game's own), random, order, or a file", "Menu loop", "", -2},
-    {"MINION", "the Minion fight: while Minion is in the match as a computer car (a boss): default (the arena's song), "
+    {"MINION", "the tournament's Minion fight (Amazonia, after its stage): default (the arena's song), "
      "random, order, its folder, or a file", "Minion fight", "", -2},
     {"SHOWDOWN", "a battle's final moments: off, default (the Dark Tooth track as set), random, order, or a file",
      "Showdown", "", -2},
