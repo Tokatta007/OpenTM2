@@ -165,6 +165,9 @@ typedef struct {
     char mod_names[48];                 /* their names, ", " between, cut with "..." when longer */
     uint8_t same_build;                 /* (found) its build is this one (else it cannot be joined: an update) */
     uint8_t locked;                     /* a private server: joining needs its password (set by the lobby, lobby_set_password) */
+    char region[3];                     /* the host's continent ("NA", "SA", "EU", "AF", "AS", "OC"; "" unknown) */
+    char who[240];                      /* (set by the lobby) the players there, "name:team, ..." (team left out: none);
+                                         * past the masters' first 160 bytes: an older master drops it */
     int ping;                           /* (found) ms */
 } LobbyListing;
 void lobby_set_listing(Lobby *l, const LobbyListing *info); /* (host) what the LAN browser shows; players kept by the lobby */

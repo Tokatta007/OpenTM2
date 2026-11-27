@@ -75,8 +75,12 @@ static uint16_t lan_port(void) { return getenv("TM2PC_NET_LAN_PORT") ? (uint16_t
 static const uint8_t ASK[4] = {'T', 'M', '2', 'Q'}, ANSWER[4] = {'T', 'M', '2', 'A'};
 enum { LISTING_BYTES = 4 + 4 + 32 + 24 + 32 + 2 + 6, LISTING_MODS = LISTING_BYTES + 1 + 48, /* (the mods after the rest:
                                      * the masters keep 160 bytes of a listing as they are, tools/master/master.c) */
-       LISTING_LOCKED = LISTING_MODS + 1 }; /* (then whether it needs a password: no master change) */
-typedef char listing_fits_masters[LISTING_LOCKED <= 160 ? 1 : -1];
+       LISTING_LOCKED = LISTING_MODS + 1, /* (then whether it needs a password: no master change) */
+       LISTING_REGION = LISTING_LOCKED + 2, /* (the host's continent, 2 letters: still within the 160) */
+       LISTING_WHO = LISTING_REGION + 240, /* (the players there: past the 160 an older master keeps, so it drops them
+                                            * and its browsers show none; tools/master/master.c keeps LISTING_MAX) */
+       LISTING_FULL = LISTING_WHO };
+typedef char listing_fits_masters[LISTING_REGION <= 160 && LISTING_FULL <= 400 ? 1 : -1];
 
 /* ---- the build ---- */
 uint32_t lobby_build_id(void)
@@ -710,6 +714,8 @@ static int put_listing(uint8_t *w, const LobbyListing *s)
     *w++ = s->mods;
     memcpy(w, s->mod_names, 48); w += 48;
     *w++ = s->locked;
+    memcpy(w, s->region, 2); w += 2;
+    memcpy(w, s->who, 240); w += 240;
     return (int)(w - w0);
 }
 static int get_listing(const uint8_t *r, int len, LobbyListing *s)
@@ -724,6 +730,8 @@ static int get_listing(const uint8_t *r, int len, LobbyListing *s)
     s->players = *r++; s->max = *r++; s->game = *r++; s->arena = *r++; s->mode = *r++; s->playing = *r++;
     if (len >= LISTING_MODS) { s->mods = *r++; memcpy(s->mod_names, r, 48); s->mod_names[47] = 0; r += 48; }
     if (len >= LISTING_LOCKED) s->locked = *r++;
+    if (len >= LISTING_REGION) { memcpy(s->region, r, 2); s->region[2] = 0; r += 2; }
+    if (len >= LISTING_WHO) { memcpy(s->who, r, 240); s->who[239] = 0; r += 240; }
     return 1;
 }
 void lobby_set_password(Lobby *l, const char *password)
@@ -745,6 +753,24 @@ static int listing_now(const Lobby *l, uint8_t *out) /* (host) the listing, its 
     for (int k = 0; k < SES_MAX_NODES; k++) if (l->view.m[k].present) players += l->view.m[k].count;
     s.players = (uint8_t)players;
     s.locked = l->password[0] != 0;
+    snprintf(s.region, sizeof s.region, "%s", lobby_region());
+    /* the players there (the browser's details): "name:team", ", " between; a name cut to fit, the rest left out */
+    memset(s.who, 0, sizeof s.who);
+    size_t at = 0;
+    for (int k = 0; k < SES_MAX_NODES; k++) {
+        if (!l->view.m[k].present) continue;
+        for (int i = 0; i < l->view.m[k].count; i++) {
+            char one[48], name[24];
+            snprintf(name, sizeof name, "%s", l->view.m[k].p[i].name);
+            for (char *q = name; *q; q++) if (*q == ',' || *q == ':') *q = ' ';
+            int team = l->view.m[k].p[i].team;
+            if (team >= 0) snprintf(one, sizeof one, "%s%s:%d", at ? ", " : "", name, team);
+            else snprintf(one, sizeof one, "%s%s", at ? ", " : "", name);
+            if (at + strlen(one) >= sizeof s.who) break;
+            memcpy(s.who + at, one, strlen(one) + 1);
+            at += strlen(one);
+        }
+    }
     return put_listing(out, &s);
 }
 static void master_send(Lobby *l, const uint8_t *m, int len) /* to every master (each keeps the list on its own) */
@@ -788,7 +814,7 @@ static void master_tick(Lobby *l) /* (an internet server) the host's listing, th
 {
     if (!l->masters || (l->master_ms && l->now - l->master_ms < MASTER_REGISTER_MS)) return;
     l->master_ms = l->now ? l->now : 1;
-    uint8_t m[2 + 160] = {MASTER_CHANNEL, MASTER_REGISTER};
+    uint8_t m[2 + LISTING_FULL] = {MASTER_CHANNEL, MASTER_REGISTER};
     if (l->host) master_send(l, m, 2 + listing_now(l, m + 2));
     else if (l->status == LOBBY_IN) { m[1] = MASTER_KEEP; master_send(l, m, 2); }
     /* this machine's profile online, where it is (friends see the server): from this socket, the master's view of it */
@@ -810,7 +836,7 @@ static void master_packet(Lobby *l, const uint8_t *d, int len) /* the master's I
 }
 static void lan_answer(Lobby *l)
 {
-    uint8_t buf[64], out[LISTING_LOCKED];
+    uint8_t buf[64], out[LISTING_FULL];
     char addr[48];
     uint16_t port;
     int from, n;
@@ -870,7 +896,7 @@ static int addr_private(const char *a) /* a private network's address (10/8, 172
 int lobby_lan_results(LanSearch *s, LobbyListing *out, int max)
 {
     if (!s) return 0;
-    uint8_t buf[256];
+    uint8_t buf[2 + MASTER_ADDR_BYTES + LISTING_FULL + 16];
     char addr[48];
     uint16_t port;
     int from, len;

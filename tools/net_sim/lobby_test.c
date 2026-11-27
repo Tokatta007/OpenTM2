@@ -286,6 +286,17 @@ int main(void)
         if (lb[2]) lobby_set_masters(lb[2], ms);
         check("two machines join through it", lb[1] && lb[2] && wait_for(all_in, 5000));
         for (uint32_t t0 = now_ms(); now_ms() - t0 < 5000;) { poll_all(); nap(); } /* (keep-alives, introductions) */
+        { /* the browser's details: the players there and the host's continent, through the master (v1.0.20) */
+            LanSearch *again = lobby_master_search(ms, 1);
+            int n2 = 0;
+            for (uint32_t t0 = now_ms(); now_ms() - t0 < 600;) { poll_all(); n2 = lobby_lan_results(again, found, 8); nap(); }
+            lobby_lan_search_free(again);
+            int names = 0;
+            for (const char *q = n2 == 1 ? found[0].who : ""; *q; q++) names += *q == ',';
+            printf("(the listing's players: \"%s\", region \"%s\")\n", n2 == 1 ? found[0].who : "", n2 == 1 ? found[0].region : "");
+            check("the master's listing names the players there and the host's continent",
+                  n2 == 1 && found[0].who[0] && names + 1 == found[0].players && !strcmp(found[0].region, "NA"));
+        }
         lobby_free(lb[0]);
         lb[0] = NULL;
         check("the host leaves: machine 1 takes over (internet)", wait_for(migrated, 6000));

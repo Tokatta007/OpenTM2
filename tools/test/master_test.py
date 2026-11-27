@@ -10,7 +10,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 BIN = REPO / 'build' / 'net-sim'
-env = dict(os.environ, TM2PC_NET_LOCAL='1')
+env = dict(os.environ, TM2PC_NET_LOCAL='1', TM2PC_TEST_REGION='US')  # (the host's continent: NA)
 master = subprocess.Popen([str(BIN / 'tm2_master.exe'), '47300'], env=env, stderr=subprocess.PIPE, text=True)
 backup = subprocess.Popen([str(BIN / 'tm2_master.exe'), '47301'], env=env, stderr=subprocess.PIPE, text=True)  # (two: a main, a backup)
 try:

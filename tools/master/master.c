@@ -24,7 +24,7 @@ static uint32_t now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,
 static void nap(void) { usleep(2000); }
 #endif
 
-enum { MACHINES = 4096, LISTING_MAX = 160 };
+enum { MACHINES = 4096, LISTING_MAX = 400 }; /* (a listing: 160 bytes up to v1.0.19, then the players there: lobby.c) */
 typedef struct {
     char addr[16];
     uint16_t port;

@@ -2479,6 +2479,7 @@ typedef struct {
     const char *who;                /* the players there, comma separated */
     char addr[48];                  /* a real server (LAN): where, its port (else a sample) */
     int port, other_build;
+    char region[3];                 /* the host's continent (lobby_region: "NA" .. "OC"; "" unknown) */
 } NetServer;
 void netplay_lan_search(void);                            /* net/game_tm2.c: the LAN browser's question */
 int netplay_lan_results(LobbyListing *out, int max);      /* the servers that answered */
@@ -3342,7 +3343,12 @@ static void net_refresh(void) /* the servers found (LAN: those answering; tests:
             {"Modded Mayhem", "Minion", NET_GAME_CHALLENGE, 4, 6, 12, 99, 1, 0, 1, "Twisted Metal", MODE_LAST_CAR, "New Cars Pack, Neon Skins, Midnight Arenas, Classic HUD, TM1 Music",
              "Minion, Axel"},
         };
-        for (unsigned i = 0; i < sizeof sample / sizeof sample[0]; i++) net_list[net_list_n++] = sample[i];
+        static const char *const sample_region[] = {"NA", "EU", "NA", "SA", "EU", "OC", "AS", "NA", "EU", "", "AS", "NA"};
+        for (unsigned i = 0; i < sizeof sample / sizeof sample[0]; i++) {
+            net_list[net_list_n] = sample[i];
+            snprintf(net_list[net_list_n].region, 3, "%s", sample_region[i % 12]);
+            net_list_n++;
+        }
     }
     fprintf(stderr, "network: %s servers asked for (each logged as it answers)%s\n", net_lan ? "LAN" : "online",
             net_list_n ? ", the test samples listed" : ""); /* (the answers come after: not a count of 0) */
@@ -3374,6 +3380,10 @@ static int net_browser_tick(void)
         static char mod_names[NET_SERVERS_MAX][48];
         snprintf(mod_names[net_list_n - 1], 48, "%s", found[i].mod_names);
         s->mod_names = mod_names[net_list_n - 1];
+        static char who[NET_SERVERS_MAX][240]; /* (the players there: a v1.0.20 host through a v1.0.20 master; else none) */
+        snprintf(who[net_list_n - 1], 240, "%s", found[i].who);
+        s->who = who[net_list_n - 1][0] ? who[net_list_n - 1] : NULL;
+        snprintf(s->region, sizeof s->region, "%s", found[i].region);
         s->other_build = !found[i].same_build;
         s->locked = found[i].locked;
         fprintf(stderr, "network: %s server \"%s\" at %s:%d (%d of %d players, %d ms, %d mods%s%s%s%s)\n", net_lan ? "LAN" : "online",
@@ -7218,11 +7228,12 @@ static void draw_server_browser(const View *v, int sel)
     draw_fill(v->c, X(v, SB_TX), Y(v, SB_TY), S(v, SB_TW), S(v, th), panel, 200);
     draw_fill(v->c, X(v, SB_TX), Y(v, SB_TY), S(v, SB_TW), t, line, 255);
     /* the columns: the server's name from the left, the others centered on their x */
-    static const struct { const char *head; int x; } col[8] = {{"SERVER", 30}, {"", 192}, {"ARENA", 252}, {"GAME MODE", 362},
-                                                              {"STATUS", 452}, {"PLAYERS", 506}, {"PING", 552}, {"MODS", 594}};
+    static const struct { const char *head; int x; } col[9] = {{"SERVER", 30}, {"", 186}, {"ARENA", 242}, {"GAME MODE", 344},
+                                                              {"STATUS", 428}, {"PLAYERS", 476}, {"REGION", 522}, {"PING", 563},
+                                                              {"MODS", 598}};
     int cs = S(v, 9);
     text_draw(v->c, col[0].head, X(v, col[0].x), text_top_for_center(Y(v, SB_TY + 12), cs), cs, COPPER);
-    for (int k = 1; k < 8; k++)
+    for (int k = 1; k < 9; k++)
         text_draw(v->c, col[k].head, X(v, col[k].x) - text_width(col[k].head, cs) / 2, text_top_for_center(Y(v, SB_TY + 12), cs), cs, COPPER);
     plain_text();
     int n = 0, at = -1;
@@ -7241,23 +7252,24 @@ static void draw_server_browser(const View *v, int sel)
         int full = sv->players >= sv->max, pals = server_friends(sv);
         TextColor ink = WHITE;
         char fit[48];
-        fit_text(fit, sizeof fit, sv->name, X(v, 182) - X(v, 30) - (pals ? S(v, 12) : 0), size);
+        fit_text(fit, sizeof fit, sv->name, X(v, 176) - X(v, 30) - (pals ? S(v, 12) : 0), size);
         text_draw(v->c, fit, X(v, 30), text_top_for_center(cy, size), size, pals ? CUSTOM : ink); /* (friends there: sky) */
-        if (pals) draw_person(v, X(v, 192) - S(v, 6) - (sv->locked ? S(v, 14) : 0), cy, S(v, 12), CUSTOM);
-        if (sv->locked) draw_lock(v, X(v, 192) - S(v, 6), cy, S(v, 12), COPPER); /* a password */
+        if (pals) draw_person(v, X(v, 186) - S(v, 6) - (sv->locked ? S(v, 14) : 0), cy, S(v, 12), CUSTOM);
+        if (sv->locked) draw_lock(v, X(v, 186) - S(v, 6), cy, S(v, 12), COPPER); /* a password */
         if (sv->game == NET_GAME_TOURNAMENT) /* (its level: "LEVEL 3") */
             snprintf(s, sizeof s, "%s", sv->type && !strncmp(sv->type, "LEVEL ", 6) ? sv->type : "LEVEL 1");
         else snprintf(s, sizeof s, "%s", sv->arena ? arena_name(sv->arena) : "RANDOM");
-        sb_cell(v, s, 252, 96, cy, ss, ink);
+        sb_cell(v, s, 242, 92, cy, ss, ink);
         snprintf(s, sizeof s, "%s", sv->game == NET_GAME_CHALLENGE ? battle_mode_names[sv->mode % MODE_COUNT] : net_game_values[sv->game]);
         upper(s);
-        sb_cell(v, s, 362, 116, cy, ss, ink);
-        sb_cell(v, sv->playing ? "IN GAME" : "LOBBY", 452, 56, cy, ss, sv->playing ? ORANGE : PALE);
+        sb_cell(v, s, 344, 106, cy, ss, ink);
+        sb_cell(v, sv->playing ? "IN GAME" : "LOBBY", 428, 54, cy, ss, sv->playing ? ORANGE : PALE);
         snprintf(s, sizeof s, "%d/%d", sv->players, sv->max);
-        sb_cell(v, s, 506, 44, cy, ss, full ? ORANGE : ink); /* (full: gold) */
+        sb_cell(v, s, 476, 42, cy, ss, full ? ORANGE : ink); /* (full: gold) */
+        sb_cell(v, sv->region[0] ? sv->region : "?", 522, 40, cy, ss, sv->region[0] ? ink : GRAY); /* (the host's continent) */
         snprintf(s, sizeof s, "%d", sv->ping);
-        sb_cell(v, s, 552, 40, cy, ss, sv->ping > 150 ? ORANGE : ink);
-        sb_cell(v, sv->mods ? "YES" : "NO", 594, 40, cy, ss, sv->mods ? ORANGE : ink);
+        sb_cell(v, s, 563, 34, cy, ss, sv->ping > 150 ? ORANGE : ink);
+        sb_cell(v, sv->mods ? "YES" : "NO", 598, 32, cy, ss, sv->mods ? ORANGE : ink);
     }
     int ps = S(v, 9), pages = (n + SB_ROWS - 1) / SB_ROWS;
     if (pages > 1) {
@@ -7296,6 +7308,11 @@ static void draw_server_browser(const View *v, int sel)
             snprintf(l[nl++], sizeof l[0], "ARENA: %s", hl->arena ? arena_name(hl->arena) : "RANDOM");
         snprintf(l[nl++], sizeof l[0], "PLAYERS: %d OF %d%s", hl->players, hl->max, hl->locked ? ", PASSWORD" : "");
         snprintf(l[nl++], sizeof l[0], "HOST: %s, %d MS", hl->host, hl->ping);
+        static const char *const regions[][2] = {{"NA", "NORTH AMERICA"}, {"SA", "SOUTH AMERICA"}, {"EU", "EUROPE"},
+                                                 {"AF", "AFRICA"}, {"AS", "ASIA"}, {"OC", "OCEANIA"}};
+        const char *rn = "NOT KNOWN";
+        for (unsigned k = 0; k < sizeof regions / sizeof regions[0]; k++) if (!strcmp(hl->region, regions[k][0])) rn = regions[k][1];
+        snprintf(l[nl++], sizeof l[0], "REGION: %s", rn);
         int mods_at = nl; /* (the mods: the list's end, each on a line) */
         if (!hl->mods || !hl->mod_names) snprintf(l[nl++], sizeof l[0], "MODS: NONE");
         else {
