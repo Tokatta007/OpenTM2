@@ -358,10 +358,15 @@ void match_begin(int human_lives)
         mcars[mcount] = (MatchCar){i, -1, car_index(r32s(human_rec(i) + 0x90)), 0, 0, 0, 0, human_lives < 1 ? 1 : human_lives};
         mslot[mcount++] = r16s(human_rec(i) + 4);
     }
+    /* Dark Tooth: one life as a boss; an ordinary computer Dark Tooth (portCarOptions bit 10: a Challenge Match's) the
+     * match's lives as any car, as vplus/fixes.c ai_lives_start brings him back (KinggzZ's 2026-11-27: the board said 1) */
+    uint32_t opt = port_sym("portCarOptions");
+    int dt_ordinary = opt && (mem_r32(&M.cpu, opt) & 0x400u);
     for (int i = 0; i < a && i < AI_MAX && mcount < MATCH_MAX; i++) {
         /* (a computer Dark Tooth, type 0xF0: car 14, his name on the results; car_index has him -1 for the feats') */
-        mcars[mcount] = (MatchCar){-1, i, r32s(ai_rec(i) + 0x30) == 0xF0 ? 14 : car_index(r32s(ai_rec(i) + 0x30)), 0, 0, 0, 0,
-                                   r32s(ai_rec(i) + 0x30) == 0xF0 || human_lives < 1 ? 1 : human_lives}; /* Dark Tooth: one */
+        int dt = r32s(ai_rec(i) + 0x30) == 0xF0;
+        mcars[mcount] = (MatchCar){-1, i, dt ? 14 : car_index(r32s(ai_rec(i) + 0x30)), 0, 0, 0, 0,
+                                   (dt && !dt_ordinary) || human_lives < 1 ? 1 : human_lives};
         mslot[mcount++] = r16s(ai_rec(i) + 6);
     }
     malive = mcount;
