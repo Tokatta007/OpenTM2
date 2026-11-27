@@ -495,17 +495,20 @@ void vp_RenderScene(CPU *c) /* renderScene(rec, view): after view 2's in the mai
     static int pkt_log = -1;
     if (pkt_log < 0) pkt_log = getenv("TM2PC_PKT_LOG") != NULL;
     uint32_t pkt_from = pkt_log ? mem_r32(c, rec0 + 8) : 0;
-    /* Holland's rear-view mirror at the original's detail bands (no far LOD, near scale 1, no budget): at Far and
-     * Farthest the whole grass field's finest beams were drawn again in the mirror, and the frames dropped (the user's,
+    /* The rear-view mirror at the original's detail bands (no far LOD, near scale 1, no budget): at Far and
+     * Farthest Holland's whole grass field's finest beams were drawn again in the mirror, and the frames dropped (the user's,
      * 2026-11-04; measured at 1920x1080, uncapped, Farthest, in the field: VBlanks over 19 ms in 70 s, mirror off 35,
      * on 591, these bands 33; near scale 2: 226). The main view keeps its grass; the mirror's shows near the car.
-     * Every other arena's mirror as its view (Los Angeles: 50 with the mirror, 33 without). TM2PC_MIRROR_FULL: tests */
+     * Now every arena's mirror (its far distance kept): at Farthest Amazonia's mirror walked the far bands at 16x as
+     * the view does, and frames went over 16.7 ms (Jean Alter's 40 FPS, 2026-11-26; one copy at 60 FPS, Farthest,
+     * resolution 8: VBlanks over 20 ms in 110 s, the mirror off 20, on 1,973, these bands 25). A 101 x 30 picture
+     * shows no difference. TM2PC_MIRROR_FULL: tests, the view's bands */
     static int mirror_full = -1;
     if (mirror_full < 0) mirror_full = getenv("TM2PC_MIRROR_FULL") != NULL;
     uint32_t far_lod = 0, near_scale = 0, budget = 0;
     static uint32_t near_word = 1, budget_word = 1;
     if (near_word == 1) near_word = port_sym("portFarLodNearScale"), budget_word = port_sym("portFarLodBudget");
-    int lod_off = mirror && !mirror_full && rc_port_far_lod && mem_r8(c, GA(0x8016475Cu) + 24) == 7; /* (7: Holland) */
+    int lod_off = mirror && !mirror_full && rc_port_far_lod;
     if (lod_off) {
         far_lod = mem_r32(c, rc_port_far_lod), mem_w32(c, rc_port_far_lod, 0);
         if (near_word) near_scale = mem_r32(c, near_word), mem_w32(c, near_word, 1);
