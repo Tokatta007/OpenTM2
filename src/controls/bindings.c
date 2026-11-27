@@ -79,7 +79,7 @@ static const char *const button_keys[BIND_TOUCHPAD + 1] = {
 };
 
 const char *const bind_extra_names[BIND_EXTRAS] = {"Next song", "Previous song", "Push to talk", "Scoreboard", "Quit game",
-                                                   "Text chat"};
+                                                   "In-game chat"};
 static const char *const extra_keys[BIND_EXTRAS] = {"next_song", "previous_song", "push_to_talk", "scoreboard", "quit_game",
                                                     "text_chat"}; /* (their ini names) */
 static int extra_button[BIND_EXTRAS] = {0, 0, 0, BIND_TOUCHPAD, 0, 0}; /* the songs and talking: none by default (not by
