@@ -161,6 +161,10 @@ typedef struct {
 } CustomTour;
 enum { TOUR_VERSUS_LIVES_MAX = 5 };
 enum { TOUR_MINION = 13, TOUR_DARK_TOOTH = 14 };
+/* Dark Tooth for players (and picked as an opponent): his own Drivers row, a bit of drivers above the 14 (set: off; saved
+ * as dark_tooth_player, the bits by car as before) */
+enum { DRIVER_DT_OFF = 1u << 15 };
+int battle_driver_allowed(const GameType *t, int car); /* car (0..14) may be picked in t's match: its Drivers row */
 CustomTour *battle_tour(void);
 void battle_tour_override(CustomTour *t);          /* battle_tour() is this one (a server's; NULL: the profile's again) */
 void battle_tour_versus(int on);                   /* battle_tour() the profile's Versus Tournament setup (hosting one), not its

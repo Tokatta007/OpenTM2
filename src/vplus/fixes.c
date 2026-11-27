@@ -286,7 +286,7 @@ void vp_CarAccept(CPU *c)
     if (drawing) /* 3-4 players: their cars aren't drawn either */
         for (int h = 2; h < four_humans(); h++) if ((int)car == four_car_of(h)) c->r[2] = 0;
     /* a Challenge Match: only the drivers its game type allows */
-    if (!drawing && ui_battle_live() && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1))
+    if (!drawing && ui_battle_live() && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), (int)car))
         c->r[2] = 0;
 }
 

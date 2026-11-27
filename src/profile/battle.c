@@ -344,6 +344,16 @@ const GameType *battle_match_type(void)
     merged.falloff = m->falloff;
     return &merged;
 }
+int battle_driver_allowed(const GameType *t, int car)
+{
+    if (car == TOUR_DARK_TOOTH) return !(t->drivers & DRIVER_DT_OFF);
+    return car < 0 || car >= BATTLE_DRIVERS || (t->drivers >> car & 1);
+}
+/* a file from before the Dark Tooth row: No bosses (Minion off, neither boss random) took him out too */
+static unsigned dt_from_before(unsigned drivers, int dark_tooth, int minion_random)
+{
+    return !(drivers >> TOUR_MINION & 1) && !dark_tooth && !minion_random ? drivers | DRIVER_DT_OFF : drivers;
+}
 void battle_match_rules_take(const GameType *t, int all)
 {
     MatchSetup *m = battle_match();
@@ -437,9 +447,11 @@ static void type_key(GameType *t, const char *key, const char *val)
         {"hazards", offsetof(GameType, hazards), ALL_HAZARDS},
         {"destructibles", offsetof(GameType, destructibles), ALL_DEST},
     };
+    if (!strcmp(key, "dark_tooth_player")) { t->drivers = atoi(val) ? t->drivers & ~DRIVER_DT_OFF : t->drivers | DRIVER_DT_OFF; return; }
     for (unsigned i = 0; i < sizeof fields / sizeof fields[0]; i++)
         if (!strcmp(key, fields[i].key)) {
             *(int *)((char *)t + fields[i].at) = clamp(atoi(val), fields[i].lo, fields[i].hi);
+            if (!strcmp(key, "minion_random")) t->drivers = dt_from_before(t->drivers, t->dark_tooth, t->minion_random);
             return;
         }
     for (unsigned i = 0; i < sizeof masks / sizeof masks[0]; i++)
@@ -497,11 +509,16 @@ void battle_key(const char *section, const char *key, const char *val)
         else if (!strcmp(key, "player_teams")) ints(match.player_team, 4, val, 0, BATTLE_TEAM_COLORS - 1, 0);
         else if (!strcmp(key, "friendly_fire")) match.no_friendly_fire = !strcmp(val, "off");
         else if (!strcmp(key, "drivers") || !strcmp(key, "dark_tooth") || !strcmp(key, "minion_random") || !strcmp(key, "ai_targets") ||
+                 !strcmp(key, "dark_tooth_player") ||
                  !strcmp(key, "hazards") || !strcmp(key, "destructibles") || !strcmp(key, "falloff")) {
             if (!match.rules_set) { GameType d; battle_type_defaults(&d, MODE_LAST_CAR); battle_match_rules_take(&d, 1); }
             if (!strcmp(key, "drivers")) match.drivers = (unsigned)strtoul(val, NULL, 16) & ALL_DRIVERS;
             else if (!strcmp(key, "dark_tooth")) match.dark_tooth = atoi(val) != 0;
-            else if (!strcmp(key, "minion_random")) match.minion_random = atoi(val) != 0;
+            else if (!strcmp(key, "minion_random")) {
+                match.minion_random = atoi(val) != 0;
+                match.drivers = dt_from_before(match.drivers, match.dark_tooth, match.minion_random);
+            } else if (!strcmp(key, "dark_tooth_player"))
+                match.drivers = atoi(val) ? match.drivers & ~DRIVER_DT_OFF : match.drivers | DRIVER_DT_OFF;
             else if (!strcmp(key, "ai_targets")) match.ai_targets = clamp(atoi(val), 0, AI_TARGETS_COUNT - 1);
             else if (!strcmp(key, "hazards")) match.hazards = (unsigned)strtoul(val, NULL, 16) & ALL_HAZARDS;
             else if (!strcmp(key, "destructibles")) match.destructibles = (unsigned)strtoul(val, NULL, 16) & ALL_DEST;
@@ -545,8 +562,9 @@ void battle_write(FILE *f)
     if (match.rules_set) /* (the match's own rules: Drivers, CPU logic, Arena hazards) */
         fprintf(f, "; the drivers allowed (a bit per car, hex), Dark Tooth / Minion as random opponents, CPU logic (0 classic,\n"
                    "; 1 everyone equal, 2 only humans), hazards and destructibles (hex), falling off (0 death .. 5 none)\n"
-                   "drivers = %04x\ndark_tooth = %d\nminion_random = %d\nai_targets = %d\nhazards = %02x\ndestructibles = %02x\n"
-                   "falloff = %d\n", match.drivers, match.dark_tooth, match.minion_random, match.ai_targets, match.hazards,
+                   "drivers = %04x\ndark_tooth = %d\nminion_random = %d\ndark_tooth_player = %d\nai_targets = %d\nhazards = %02x\n"
+                   "destructibles = %02x\nfalloff = %d\n", match.drivers & ALL_DRIVERS, match.dark_tooth, match.minion_random,
+                !(match.drivers & DRIVER_DT_OFF), match.ai_targets, match.hazards,
                 match.destructibles, match.falloff);
     for (int k = 0; k < 2; k++) { /* the Custom Tournament, then the Versus Tournament (each its own) */
         const CustomTour *T = k ? &vtour : &tour;
@@ -562,9 +580,9 @@ void battle_write(FILE *f)
         const GameType *t = &user[i];
         fprintf(f, "\n[game_type%d]\nname = %s\n", i + 1, t->name);
         if (t->desc[0]) fprintf(f, "description = %s\n", t->desc);
-        fprintf(f, "mode = %d\nrespawn = %d\ndrivers = %04x\ndark_tooth = %d\nminion_random = %d\nteams = %d\n"
-                   "friendly_fire = %d\nweapons = %02x\n", t->mode, t->respawn, t->drivers,
-                t->dark_tooth, t->minion_random, t->teams, t->friendly_fire, t->weapons);
+        fprintf(f, "mode = %d\nrespawn = %d\ndrivers = %04x\ndark_tooth = %d\nminion_random = %d\ndark_tooth_player = %d\nteams = %d\n"
+                   "friendly_fire = %d\nweapons = %02x\n", t->mode, t->respawn, t->drivers & ALL_DRIVERS,
+                t->dark_tooth, t->minion_random, !(t->drivers & DRIVER_DT_OFF), t->teams, t->friendly_fire, t->weapons);
         write_ints(f, "ammo", t->ammo, BATTLE_WEAPONS);
         write_ints(f, "refill", t->refill, BATTLE_WEAPONS);
         fprintf(f, "infinite = %d\nroulette = %d\nroulette_count = %d\nenergy = %02x\nhealth = %d\nturbo = %d\n"

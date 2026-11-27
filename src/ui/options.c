@@ -1605,7 +1605,7 @@ static void set_opponent(int a, int v)
     battle_match()->opponent[a] = v ? opponent_order[v - 1] : -1;
     changed |= SAVE_BATTLE;
 }
-static int get_driver(int a) { return (int)(battle_match_type()->drivers >> a) & 1; }
+static int get_driver(int a) { return battle_driver_allowed(battle_match_type(), a); }
 
 /* the game type's weapons and pickups (arg: a weapon, -1 all of them) */
 enum { ALL_ROW = -1 };
@@ -1789,7 +1789,7 @@ static void set_drivers_group(int a, int v)
     (void)a;
     MatchSetup *m = match_rules();
     unsigned all = (1u << BATTLE_DRIVERS) - 1;
-    m->drivers = v == 0 ? all : all & ~(1u << 13);
+    m->drivers = v == 0 ? all : (all & ~(1u << 13)) | DRIVER_DT_OFF; /* (No bosses: Minion and Dark Tooth out) */
     if (v) m->dark_tooth = m->minion_random = 0; /* (No bosses: out of the random ones too) */
     rebuild_page = 1;
 }
@@ -1804,6 +1804,11 @@ static void set_gt_dark_tooth(int a, int v)
 static void set_driver(int a, int v)
 {
     MatchSetup *m = match_rules();
+    if (a == TOUR_DARK_TOOTH) { /* (his own bit: set, off) */
+        m->drivers = v ? m->drivers & ~DRIVER_DT_OFF : m->drivers | DRIVER_DT_OFF;
+        rebuild_page = 1;
+        return;
+    }
     unsigned d = v ? m->drivers | 1u << a : m->drivers & ~(1u << a);
     if (!(d & ((1u << BATTLE_OPPONENT_CARS) - 1))) return; /* one of the twelve stays: someone to drive */
     m->drivers = d;
@@ -1873,8 +1878,9 @@ enum { DRIVERS_ALL, DRIVERS_NO_BOSSES, DRIVERS_CUSTOM };
 static const char *const drivers_values[3] = {"ALL", "NO BOSSES", "CUSTOM"};
 static int drivers_group(const GameType *t)
 {
-    unsigned all = (1u << BATTLE_DRIVERS) - 1, no_boss = all & ~(1u << 13); /* the bosses: Minion and Dark Tooth */
-    return t->drivers == all ? DRIVERS_ALL : t->drivers == no_boss && !t->dark_tooth ? DRIVERS_NO_BOSSES : DRIVERS_CUSTOM;
+    unsigned all = (1u << BATTLE_DRIVERS) - 1, no_boss = (all & ~(1u << 13)) | DRIVER_DT_OFF; /* the bosses: Minion and Dark Tooth */
+    return t->drivers == all ? DRIVERS_ALL
+         : t->drivers == no_boss && !t->dark_tooth && !t->minion_random ? DRIVERS_NO_BOSSES : DRIVERS_CUSTOM;
 }
 
 /* The game type's settings in a few lines (the summary): only what differs
@@ -2153,6 +2159,9 @@ static void build_battle(PageId page)
                                 get_driver, set_driver, car, onoff_values, 2);
             r->locked = car == 12 ? !profile_sweet_tooth_unlocked() : car == 13 ? !profile_minion_unlocked() : 0;
         }
+        if (profile_dark_tooth_unlocked() || netplay_lobby()) /* (online every machine has him) */
+            add_choice(profile_character_name(TOUR_DARK_TOOTH), "Can Dark Tooth be picked (by players, and as an opponent)?",
+                       get_driver, set_driver, TOUR_DARK_TOOTH, onoff_values, 2);
         add(ROW_HEADER, "Random opponents", NULL); /* the bosses: each on its own row (once unlocked) */
         if (profile_minion_unlocked())
             add_choice("Minion in random", "Can Minion be drawn as a random opponent?", get_gt_dark_tooth, set_gt_dark_tooth, 1,
@@ -7307,12 +7316,13 @@ static void draw_server_browser(const View *v, int sel)
         if (hl->game != NET_GAME_TOURNAMENT) /* (a co-op tournament's arenas are its levels, in order: no one arena) */
             snprintf(l[nl++], sizeof l[0], "ARENA: %s", hl->arena ? arena_name(hl->arena) : "RANDOM");
         snprintf(l[nl++], sizeof l[0], "PLAYERS: %d OF %d%s", hl->players, hl->max, hl->locked ? ", PASSWORD" : "");
-        snprintf(l[nl++], sizeof l[0], "HOST: %s, %d MS", hl->host, hl->ping);
         static const char *const regions[][2] = {{"NA", "NORTH AMERICA"}, {"SA", "SOUTH AMERICA"}, {"EU", "EUROPE"},
                                                  {"AF", "AFRICA"}, {"AS", "ASIA"}, {"OC", "OCEANIA"}};
-        const char *rn = "NOT KNOWN";
+        const char *rn = NULL;
         for (unsigned k = 0; k < sizeof regions / sizeof regions[0]; k++) if (!strcmp(hl->region, regions[k][0])) rn = regions[k][1];
-        snprintf(l[nl++], sizeof l[0], "REGION: %s", rn);
+        /* (the host's continent on the host's line: the mods stay on the first page, no scrolling) */
+        if (rn) snprintf(l[nl++], sizeof l[0], "HOST: %s, %d MS, %s", hl->host, hl->ping, rn);
+        else snprintf(l[nl++], sizeof l[0], "HOST: %s, %d MS", hl->host, hl->ping);
         int mods_at = nl; /* (the mods: the list's end, each on a line) */
         if (!hl->mods || !hl->mod_names) snprintf(l[nl++], sizeof l[0], "MODS: NONE");
         else {
@@ -12580,7 +12590,7 @@ static int cs_available(int car);
 static int carsel_teams(void);
 static int bar_shows(int car) /* in the bars: a driver the match allows (a locked secret one: as the setting has it) */
 {
-    if (M.ram && battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
+    if (M.ram && battle_live && car >= 0 && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), car)) return 0;
     return !vp_on(VP_HIDE_LOCKED_DRIVERS) || car < 12 || cs_available(car);
 }
 static int bar_count(void)
@@ -12916,7 +12926,7 @@ static int cs_available(int car)
     if (!M.ram) return car >= 0 && car < 12; /* previews: the game is not running */
     /* a Challenge Match (a server's too): only the drivers its game type has on (the others out of the bars and the
      * cursor's way, the user's 2026-11-24; vp_CarAccept refuses them to the game as well) */
-    if (battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
+    if (battle_live && car >= 0 && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), car)) return 0;
     if (car == 12) return mem_r8(&M.cpu, GA(0x80180D04u)) != 0;
     if (car == 13) return mem_r8(&M.cpu, GA(0x80180D05u)) != 0;
     if (car == 14) return vp_dt_player_offered();
@@ -15756,7 +15766,7 @@ void ui_AiSelect(CPU *c)
     unsigned drivers = trun.on ? battle_tour()->roster : battle_match_type()->drivers;
     if (!trun.on) /* Challenge Match: the bosses by their own rows (Minion in random, Dark Tooth in random) */
         drivers = (drivers & ~(1u << TOUR_MINION)) | (battle_match_type()->minion_random ? 1u << TOUR_MINION : 0u) |
-                  (battle_match_type()->dark_tooth ? 1u << TOUR_DARK_TOOTH : 0u);
+                  (battle_match_type()->dark_tooth && battle_driver_allowed(battle_match_type(), TOUR_DARK_TOOTH) ? 1u << TOUR_DARK_TOOTH : 0u);
     /* (a tournament: the roster's, CPU Drivers: Sweet Tooth, Minion and Dark Tooth too, once unlocked; else the bosses
      * only in their waves) */
     /* the mod characters that are on, for the Random drivers (Options > Mods; offline: online every machine rolls the
@@ -15833,6 +15843,12 @@ void ui_AiSelect(CPU *c)
     int dt_room = !dt_boss_here && port_config_on() && (cars_banks() || level >= 13 || boss_room[level] > humans + n);
     for (int i = 0; i < n && i < BATTLE_OPPONENT_SLOTS; i++) {
         int car = b->opponent[i];
+        /* a pick the Drivers rows have off (No bosses, or the driver's own row; a pick kept from before, online the
+         * host's): Random, from the allowed ones (a tournament's: its stage's enemies, kept) */
+        if (!trun.on && car >= 0 && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), car)) {
+            fprintf(stderr, "challenge match: opponent %d, %s, off in Drivers: Random\n", i + 1, car_label(car));
+            car = -1;
+        }
         /* a boss picked on the page (opponent_values_init): only while this profile has him (another profile's match setup
          * keeps its picks; online the host's pick, every machine alike) and, Dark Tooth, once a match where his textures
          * fit, as the random ones; else Random */
