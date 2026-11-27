@@ -35,6 +35,8 @@ ORDER = ["HH", "OT", "WH", "MG", "PV", "TH", "SP", "RK", "IR", "AX", "FL", "HS",
 NAMES = ["Hammerhead", "Outlaw 2", "Warthog", "Mr. Grimm", "Grasshopper", "Thumper", "Spectre", "Roadkill",
          "Twister", "Axel", "Mr. Slam", "Shadow", "Sweet Tooth", "Minion"]
 
+DT_PINK = (295, 350, 0.35, 0.25)  # Dark Tooth's hot pink
+DT_IMAGES = (0, 5, 6)  # his images with it: the body, the legs and turret, the ice cream cone
 RED = (340, 20, 0.45, 0.30)  # hue window (degrees), minimum saturation and value: a strong red
 # per car: entries added (hue window, min s, min v, in a texture rectangle x0, y0, x1, y1 or None),
 # rectangles whose entries are taken away (and kept anyway when in a 'keep' rectangle), the
@@ -432,6 +434,20 @@ def main():
     out.append("};")
     out.append("static const uint8_t team_paint_minion_select[32] = %s; /* Minion's car select palette (768,36) */"
                % mask_text(sel_idx))
+    # Dark Tooth (TMS\BB.TMS): his paint is the hot pink (the polka dots, the scoop, the trim), in three images, each
+    # with its own CLUT: the body (0), the legs and turret (5) and the ice cream cone (6); every pink entry of each
+    bb = [img for _, img in tim.scan(cd.read("/TMS/BB.TMS"))]
+    out.append("/* Dark Tooth (TMS\\BB.TMS): his images with paint and, per image, its pink entries (hue %d..%d, s >= %.2f,"
+               " v >= %.2f) */" % DT_PINK)
+    out.append("static const uint8_t team_dt_image[%d] = {%s};" % (len(DT_IMAGES), ", ".join(map(str, DT_IMAGES))))
+    out.append("static const uint8_t team_paint_dt[%d][32] = {" % len(DT_IMAGES))
+    for k in DT_IMAGES:
+        pal = bb[k].palettes[0]
+        used = set(bb[k].pixels)
+        idx = {i for i in used if i < len(pal) and in_window(pal[i], DT_PINK)}
+        out.append("    %s, /* image %d: %d */" % (mask_text(idx), k, len(idx)))
+        print(f"Dark Tooth image {k}: {len(idx)} pink entries")
+    out.append("};")
     out.append("/* Minion's car select texture (CARSEL.TMS image 0, 256x128): its split, as team_split's */")
     if sel_split:
         sp = sel_split

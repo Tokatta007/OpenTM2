@@ -6358,6 +6358,41 @@ static void team_split_minion_carsel(uint32_t buf)
     int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
     team_split_with(&team_split_minion_select, 13, body, pix, w, h);
 }
+/* Dark Tooth in a team: his paint (the hot pink: team_masks.py) is in three images of TMS\BB.TMS, each with its own CLUT
+ * (decomp TEAM_COLORS.md 4: the body, the legs and turret, the ice cream cone), so it is recolored in the file before
+ * it goes up. The container: 4 words, a key per image (his first 0xEA65), a word, then the images (TIMs), a word between
+ * each two. */
+int vp_team_dark_tooth_file(uint32_t buf, int team) /* (vplus/mod_cars.c: car select's truck too) the entries changed */
+{
+    uint32_t count = mem_r32(&M.cpu, buf + 12);
+    if (team < 0 || count < 7 || count > 64 || mem_r32(&M.cpu, buf + 16) != 0xEA65u) return 0; /* (not his file) */
+    uint32_t t = buf + 4u * (4u + count + 1u);
+    int changed = 0;
+    for (uint32_t img = 0; img < count && img <= team_dt_image[2]; img++) {
+        uint32_t flags = mem_r32(&M.cpu, t + 4), clut = flags & 8 ? mem_r32(&M.cpu, t + 8) : 0;
+        if (mem_r32(&M.cpu, t) != 0x10u || clut > 0x20Cu) {
+            fprintf(stderr, "team colors: Dark Tooth's image %u is not where it should be\n", img);
+            return changed;
+        }
+        for (int j = 0; j < 3; j++) {
+            if (team_dt_image[j] != img || !clut) continue;
+            uint32_t pal = t + 8 + 12;
+            for (uint32_t i = 0; i < (clut - 12) / 2 && i < 256; i++)
+                if (team_paint_dt[j][i >> 3] & (1 << (i & 7))) {
+                    mem_w16(&M.cpu, pal + 2 * i, team_recolor(mem_r16(&M.cpu, pal + 2 * i), team_hue[team], 14));
+                    changed++;
+                }
+        }
+        t += 8 + clut + mem_r32(&M.cpu, t + 8 + clut) + 4;
+    }
+    return changed;
+}
+static void team_dark_tooth(uint32_t buf, int n)
+{
+    if (mem_r32(&M.cpu, buf + 16) != 0xEA65u) return; /* (not his file: no team lookup) */
+    int team = team_of_group(n), changed = vp_team_dark_tooth_file(buf, team);
+    if (getenv("TM2PC_TEAM_DEBUG") && changed) fprintf(stderr, "team colors: group %d Dark Tooth team %d, %d entries\n", n, team, changed);
+}
 void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
 {
     uint32_t buf = c->r[4];
@@ -6367,6 +6402,7 @@ void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
     const unsigned char *mod_car_team_paint(int number);
     int mod_number = buf == 0x80019C40u && n >= 1 ? mod_cars_group_number(n) : -1;
     if (buf == 0x80019C40u && n >= 1 && mod_number < 0) team_split_apply(buf, n); /* (a mod's texture: not the base's layout) */
+    if (buf == 0x80019C40u && n >= 1 && mod_number < 0) team_dark_tooth(buf, n);
     if (buf == 0x80019C40u && n == 0) team_carsel_test(buf);
     if (buf == 0x80019C40u && n == 0) team_split_minion_carsel(buf);
     F_80121A2C_orig(c);
