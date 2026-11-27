@@ -2293,7 +2293,7 @@ static const char *const tour_enemy_values[10] = {"RANDOM", "1", "2", "3", "4", 
 static const char *const tour_boss_count_values[TOUR_BOSSES_MAX + 1] = {"NONE", "1", "2"};
 enum { TOUR_BOSS_CHOICES = 15 };
 static const char *const tour_boss_values[TOUR_BOSS_CHOICES] = {
-    "HAMMERHEAD", "OUTLAW 2", "WARTHOG", "MR. GRIMM", "PIT VIPER", "THUMPER", "SPECTRE", "ROADKILL", "TWISTER", "AXEL",
+    "HAMMERHEAD", "OUTLAW 2", "WARTHOG", "MR. GRIMM", "GRASSHOPPER", "THUMPER", "SPECTRE", "ROADKILL", "TWISTER", "AXEL",
     "MR. SLAM", "SHADOW", "SWEET TOOTH", "MINION", "DARK TOOTH"};
 static int get_tour_boss(int a) { return battle_tour()->stage[(a >> 1) % TOUR_STAGES_MAX].boss[a & 1]; }
 static void set_tour_boss(int a, int v) { battle_tour()->stage[(a >> 1) % TOUR_STAGES_MAX].boss[a & 1] = v; changed |= SAVE_BATTLE; }
@@ -16501,6 +16501,7 @@ static void pm_input(void)
         int held = input_text_chat_held();
         if (held && !tc_was && pm_open < 0 && !pv_on && l) {
             name_start(0);
+            naming.game_type = 4; /* (a chat line: v1.0.19's fix) */
             naming.max = 40;
             naming.text[0] = 0;
             tc_on = 1, pm_open = 0, np_on = 0;
