@@ -534,6 +534,60 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
          * the clearest was another car's too, the same one for every car: the humans placed again after the computer
          * cars (humanCarPlaceAtStart twice, the second pick each a node of another human's) all went to node 0, onto its
          * computer car and onto each other: twelve players on one spot, Twistedmoto's video 2026-11-26) */
+        /* no node clear (Suicide Swamp's 8, all start points, with 9 or more cars): the clearest point along the route's
+         * links, as the decomp's start does for a pick with every start point taken (request 85, portStartLinkFind):
+         * each link at |dx| + |dy| / 256 points (2..16 parts, the ends left out), the farthest from every car; at
+         * least SPAWN_CLEAR away and with ground under it (not over a gap: Roof Tops), the car goes there by
+         * portStartLink (its start puts it on the ground there, facing along the link). The humans' second placement
+         * online took a node another human had: nine players, three pairs 180 apart (the user's 12-16 players) */
+        if (best_d < clear2 && start_link) {
+            static uint32_t ground = 1;
+            if (ground == 1) ground = GA(0x800EF340u); /* worldGroundHeightAt (decomp CODE_MAP.md) */
+            int lf = -1, lt = -1;
+            int32_t lx = 0, ly = 0;
+            int64_t ld = -1;
+            for (int i = 0; i < n; i++) {
+                uint32_t a = ROUTE_NODES + 24u * (uint32_t)i;
+                int cnt = (int8_t)mem_r8(c, a + 22);
+                for (int j = 0; j < cnt && j < 4; j++) {
+                    int m = (int16_t)mem_r16(c, a + 10 + 2u * (uint32_t)j);
+                    if (m < 0 || m >= n || m == i) continue;
+                    int32_t ax, ay, bx, by;
+                    node_xy(i, &ax, &ay);
+                    node_xy(m, &bx, &by);
+                    int32_t dx = bx - ax, dy = by - ay;
+                    int parts = (abs(dx) + abs(dy)) / 256;
+                    parts = parts < 2 ? 2 : parts > 16 ? 16 : parts;
+                    for (int s = 1; s < parts; s++) {
+                        int32_t px = ax + (int32_t)((int64_t)dx * s / parts), py = ay + (int32_t)((int64_t)dy * s / parts);
+                        int64_t d = nearest_car2(px, py);
+                        if (d > ld) ld = d, lx = px, ly = py, lf = i, lt = m;
+                    }
+                }
+            }
+            if (getenv("TM2PC_SPAWN_TRACE"))
+                fprintf(stderr, "spawn: the clearest link point %d-%d at %d %d, nearest car %.0f (ground %08X)\n", lf, lt, lx, ly,
+                        ld >= 0 ? sqrt((double)ld) : -1.0, ground);
+            if (lf >= 0 && ld > best_d && ld > game_d && ground) { /* (under SPAWN_CLEAR too: still the farthest from every car) */
+                int zt = zs[lf] > zs[lt] ? zs[lf] : zs[lt], zl = zs[lf] < zs[lt] ? zs[lf] : zs[lt];
+                const uint32_t q = 0x80DF6C40u; /* (the port's scratch: x, y, z of the probe) */
+                mem_w32(c, q, (uint32_t)lx), mem_w32(c, q + 4, (uint32_t)ly), mem_w32(c, q + 8, (uint32_t)(zt + 256));
+                int g = (int)guest_call(ground, q, 0, 0, 0);
+                if (g >= zl - 160) {
+                    mem_w32(c, start_link + 0x00, 1);
+                    mem_w32(c, start_link + 0x04, (uint32_t)lx);
+                    mem_w32(c, start_link + 0x08, (uint32_t)ly);
+                    mem_w32(c, start_link + 0x0C, (uint32_t)zt);
+                    mem_w32(c, start_link + 0x10, (uint32_t)lf);
+                    mem_w32(c, start_link + 0x14, (uint32_t)lt);
+                    fprintf(stderr, "spawn: node %d crowded, every node too: the link %d-%d at %d %d instead (nearest car %.0f)\n",
+                            id, lf, lt, lx, ly, sqrt((double)ld));
+                    spawn_remember(lx, ly);
+                    c->r[2] = (uint32_t)lf;
+                    return;
+                }
+            }
+        }
         if (best < 0 || best_d <= game_d) {
             if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: node %d crowded, nothing clearer: kept\n", id);
             return;
@@ -2258,6 +2312,31 @@ static void spawn_check_start(int i, uint32_t rec)
 }
 static void spawn_check_frame(void)
 {
+    { /* tests (TM2PC_SPAWN_TRACE): every car's place 2 s into a round, and its nearest other car (cars on each other) */
+        static int trace = -1;
+        static uint64_t logged_round;
+        if (trace < 0) trace = getenv("TM2PC_SPAWN_TRACE") != NULL;
+        if (trace && test_round_gv && test_round_gv != logged_round && vp_gv() >= test_round_gv + 120) {
+            logged_round = test_round_gv;
+            int humans = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu)), n = 0;
+            int32_t xy[CARS_HUMANS_MAX + 32][2];
+            for (int k = 0; k < humans + ais && n < CARS_HUMANS_MAX + 32; k++) {
+                if (k < humans ? k >= CARS_HUMANS_MAX : k - humans >= cars_ai_max()) continue;
+                uint32_t pos = k < humans ? HUMAN_REC(k) + 0x6FC : AI_REC(k - humans) + 0x73C;
+                xy[n][0] = (int32_t)mem_r32(&M.cpu, pos), xy[n][1] = (int32_t)mem_r32(&M.cpu, pos + 4), n++;
+            }
+            for (int i = 0; i < n; i++) {
+                double best = 1e18;
+                for (int j = 0; j < n; j++)
+                    if (j != i) {
+                        double dx = xy[i][0] - xy[j][0], dy = xy[i][1] - xy[j][1];
+                        if (dx * dx + dy * dy < best) best = dx * dx + dy * dy;
+                    }
+                fprintf(stderr, "spawn: round start, %s %d at %d %d, nearest car %.0f\n", i < humans ? "player" : "computer car",
+                        i < humans ? i + 1 : i - humans + 1, xy[i][0], xy[i][1], sqrt(best));
+            }
+        }
+    }
     /* a car under the arena may not fall: it can drive about down there, or a jump can put it back on top (the user's,
      * 2026-11-23). Twice a second, each player's height against the arena's lowest route point (the lowest place cars
      * drive): far below it, logged once (with where they last came in), and once when back above. Reads only (no game
