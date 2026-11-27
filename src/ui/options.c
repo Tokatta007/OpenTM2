@@ -13894,6 +13894,7 @@ static void ot_area(CPU *c, uint32_t frame, uint32_t ot, int k, int x0, int y0, 
  * the id at each draw). Triangle switches the player's team. */
 int net_carsel_neutral(void);
 static int carsel_teams(void) { return battle_live && !survival_on && battle_match_teams() >= 2 && !net_carsel_neutral(); }
+int vp_carsel_teams(void) { return carsel_teams(); } /* (vplus/fixes.c: Minion's car select texture) */
 static struct { int car, team; } team_row[2] = {{-1, -1}, {-1, -1}};
 static uint32_t team_patched[1024];
 static int team_npatched;

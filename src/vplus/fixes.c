@@ -6284,9 +6284,13 @@ static void team_split_apply(uint32_t buf, int n)
     team_split_pixels(car, body, pix, w, h);
 }
 /* a body texture's pixels (128 x 128, 8-bit) and its palette (body): the painted pixels moved to their own entries */
+static void team_split_with(const TeamSplit *sp, int car, uint32_t body, uint32_t pix, int w, int h);
 static void team_split_pixels(int car, uint32_t body, uint32_t pix, int w, int h)
 {
-    const TeamSplit *sp = &team_split[car];
+    team_split_with(&team_split[car], car, body, pix, w, h);
+}
+static void team_split_with(const TeamSplit *sp, int car, uint32_t body, uint32_t pix, int w, int h)
+{
     if (!sp->n_merge && !sp->n_copy) return;
     if ((w != 128 && !(car == 13 && w == 256)) || h != 128) { /* (Minion's body: 256 x 128) */
         fprintf(stderr, "team colors: car %d's texture is %dx%d, not split\n", car, w, h);
@@ -6341,6 +6345,19 @@ static void team_carsel_test(uint32_t buf)
         fprintf(stderr, "team colors: car select car %d in team %d's colors (test)\n", car, team);
     }
 }
+/* Car select with teams: Minion's own texture (CARSEL.TMS image 0, 256 x 128 at (640, 0), its palette at (768, 36),
+ * decomp TEAM_COLORS.md 5.1) split as his painted mask says (team_split_minion_select), so vp_team_palette
+ * recolors only his paint (the parts the mask leaves keep their colors) */
+static void team_split_minion_carsel(uint32_t buf)
+{
+    int vp_carsel_teams(void); /* ui/options.c */
+    if (!vp_carsel_teams()) return;
+    uint32_t body = buf + 4u * (4u + mem_r32(&M.cpu, buf + 12) + 1u + 5u);
+    uint32_t pblk = body - 12 + mem_r32(&M.cpu, body - 12), pix = pblk + 12;
+    if (mem_r32(&M.cpu, body - 8) != (768u | 36u << 16) || mem_r32(&M.cpu, pblk + 4) != 640u) return; /* (not CARSEL) */
+    int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
+    team_split_with(&team_split_minion_select, 13, body, pix, w, h);
+}
 void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
 {
     uint32_t buf = c->r[4];
@@ -6351,6 +6368,7 @@ void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
     int mod_number = buf == 0x80019C40u && n >= 1 ? mod_cars_group_number(n) : -1;
     if (buf == 0x80019C40u && n >= 1 && mod_number < 0) team_split_apply(buf, n); /* (a mod's texture: not the base's layout) */
     if (buf == 0x80019C40u && n == 0) team_carsel_test(buf);
+    if (buf == 0x80019C40u && n == 0) team_split_minion_carsel(buf);
     F_80121A2C_orig(c);
     void hdtex_arena_parsed(uint32_t buf);
     if (buf == 0x80019C40u && n == 0) hdtex_arena_parsed(buf); /* (the arena's textures: the PC's sharper ones) */

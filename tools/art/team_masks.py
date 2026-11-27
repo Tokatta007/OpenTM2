@@ -387,6 +387,20 @@ def main():
     out.append(" * merge: pixels from -> to everywhere (near-identical colors, freeing entries); copy: in the rects (not")
     out.append(" * the except ones), pixels from -> to, the CLUT's 'to' a copy of 'from' */")
     keeps = [sp["keep"] for sp in splits if sp and sp.get("keep")]
+    # Minion's car select: his own 256x128 texture (CARSEL.TMS image 0, palette (768,36)), the same layout as the
+    # mask: its paint and split from the mask on that texture (else the decomp's list, no split)
+    sel_idx, sel_split = set(rows["MN_SEL"]), None
+    mn_mask = mask_read("MN")
+    if mn_mask is not None:
+        sel = next(tim.scan(cd.read("/SHELLDB1/CARSEL.TMS")))[1]
+        assert (sel.width, sel.height, sel.clut_vram) == (256, 128, (768, 36)), "CARSEL.TMS image 0 is not Minion's"
+        sel_idx = {sel.pixels[y * sel.width + x] for (x, y) in mn_mask}
+        sel_idx = {i for i in sel_idx if sel.palettes[0][i] & 0x7FFF}
+        sel_split = do_split(sel, sel_idx, {"mask": mn_mask, "split": []})
+        if a.preview:
+            preview(a.preview, "MN_SEL", sel, sel_idx, sel_split, {})
+        print(f"Minion's car select: {len(sel_idx)} entries ({len(sel_split['merge'])} merged, {len(sel_split['copy'])} copies)")
+        keeps.append(sel_split["keep"])
     out.append("/* painted masks (tools/art/team_masks): a bit per pixel of the texture (128x128; Minion's 256x128), 1 = takes")
     out.append(" * the copies */")
     out.append("static const uint8_t team_keep[%d][4096] = {" % max(1, len(keeps)))
@@ -417,7 +431,16 @@ def main():
         out.append("    {%s}," % ", ".join(cells))
     out.append("};")
     out.append("static const uint8_t team_paint_minion_select[32] = %s; /* Minion's car select palette (768,36) */"
-               % mask_text(rows["MN_SEL"]))
+               % mask_text(sel_idx))
+    out.append("/* Minion's car select texture (CARSEL.TMS image 0, 256x128): its split, as team_split's */")
+    if sel_split:
+        sp = sel_split
+        mg = ", ".join("{%d, %d}" % p for p in sp["merge"]) or "{0}"
+        cp = ", ".join("{%d, %d}" % p for p in sp["copy"]) or "{0}"
+        out.append("static const TeamSplit team_split_minion_select = {%d, %d, 0, {%s}, {%s}, {{0}}, %d};"
+                   % (len(sp["merge"]), len(sp["copy"]), mg, cp, len(keeps) - 1))
+    else:
+        out.append("static const TeamSplit team_split_minion_select = {0, 0, 0, {{0}}, {{0}}, {{0}}, -1};")
     out.append("/* the recolor: saturation = floor + (1 - floor) x the entry's; brightness x gain (in hundredths) */")
     out.append("static const uint8_t team_smin[15] = {%s, 35};" % ", ".join(str(round(v * 100)) for v in smins))
     out.append("static const uint8_t team_vgain[15] = {%s, 100};" % ", ".join(str(round(v * 100)) for v in gains))
