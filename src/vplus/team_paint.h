@@ -114,5 +114,5 @@ static const uint8_t team_paint_dt[TEAM_DT_IMAGES][32] = {
 static const TeamSplit team_split_minion_select = {9, 12, 0, {{98, 0}, {140, 0}, {175, 0}, {191, 0}, {2, 1}, {153, 1}, {188, 1}, {192, 1}, {150, 17}}, {{0, 253}, {1, 254}, {3, 255}, {17, 98}, {18, 140}, {40, 175}, {55, 191}, {93, 2}, {115, 153}, {117, 188}, {163, 192}, {170, 150}}, {{0}}, 14};
 /* the recolor: saturation = floor + (1 - floor) x the entry's; brightness x gain (in hundredths) */
 static const uint8_t team_smin[15] = {35, 85, 70, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35};
-static const uint8_t team_vgain[15] = {100, 80, 130, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100};
+static const uint8_t team_vgain[15] = {100, 65, 130, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100};
 #endif

@@ -52,9 +52,9 @@ TUNE = {
            "split": [(0, 100, 32, 128), (60, 100, 94, 128), (35, 86, 73, 99), (30, 82, 86, 89), (100, 84, 128, 128),
                      (0, 64, 32, 82)],
            "smin": 0.70, "vgain": 1.30},
-    # the white panels: a solid team color, not a tint; the light bar, the head- and taillights and the
-    # lenses keep theirs (split)
-    "OT": {"smin": 0.85, "vgain": 0.80,
+    # the white panels: a solid team color, not a tint, darker than the white (65%: the user's pick, 2026-11-27); the
+    # light bar, the head- and taillights and the lenses keep theirs (split)
+    "OT": {"smin": 0.85, "vgain": 0.65,
            "split": [(0, 0, 128, 24), (0, 57, 30, 70), (70, 57, 100, 70), (96, 24, 128, 48), (96, 72, 128, 104),
                      (0, 76, 25, 86), (70, 76, 95, 86), (12, 106, 38, 128), (86, 106, 112, 128)]},
     # every pink and red of the polka dots and the ice cream; the clown sign on the roof, his flaming
