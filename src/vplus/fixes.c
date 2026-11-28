@@ -1673,6 +1673,9 @@ static int ai_team_plus1[CARS_MAX];     /* (by computer record) a handed-over ca
 static int dropped_bot[CARS_MAX];      /* online: computer records a player dropping in took the place of (gone) */
 static int back_wait[CARS_HUMANS_MAX];  /* online: the player back while the computer driver's car is down: theirs once it
                                          * comes back (vp_ai_frame) */
+static void team_pool_start(void);
+static void team_pool_took(int team, int left);
+int vp_team_pool(int team);
 void vp_lives_match_start(void)
 {
     if (!battle_rules()) return;
@@ -1681,6 +1684,7 @@ void vp_lives_match_start(void)
     for (int i = 0; i < CARS_HUMANS_MAX; i++) life[i].left = (ui_tour_lives(i) > 0 ? ui_tour_lives(i) : battle_lives()) - 1;
     memset(human_gone, 0, sizeof human_gone);
     memset(dropped_bot, 0, sizeof dropped_bot); /* (a new match: every computer car its own again) */
+    team_pool_start();
 }
 
 /* A Challenge Match without "No round restarts": a lost life restarts the
@@ -2214,6 +2218,7 @@ void vp_ScheduleEvent(CPU *c) /* rtScheduleEvent(value, delay) */
                 if (life[i].left <= 0) break;                         /* out of lives: the round ends */
                 life[i].left--;
                 lives_hud_put(i);
+                team_pool_took(team_of_human(i), life[i].left);
             }
             /* the game's delay (60 a second), then the game type's respawn time (a mode with respawns, or Last Car
              * Standing with lives: the user's 2026-10-30), watching */
@@ -2959,6 +2964,51 @@ void vp_lives_frame(void)
  * always hurt: their stray hits on each other count). */
 static struct { int left; uint64_t at, shield_off; } ai_life[CARS_MAX];
 
+/* ---- team lives (Last Car Standing with teams, the game type's Team lives; the user's 2026-11-27) ----
+ * Each team's extra lives pooled: at the match's start the members' own added up; every member's count then held equal
+ * to its team's pool, so a member who dies takes one from it (the game's own life handling), and with it empty a member
+ * who dies is out. Gameplay: kept with the network states. */
+static int team_pool[BATTLE_TEAM_COLORS];
+static int team_lives_on(void)
+{
+    const GameType *t = battle_rules();
+    int ui_tour_on(void);
+    return t && t->team_lives && t->mode == MODE_LAST_CAR && teams_on() && !vp_dm() && !ui_survival() && !ui_tour_on();
+}
+static void lives_hud_put(int h);
+static void team_pool_spread(int team) /* every member's count: the pool */
+{
+    int H = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++)
+        if (team_of_human(h) == team) { life[h].left = team_pool[team]; lives_hud_put(h); }
+    for (int k = 0; k < cars_ai_max(); k++)
+        if (team_of_ai(k) == team && ai_life[k].left >= 0 && k < (int)mem_r32(&M.cpu, GA(0x8018101Cu))) ai_life[k].left = team_pool[team];
+}
+static void team_pool_took(int team, int left) /* a member took a life: its count is the pool now */
+{
+    if (!team_lives_on() || team < 0 || team >= BATTLE_TEAM_COLORS) return;
+    team_pool[team] = left < 0 ? 0 : left;
+    team_pool_spread(team);
+    fprintf(stderr, "team lives: team %d has %d left\n", team, team_pool[team]);
+}
+int vp_team_pool(int team) { return team_lives_on() && team >= 0 && team < BATTLE_TEAM_COLORS ? team_pool[team] : -1; }
+static void team_pool_start(void)
+{
+    memset(team_pool, 0, sizeof team_pool);
+    if (!team_lives_on()) return;
+    int H = (int)mem_r32(&M.cpu, GA(0x80181014u)), n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++) {
+        int t = team_of_human(h);
+        if (t >= 0 && t < BATTLE_TEAM_COLORS && life[h].left > 0) team_pool[t] += life[h].left;
+    }
+    for (int k = 0; k < n && k < cars_ai_max(); k++) {
+        int t = team_of_ai(k);
+        if (t >= 0 && t < BATTLE_TEAM_COLORS && ai_life[k].left > 0) team_pool[t] += ai_life[k].left;
+    }
+    for (int t = 0; t < BATTLE_TEAM_COLORS; t++) team_pool_spread(t);
+    fprintf(stderr, "team lives: pools %d %d %d %d\n", team_pool[0], team_pool[1], team_pool[2], team_pool[3]);
+}
+
 int vp_ai_ignore_ai(void) { return 0; } /* accidental hits between computer cars count in every setting */
 
 static void ai_lives_start(void)
@@ -2994,6 +3044,7 @@ void vp_AiCarDamageUpdate(CPU *c) /* aiCarDamageUpdate(i) */
     if (was || k < 0 || k >= cars_ai_max() || !battle_rules() || !mem_r8(c, AI_REC(k) + 0x6C)) return;
     if (ai_life[k].left > 0 && !ai_life[k].at) { /* dead with a life left: back in 7 seconds */
         ai_life[k].left--;
+        team_pool_took(team_of_ai(k), ai_life[k].left);
         ai_life[k].at = vp_gv() + (vp_dm() ? burn_wait : 420) + 60u * (uint64_t)respawn_extra(); /* (the burning, then the extra) */
         fprintf(stderr, "lives: computer car %d lost a life (%d left)\n", k + 1, ai_life[k].left);
     }
@@ -5887,7 +5938,8 @@ static void team_score_print(CPU *c, int p, int x, int y)
     hudlay_force(G_TM);
     uint32_t font_was = vp_font_color_get(font);
     for (int t = 0; t < teams; t++) {
-        int score = vp_dm() ? car_kills_team(t, NULL, NULL) : team_cars_in(t);
+        int pool = vp_team_pool(t); /* (team lives: its pool) */
+        int score = vp_dm() ? car_kills_team(t, NULL, NULL) : pool >= 0 ? pool : team_cars_in(t);
         char num[12];
         snprintf(num, sizeof num, "%d", score);
         int tx; /* (the bar's centre is x: the timer there when shown) */
@@ -7468,7 +7520,7 @@ void vp_keep_register(void)
 {
 #define KEEP(v) killcam_keep(&(v), sizeof(v))
     KEEP(spawn_taken); KEEP(spawn_count); KEEP(spawn_recent); KEEP(spawn_recent_at); KEEP(spawn_recent_n); KEEP(roulette_count); KEEP(roulette_w); KEEP(life); KEEP(lives_round); KEEP(vp_port_event);
-    KEEP(spectating); KEEP(coop_out); KEEP(ai_life);
+    KEEP(spectating); KEEP(coop_out); KEEP(ai_life); KEEP(team_pool);
     KEEP(boss_first); KEEP(boss_state); KEEP(boss_until); KEEP(sd_start);
     KEEP(surv_clock_start); KEEP(surv_clock_end);
     KEEP(surv_round); KEEP(surv_state); KEEP(surv_until); KEEP(surv_down); KEEP(dm_start); KEEP(dm_ended);

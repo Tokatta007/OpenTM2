@@ -116,6 +116,7 @@ int battle_type_playable(const GameType *t)
     a.sudden_death = b.sudden_death;   /* made: sudden death (the user's 2026-11-25) */
     a.sudden_death_end = b.sudden_death_end;
     a.sudden_death_start = b.sudden_death_start;
+    a.team_lives = b.team_lives;
     a.mines = b.mines;
     a.koth_move = b.koth_move;
     a.respawn = b.respawn; /* made: every mode (Last Car Standing's: with lives) */
@@ -440,6 +441,7 @@ static void type_key(GameType *t, const char *key, const char *val)
         {"sudden_death", offsetof(GameType, sudden_death), 0, 600},
         {"sudden_death_end", offsetof(GameType, sudden_death_end), 0, SUDDEN_END_COUNT - 1},
         {"sudden_death_start", offsetof(GameType, sudden_death_start), 0, SD_START_COUNT - 1},
+        {"team_lives", offsetof(GameType, team_lives), 0, 1},
         {"mines", offsetof(GameType, mines), 0, MINES_COUNT - 1},
     };
     static const struct { const char *key; size_t at; unsigned all; } masks[] = {
@@ -607,6 +609,7 @@ void battle_write(FILE *f)
                 t->hunted_teams, t->jugg_invisible);
         fprintf(f, "sudden_death = %d\nsudden_death_end = %d\nsudden_death_start = %d\n", t->sudden_death, t->sudden_death_end,
                 t->sudden_death_start);
+        fprintf(f, "team_lives = %d\n", t->team_lives);
         fprintf(f, "mines = %d\n", t->mines);
     }
 }

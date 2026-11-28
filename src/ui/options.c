@@ -1648,7 +1648,7 @@ enum { GT_INFINITE, GT_HEALTH, GT_TURBO, GT_RESPAWN, GT_SPECIALS, GT_RECHARGE, G
        GT_SPAWN_SHIELD, GT_JUGG_HEALTH, GT_JUGG_HEAL, GT_JUGG_WEAPON, GT_JUGG_RAM, GT_JUGG_INFINITE, GT_JUGG_FORCE, GT_JUGG_CAR,
        GT_GUN_ORDER, GT_GUN_INFINITE, GT_GUN_AMMO, GT_HUNTED_COUNT, GT_HUNTED_ATTACK, GT_KOTH_MOVE,
        GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES, GT_SUDDEN,
-       GT_SUDDEN_END, GT_MINES, GT_SUDDEN_START };
+       GT_SUDDEN_END, GT_MINES, GT_SUDDEN_START, GT_TEAM_LIVES };
 /* how long a mine stays (decomp request 127; MINES_x: never back as a choice, the user's 2026-11-27) */
 static const char *const mines_values[MINES_COUNT] = {"AFTER DEATH", "AFTER LAID", "NEVER"};
 /* Last Car Standing's sudden death: its countdown once two cars are left (the user's 2026-11-25) */
@@ -1719,6 +1719,7 @@ static int get_gt_flag(int a)
            : a == GT_SUDDEN ? step_of(sudden_steps, SUDDEN_STEPS, edit_gt.sudden_death)
            : a == GT_SUDDEN_END ? edit_gt.sudden_death_end
            : a == GT_SUDDEN_START ? edit_gt.sudden_death_start
+           : a == GT_TEAM_LIVES ? edit_gt.team_lives
            : a == GT_MINES ? edit_gt.mines
            : a == GT_JUGG_HEALTH ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_health)
            : a == GT_JUGG_HEAL ? edit_gt.jugg_full_heal
@@ -1754,6 +1755,7 @@ static void set_gt_flag(int a, int v)
     else if (a == GT_SUDDEN) edit_gt.sudden_death = sudden_steps[v % SUDDEN_STEPS], rebuild_page = 1;
     else if (a == GT_SUDDEN_END) edit_gt.sudden_death_end = v % SUDDEN_END_COUNT;
     else if (a == GT_SUDDEN_START) edit_gt.sudden_death_start = v % SD_START_COUNT;
+    else if (a == GT_TEAM_LIVES) edit_gt.team_lives = v & 1;
     else if (a == GT_MINES) edit_gt.mines = v % MINES_COUNT;
     else if (a == GT_JUGG_HEALTH) edit_gt.jugg_health = pct_steps[v % PCT_STEPS];
     else if (a == GT_JUGG_HEAL) edit_gt.jugg_full_heal = v;
@@ -2110,6 +2112,10 @@ static void build_battle(PageId page)
         if (t->mode == MODE_KING_OF_THE_HILL)
             add_page("King of the Hill", PAGE_BATTLE_KOTH, "The hills: how many, where, and when they move.");
         if (t->mode == MODE_LAST_CAR) {
+            add_choice("Team lives", "With teams: each team's extra lives pooled (its members' lives added together). A "
+                       "wrecked car comes back while its team has a life left; a team is out when its pool is empty and its "
+                       "last car is destroyed. The team scores show each pool.", get_gt_flag, set_gt_flag, GT_TEAM_LIVES,
+                       onoff_values, 2);
             add_choice("Sudden death", "A countdown on screen; at zero a car explodes. Off: no countdown.", get_gt_flag,
                        set_gt_flag, GT_SUDDEN, sudden_values, SUDDEN_STEPS);
             if (t->sudden_death) {

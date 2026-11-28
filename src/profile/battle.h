@@ -65,6 +65,7 @@ typedef struct {
     int sudden_death;                  /* Last Car Standing: two cars left, a countdown of this many seconds (0 off) */
     int sudden_death_end;              /* what its end does: SUDDEN_x */
     int sudden_death_start;            /* when the countdown starts: SD_START_x (the user's 2026-11-27) */
+    int team_lives;                    /* Last Car Standing with teams: each team's extra lives pooled (the user's 2026-11-27) */
     int mines;                         /* how long a mine stays: MINES_x (decomp request 127) */
 } GameType;
 enum { MINES_AFTER_DEATH, MINES_AFTER_LAID, MINES_NEVER, MINES_COUNT }; /* removed 15 s after its owner's car is destroyed (the
