@@ -473,8 +473,10 @@ int hudlay_feed_top(float width)
     int raised = settings_video.hud_low_top || lay.src < 0 || lay.src > 2 ? 0 : (int)up_tr[lay.src]; /* (the group's raise: under it) */
     /* the feed's lines reaching the message bar (its left edge past the bar's right): the feed starts under the bar */
     feed_corner = 2;
-    if (lay.show[G_TM] && !settings_video.hud_no_messages && lay.scale[G_TR] > 0 && lay.bar_r + 3 > lay.vw - 4 - width * lay.scale[G_TR])
-        return (int)((lay.bar_b + 2 - lay.vy[G_TR]) / lay.scale[G_TR] + lay.ay[G_TR]);
+    if (lay.show[G_TM] && !settings_video.hud_no_messages && lay.scale[G_TR] > 0 && lay.bar_r + 3 > lay.vw - 4 - width * lay.scale[G_TR]) {
+        int vp_hud_row_under_bar(void); /* fixes.c: the timer or the team scores under the bar: the feed below them */
+        return (int)((lay.bar_b + 2 - lay.vy[G_TR]) / lay.scale[G_TR] + lay.ay[G_TR]) + (vp_hud_row_under_bar() ? 12 : 0);
+    }
     feed_corner = 1; /* (lined up with the radar's top: hudlay_player) */
     return (lay.src == 0 ? 6 : 4) + raised;
 }

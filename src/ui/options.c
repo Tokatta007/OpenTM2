@@ -985,6 +985,7 @@ static int get_hud(int a)
     case 15: return settings_video.hud_marker_names % 3;
     case 16: return settings_video.hud_reticle;
     case 17: return settings_video.hud_mirror_height;
+    case 18: return !settings_video.hud_no_team_score;
     default: return !settings_video.hud_no_messages;
     }
 }
@@ -1008,6 +1009,7 @@ static void set_hud(int a, int v)
     case 15: settings_video.hud_marker_names = v; break;
     case 16: settings_video.hud_reticle = v; break;
     case 17: settings_video.hud_mirror_height = v; break;
+    case 18: settings_video.hud_no_team_score = !v; break;
     default: settings_video.hud_no_messages = !v; break;
     }
     hud_changed();
@@ -5170,6 +5172,8 @@ static void build(PageId page)
                    marker_name_values, 3)->small = 1;
         add_choice("Lock-on reticle", "A red circle, as in Twisted Metal (2012), around the car your missiles would home on.",
                    get_hud, set_hud, 16, onoff_values, 2)->small = 1;
+        add_choice("Team scores", "With teams: each team's score in its color under the message bar (kills, points, or "
+                   "lives left, by the mode).", get_hud, set_hud, 18, onoff_values, 2)->small = 1;
         break;
     case PAGE_AUDIO:
         add_choice("Music", "The game's own music, as well as your custom music files.", get_volume, set_volume, 0, NULL, 11);

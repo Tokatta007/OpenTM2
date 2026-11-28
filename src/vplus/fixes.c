@@ -3677,6 +3677,7 @@ static int score_player; /* the player whose one-view HUD the game draws (vp_Hud
 static int score_text(int p, char *out, size_t n);
 static void score_dash_raise(uint32_t sprites, const char *text);
 static void timer_print(CPU *c, int p, int x, int y);
+static void team_score_print(CPU *c, int p, int x, int y);
 static void hud_extra_print(CPU *c, int p, int x, int right, int big_y, int small);
 void hudlay_prescale(int x, int y, float k); /* hud_layout.c */
 void hudlay_force(int group);
@@ -3839,6 +3840,7 @@ static void vp_HudDrawSplitVertical_body(CPU *c)
         split_message_print(c, player, 77, 16);
         mode_status_print(c, player, 79, 28);
         timer_print(c, player, 77, 28); /* (the bar's centre: hud_layout.c's tm_c) */
+        team_score_print(c, player, 77, 28);
         hudlay_force(G_BL);
         score_line_print(c, player, 11, 222, 1);
         hudlay_force(-1);
@@ -3905,6 +3907,7 @@ static void vp_HudDrawSplitHorizontal_body(CPU *c)
         split_message_print(c, who, 157, 16);
         mode_status_print(c, who, 159, 28);
         timer_print(c, who, 157, 28);
+        team_score_print(c, who, 157, 28);
         hudlay_force(G_BL);
         score_line_print(c, who, 11, h - 13, 2);
         hudlay_force(-1);
@@ -3968,6 +3971,7 @@ static void vp_HudDraw_body(CPU *c)
     hudlay_force(G_TM);
     mode_status_print(c, player, 159, 48);
     timer_print(c, player, 149, 44); /* (the bar's centre in one view, x 149: hud_layout.c's tm_c) */
+    team_score_print(c, player, 149, 44);
     hudlay_force(G_BL);
     /* (the score line: the game's own lives print, its text swapped, vp_FontSpritePrintCentered) */
     hudlay_force(-1);
@@ -5844,6 +5848,60 @@ static void timer_print(CPU *c, int p, int x, int y)
     guest_call7(GA(0x80113A14u), (uint32_t)font, (uint32_t)x, (uint32_t)y, sprites, sprites + 12, buf, ot); /* centered on x,
                                                                                 * as the bar's line (from x - w / 2 it sat right of it) */
     guest_call(GA(0x80141A30u), ot + 4, 0, 0, 0);
+    vp_font_color_put(font, font_was);
+    hudlay_prescale(0, 0, 1);
+    hudlay_force(-1);
+}
+/* ---- each team's score under the message bar (the user's 2026-11-27; Customize HUD: Team scores) ----
+ * With teams, a number per team in its color: the respawn modes' score (kills or points, as the scoreboard's), else (Last
+ * Car Standing) the team's cars still in (a car with lives left, coming back, counts). Drawn on the timer's row: with a
+ * timer, two teams on its left and two on its right; else in a row on the bar's middle. Display only. */
+static const uint8_t team_rgb[BATTLE_TEAM_COLORS][3];
+static int timer_shown(void)
+{
+    const MatchSetup *m = battle_match();
+    return (ui_survival() && surv_clock_start) || sd_seconds_left() >= 0 || (vp_dm() && m->time_limit > 0 && !dm_ended);
+}
+static int team_cars_in(int team)
+{
+    int n = 0, H = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++)
+        if (team_of_human(h) == team && !coop_out[h] && (!mem_r8(&M.cpu, HUMAN_REC(h) + 0x9C) || life[h].at)) n++;
+    for (int k = 0; k < ais && k < cars_ai_max(); k++)
+        if (team_of_ai(k) == team && (ai_alive(k) || ai_life_pending(k))) n++;
+    return n;
+}
+int vp_hud_row_under_bar(void) /* (hud_layout.c: the kill feed under the bar starts a row lower) the timer's row in use */
+{
+    if (!ui_battle_live() || settings_video.hud_no_messages) return 0;
+    return timer_shown() || (teams_on() && battle_match_teams() >= 2 && !settings_video.hud_no_team_score && !ui_survival());
+}
+static void team_score_print(CPU *c, int p, int x, int y)
+{
+    (void)p;
+    int teams = battle_match_teams();
+    if (!teams_on() || teams < 2 || settings_video.hud_no_team_score || settings_video.hud_no_messages || ui_survival()) return;
+    if (teams > BATTLE_TEAM_COLORS) teams = BATTLE_TEAM_COLORS;
+    const int timer = timer_shown(), font = 2;
+    const uint32_t ot = DM_TEXT + 0x660, text = 0x80DF6B80u;
+    hudlay_force(G_TM);
+    uint32_t font_was = vp_font_color_get(font);
+    for (int t = 0; t < teams; t++) {
+        int score = vp_dm() ? car_kills_team(t, NULL, NULL) : team_cars_in(t);
+        char num[12];
+        snprintf(num, sizeof num, "%d", score);
+        int tx; /* (the bar's centre is x: the timer there when shown) */
+        if (timer) tx = x + (t < (teams + 1) / 2 ? -1 : 1) * (42 + 22 * (t < (teams + 1) / 2 ? (teams + 1) / 2 - 1 - t : t - (teams + 1) / 2));
+        else tx = x - 11 * (teams - 1) + 22 * t;
+        uint32_t sprites = 0x80DF6400u + 0x180u * (uint32_t)t;
+        guest_text(c, text, num);
+        hudlay_prescale(tx, y, 0.8f);
+        guest_call(GA(0x80114284u), (uint32_t)font, team_rgb[t][0], team_rgb[t][1], team_rgb[t][2]); /* fontSetColor */
+        for (uint32_t o = 0; o < 12; o += 4) mem_w32(c, sprites + o, mem_r32(c, GA(0x80181E28u) + o)); /* (font 2's draw mode) */
+        guest_call(GA(0x80141938u), ot, 2, 0, 0); /* ClearOTagR */
+        guest_call7(GA(0x80113A14u), (uint32_t)font, (uint32_t)tx, (uint32_t)y, sprites, sprites + 12, text, ot);
+        guest_call(GA(0x80141A30u), ot + 4, 0, 0, 0); /* DrawOTag */
+    }
     vp_font_color_put(font, font_was);
     hudlay_prescale(0, 0, 1);
     hudlay_force(-1);
