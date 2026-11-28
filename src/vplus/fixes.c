@@ -7150,6 +7150,20 @@ static int sd_share(int id) /* a car's health, in thousandths of its full health
     if (h >= 0 ? mem_r8(&M.cpu, rec + 0x9C) != 0 : !ai_alive(k)) return 1000;
     return hp <= 0 ? 0 : hp * 1000 / max;
 }
+static int sd_damage(int id) /* the damage a car has dealt this match (the scoreboard's) */
+{
+    int h = id < 50 ? id - 1 : -1, k = id >= 50 ? id - 50 : -1;
+    for (int i = 0; i < match_cars(); i++) {
+        const MatchCar *m = match_car(i);
+        if (m && ((h >= 0 && m->human == h) || (k >= 0 && m->ai == k))) return m->damage;
+    }
+    return 0;
+}
+static int sd_from_start(void)
+{
+    const GameType *t = battle_rules();
+    return t && t->sudden_death_start == SD_START_MATCH;
+}
 static int sd_seconds_left(void) /* (the countdown on screen: -1 none) */
 {
     if (!sd_start || !sd_on()) return -1;
@@ -7160,19 +7174,29 @@ static void sd_frame(void)
 {
     if (!sd_on()) { sd_start = 0; return; }
     int car[CARS_HUMANS_MAX + CARS_MAX], n = sd_left(car, (int)(sizeof car / sizeof car[0]));
-    if (n != 2) { sd_start = 0; return; }
+    if (n > (int)(sizeof car / sizeof car[0])) n = (int)(sizeof car / sizeof car[0]);
+    int from_start = sd_from_start(); /* (the countdown from the match's start: any number of cars, the user's 2026-11-27) */
+    if (from_start ? n < 2 : n != 2) { sd_start = 0; return; }
     if (!sd_start) {
         sd_start = vp_gv() + 1;
         snprintf(flash_text, sizeof flash_text, "SUDDEN DEATH");
         flash_until = vp_gv() + 150;
-        fprintf(stderr, "sudden death: two cars left (%d, %d): %d seconds\n", car[0], car[1], sd_secs());
+        fprintf(stderr, "sudden death: %d cars left: %d seconds\n", n, sd_secs());
         return;
     }
     if (vp_gv() - (sd_start - 1) < 60ull * (uint64_t)sd_secs()) return;
-    sd_start = 0; /* (two still in after it: again) */
-    int a = sd_share(car[0]), b = sd_share(car[1]);
-    int out = a < b ? car[0] : b < a ? car[1] : car[(int)(vp_rand() & 1)];
-    fprintf(stderr, "sudden death: time up: car %d (%d/1000) and car %d (%d/1000): car %d explodes\n", car[0], a, car[1], b, out);
+    sd_start = 0; /* (two or more still in after it: again) */
+    /* the worst car: the least damage dealt (that end), else the least health; ties: the less health, then the gameplay
+     * random numbers (every machine the same) */
+    const GameType *t = battle_rules();
+    int by_damage = t && t->sudden_death_end == SUDDEN_LEAST_DAMAGE, out = -1, worst_d = 0, worst_s = 0, ties = 0;
+    for (int i = 0; i < n; i++) {
+        int d = by_damage ? sd_damage(car[i]) : 0, sh = sd_share(car[i]);
+        if (out < 0 || d < worst_d || (d == worst_d && sh < worst_s)) { out = car[i]; worst_d = d; worst_s = sh; ties = 1; }
+        else if (d == worst_d && sh == worst_s && (int)(vp_rand() % (uint32_t)++ties) == 0) out = car[i];
+    }
+    fprintf(stderr, "sudden death: time up, %d cars (%s): car %d explodes (damage %d, health %d/1000)\n", n,
+            by_damage ? "the least damage" : "the least health", out, worst_d, worst_s);
     uint32_t rec = out < 50 ? HUMAN_REC(out - 1) : AI_REC(out - 50);
     mem_w8(&M.cpu, rec + (out < 50 ? 0xAAu : 0x7Au), 0); /* (its shield down: state +0x0E) */
     if (out < 50) mem_w8(&M.cpu, rec + 0x1F4, 1); /* (and damageable) */

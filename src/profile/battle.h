@@ -64,12 +64,17 @@ typedef struct {
     int jugg_invisible;                /* the Juggernaut shimmers, barely seen (the game's invisibility fade, held) */
     int sudden_death;                  /* Last Car Standing: two cars left, a countdown of this many seconds (0 off) */
     int sudden_death_end;              /* what its end does: SUDDEN_x */
+    int sudden_death_start;            /* when the countdown starts: SD_START_x (the user's 2026-11-27) */
     int mines;                         /* how long a mine stays: MINES_x (decomp request 127) */
 } GameType;
 enum { MINES_AFTER_DEATH, MINES_AFTER_LAID, MINES_NEVER, MINES_COUNT }; /* removed 15 s after its owner's car is destroyed (the
                                                             * default), 15 s after it was laid, or never (the user's
                                                             * 2026-11-27: back as a choice) */
-enum { SUDDEN_LOWER_HEALTH, SUDDEN_END_COUNT }; /* sudden death's end: the car with less health (by its share) explodes */
+enum { SUDDEN_LOWER_HEALTH, SUDDEN_LEAST_DAMAGE, SUDDEN_END_COUNT }; /* sudden death's end: the car with less health (by its
+                                                  * share) explodes, or the one that has dealt the least damage (the user's
+                                                  * 2026-11-27) */
+enum { SD_START_TWO_LEFT, SD_START_MATCH, SD_START_COUNT }; /* the countdown: once two cars are left, or from the match's
+                                                  * start (at zero the worst car of all still in goes, then again) */
 /* Gun Game's levels: the pickup weapons, weakest first; then a ram kill and the machine gun, last */
 enum { GUN_FIRE, GUN_HOMING, GUN_RICOCHET, GUN_REMOTE, GUN_LIGHTNING, GUN_NAPALM, GUN_POWER, GUN_RAM, GUN_MG, GUN_COUNT,
        GUN_WEAPONS = GUN_RAM };
