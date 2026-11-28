@@ -3824,6 +3824,7 @@ void four_hud_done(int who); /* vplus/four.c: after a view's HUD: views 3-4 and 
 static void vp_HudDraw_body(CPU *c);
 static void vp_HudDrawSplitVertical_body(CPU *c);
 static void vp_HudDrawSplitHorizontal_body(CPU *c);
+static void split_target_panel(int who);
 static void vp_HudDrawSplitVertical_body(CPU *c)
 {
     int player = (int)(c->r[4] & 1); /* before the call: it changes the registers */
@@ -3833,6 +3834,7 @@ static void vp_HudDrawSplitVertical_body(CPU *c)
         hudlay_begin(1, 160, 240);
         hudlay_player(player);
         F_800F9084_orig(c);
+        split_target_panel(player); /* (side by side too: only top and bottom had it, Mohamed Eissa's) */
         hudlay_force(G_TM);
         split_message_print(c, player, 77, 16);
         mode_status_print(c, player, 79, 28);
@@ -3852,6 +3854,7 @@ static void vp_HudDrawSplitVertical_body(CPU *c)
         return;
     }
     F_800F9084_orig(c);
+    split_target_panel(player);
     split_message_print(c, player, 77, 16);
     mode_status_print(c, player, 79, 74); /* below the radar (side by side views are narrow) */
     score_line_print(c, player, 11, 222, 1);
