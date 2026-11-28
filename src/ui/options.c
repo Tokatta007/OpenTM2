@@ -1647,8 +1647,8 @@ enum { GT_INFINITE, GT_HEALTH, GT_TURBO, GT_RESPAWN, GT_SPECIALS, GT_RECHARGE, G
        GT_GUN_ORDER, GT_GUN_INFINITE, GT_GUN_AMMO, GT_HUNTED_COUNT, GT_HUNTED_ATTACK, GT_KOTH_MOVE,
        GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES, GT_SUDDEN,
        GT_SUDDEN_END, GT_MINES };
-/* how long a mine stays (decomp request 127: the user's two, never for good; MINES_x) */
-static const char *const mines_values[MINES_COUNT] = {"AFTER DEATH", "AFTER LAID"};
+/* how long a mine stays (decomp request 127; MINES_x: never back as a choice, the user's 2026-11-27) */
+static const char *const mines_values[MINES_COUNT] = {"AFTER DEATH", "AFTER LAID", "NEVER"};
 /* Last Car Standing's sudden death: its countdown once two cars are left (the user's 2026-11-25) */
 enum { SUDDEN_STEPS = 8 };
 static const int sudden_steps[SUDDEN_STEPS] = {0, 15, 30, 45, 60, 90, 120, 180};
@@ -1898,6 +1898,7 @@ static int rules_lines(const GameType *t, char lines[][48], int max)
     if (t->respawn) LINE("Respawn: %d s more", t->respawn);
     if (t->spawn_shield != d.spawn_shield) LINE("Spawn shield: %d s", t->spawn_shield);
     if (t->mines == MINES_AFTER_LAID) LINE("Mines: 15 s after laid");
+    if (t->mines == MINES_NEVER) LINE("Mines: stay");
     if (t->mode == MODE_JUGGERNAUT) { /* the mode's own settings, always listed (the user's) */
         LINE("Juggernaut toughness: %d%%", t->jugg_health);
         LINE("Juggernaut weapons: %d%%, rams: %d%%", t->jugg_weapon, t->jugg_ram);
@@ -2261,7 +2262,7 @@ static void build_battle(PageId page)
                        get_gt_energy, set_gt_energy, e, onoff_values, 2);
             if (e == ENERGY_MINES) /* (beside the mines, the user's 2026-11-26) */
                 add_choice("Mine timer", "How long a dropped mine stays: 15 seconds after its owner is destroyed, or "
-                           "15 seconds after it is laid.", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
+                           "15 seconds after it is laid, or never (it stays until a car drives over it).", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
         }
         break;
     case PAGE_BATTLE_HAZARDS:

@@ -299,11 +299,12 @@ unsigned vp_balance_word2(void)
     int netplay_in_match(void); /* net/game_tm2.c */
     unsigned w = netplay_in_match() || vp_on(VP_BAL_PICKUP_PASS) ? 0x3u : 0u; /* (bit 1, request 125: Dark Tooth's swoop too) */
     /* bits 2, 3 (request 127, BALANCE.md 27): a mine removed 15 s after it was laid (2) or after its owner's car was
-     * destroyed (3, the default); always one of them, every preset (the user's: no mine stays for good). The game
-     * type's (a server's for everyone); else (a tournament, Survival) the default */
+     * destroyed (3, the default), or neither: it stays (MINES_NEVER, the user's 2026-11-27; with the Original preset's
+     * portBalance bit 2 clear, retail's own countdown still removes it). The game type's (a server's for everyone);
+     * else (a tournament, Survival) the default */
     int ui_battle_live(void);
     const GameType *t = ui_battle_live() ? battle_match_type() : NULL;
-    w |= t && t->mines == MINES_AFTER_LAID ? 0x4u : 0x8u;
+    w |= t && t->mines == MINES_AFTER_LAID ? 0x4u : t && t->mines == MINES_NEVER ? 0u : 0x8u;
     if (getenv("TM2PC_BAL2_OFF")) w &= ~(unsigned)strtoul(getenv("TM2PC_BAL2_OFF"), NULL, 16); /* tests: these bits off (hex) */
     return w;
 }
