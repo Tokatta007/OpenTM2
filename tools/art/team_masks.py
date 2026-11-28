@@ -245,8 +245,9 @@ def do_split(body, idx, t):
         pairs = []
         for i, a in enumerate(cand):
             for b in cand[i + 1:]:
-                if (a in idx) != (b in idx) or (pal[a] & 0x8000) != (pal[b] & 0x8000):
-                    continue
+                if (a in idx) != (b in idx) or (pal[a] & 0x8000) != (pal[b] & 0x8000) or \
+                        (pal[a] & 0x7FFF == 0) != (pal[b] & 0x7FFF == 0):  # (never the transparent 0 with an opaque
+                    continue                                                 # black: see-through pixels drew black)
                 d = max(abs(p - q) for p, q in zip(rgb5(pal[a]), rgb5(pal[b])))
                 if d <= 3:
                     pairs.append((d, (a in shared) + (b in shared) == 2 and -1 or 0, a, b))
