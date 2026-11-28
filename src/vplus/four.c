@@ -207,7 +207,10 @@ void vp_SessionLoad(CPU *c)
     if (balance2) mem_w32(c, balance2, vp_balance_word2());
     uint32_t mine_secs = port_sym("portBalanceMineSeconds"); /* decomp request 127: the mines' 15 s (0 would be the same) */
     if (mine_secs) mem_w32(c, mine_secs, 15);
-    if (balance2) fprintf(stderr, "balance2: %X (mines %d s)\n", vp_balance_word2(), mine_secs ? 15 : 0);
+    if (balance2) {
+        unsigned w2 = vp_balance_word2();
+        fprintf(stderr, "balance2: %X (mines %s)\n", w2, w2 & 0x4u ? "15 s after laid" : w2 & 0x8u ? "15 s after the owner's death" : "stay");
+    }
     uint32_t visual = port_sym("portVisual"); /* decomp request 42 (CUSTOM_TOURNAMENT_ANSWERS.md): the taser and the lightning by depth, the taser lower */
     if (visual) mem_w32(c, visual, vp_visual_word());
     /* bit 10: computer Dark Tooths ordinary (his first phase, no boss parts; decomp request 42, CUSTOM_TOURNAMENT_ANSWERS.md): a Challenge Match's or a

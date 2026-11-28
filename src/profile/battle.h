@@ -64,10 +64,11 @@ typedef struct {
     int jugg_invisible;                /* the Juggernaut shimmers, barely seen (the game's invisibility fade, held) */
     int sudden_death;                  /* Last Car Standing: two cars left, a countdown of this many seconds (0 off) */
     int sudden_death_end;              /* what its end does: SUDDEN_x */
-    int mines;                         /* how long a mine stays: MINES_x (decomp request 127; never for good) */
+    int mines;                         /* how long a mine stays: MINES_x (decomp request 127) */
 } GameType;
-enum { MINES_AFTER_DEATH, MINES_AFTER_LAID, MINES_COUNT }; /* removed 15 s after its owner's car is destroyed (the default), or
-                                                            * 15 s after it was laid */
+enum { MINES_AFTER_DEATH, MINES_AFTER_LAID, MINES_NEVER, MINES_COUNT }; /* removed 15 s after its owner's car is destroyed (the
+                                                            * default), 15 s after it was laid, or never (the user's
+                                                            * 2026-11-27: back as a choice) */
 enum { SUDDEN_LOWER_HEALTH, SUDDEN_END_COUNT }; /* sudden death's end: the car with less health (by its share) explodes */
 /* Gun Game's levels: the pickup weapons, weakest first; then a ram kill and the machine gun, last */
 enum { GUN_FIRE, GUN_HOMING, GUN_RICOCHET, GUN_REMOTE, GUN_LIGHTNING, GUN_NAPALM, GUN_POWER, GUN_RAM, GUN_MG, GUN_COUNT,
