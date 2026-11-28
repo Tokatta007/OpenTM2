@@ -126,6 +126,16 @@ void vp_SessionLoad(CPU *c)
         uint32_t hc = port_sym("sessionPortHumanCars");
         for (int h = 2; hc && h < four_n; h++) mem_w8(c, hc + (uint32_t)(h - 2), (uint8_t)four_car[h - 2]);
     }
+    if (getenv("TM2PC_TEST_ALL_CARS")) { /* tests: every human this car (team colors: one car in each team's color) */
+        uint8_t car = (uint8_t)atoi(getenv("TM2PC_TEST_ALL_CARS"));
+        mem_w8(c, s + 8, car);
+        mem_w8(c, s + 9, car);
+        uint32_t hc = port_sym("sessionPortHumanCars");
+        for (int h = 2; h < four_n && h < 16; h++) {
+            four_car[h - 2] = (int8_t)car; /* (the team colors read it: car_of_group) */
+            if (hc) mem_w8(c, hc + (uint32_t)(h - 2), car);
+        }
+    }
     int opps = four_computer(s), humans = mem_r8(c, s + 4);
     /* Dark Tooth's second phase (decomp request 118, DARK_TOOTH_PLAYER.md, portDtPlayer.phase2 +0x28, bit h): each human who chose it in car
      * select (LOOK_DT2) and drives Dark Tooth; read by the decomp at every start, restart and respawn. Game state: the
