@@ -3009,6 +3009,8 @@ void vp_AiCountRemaining(CPU *c) /* aiCarsRemaining = the cars with HP > 0: and 
         mem_w32(c, AI_REMAINING, mem_r32(c, AI_REMAINING) + (uint32_t)(ai_pending() + vp_survival_waiting() + boss_coming()));
 }
 void F_8011E16C_orig(CPU *c);
+static int enemies_true; /* the last count, before the cap at 12 (the message table's last "Enemies: N") */
+static int vp_dm(void);
 void vp_AiCountAlive(CPU *c) /* the HUD's "Enemies: N": the same */
 {
     F_8011E16C_orig(c);
@@ -3035,6 +3037,14 @@ void vp_AiCountAlive(CPU *c) /* the HUD's "Enemies: N": the same */
         fprintf(stderr, "enemies: %d at gv %llu (ai remaining %d, humans %d in %d, duo %d versus %d)\n", last,
                 (unsigned long long)vp_gv(), (int)mem_r32(c, AI_REMAINING), H, in, vp_duo(), vp_versus_on());
     }
+    /* the HUD's message number: the game's table has "Enemies: 1" .. "Enemies: 12" at 1..12, then the pickups' messages
+     * ("Missiles Loaded" 13, "Homers Loaded" 14 ...): 13 or more enemies (16-car matches) posted a pickup's message at
+     * every kill and every reset of the line, both views (KinggzZ's, v1.0.19). Never past 12: the line itself shows the
+     * true number (enemies_shown). In the respawn modes the others always come back: never 0, "Enemies Toasted!" */
+    int n = (int)c->r[2];
+    if (n < 1 && vp_dm()) n = 1;
+    enemies_true = n;
+    c->r[2] = (uint32_t)(n > 12 ? 12 : n < 0 ? 0 : n);
 }
 
 /* a car's key (the 16-car variant: the second car of a type has its own key, decomp portCarKey; the damage stage, the
@@ -3780,7 +3790,17 @@ static void split_message_print(CPU *c, int player, int x, int y)
     else if (vp_gv() < split_msg[player & 3].until) id = split_msg[player & 3].id;
     else if ((mem_r32(c, GA(0x8018101Cu)) > 0 || mem_r32(c, GA(0x80181014u)) > 1) && !vp_dm()) { /* the cars still to beat */
         int left = vp_duo() || mem_r32(c, GA(0x8018101Cu)) == 0 ? duo_enemies(player & 3) : (int)mem_r32(c, AI_REMAINING);
-        id = left < 0 ? 0 : left > 12 ? 12 : left;
+        if (left > 12) { /* (past the table's "Enemies: 12": the true number) */
+            char t[16];
+            snprintf(t, sizeof t, "Enemies: %d", left);
+            const uint32_t buf = msg_text_buf(player);
+            int i = 0;
+            for (; t[i]; i++) mem_w8(c, buf + (uint32_t)i, (uint8_t)t[i]);
+            mem_w8(c, buf + (uint32_t)i, 0);
+            message_line_draw(c, player, x, y, buf);
+            return;
+        }
+        id = left < 0 ? 0 : left;
     } else return;
     if (id < 0 || id >= 37) return;
     uint32_t str = mem_r32(c, GA(0x8016286Cu) + 4u * (uint32_t)id); /* hudMessageStrs */
@@ -4104,6 +4124,20 @@ void vp_FontSpritePrintCentered(CPU *c) /* fontSpritePrintCenteredXY(font, x, y,
             snprintf(text, sizeof text, "Enemies: %d", n + 1);
             static int said;
             if (!said++) fprintf(stderr, "enemies: player %d out, watching: %s on this screen (the shared %d)\n", h + 1, text, n);
+            const uint32_t buf = DM_TEXT + 0x40;
+            for (int i = 0; i < 16; i++) { mem_w8(c, buf + (uint32_t)i, (uint8_t)text[i]); if (!text[i]) break; }
+            mem_w32(c, arg, buf);
+            F_80113A14_orig(c);
+            mem_w32(c, arg, was);
+            return;
+        }
+    }
+    if (c->r[7] == GA(0x80181E28u) && enemies_true > 12) { /* "Enemies: 12", the table's last: the true number (vp_AiCountAlive) */
+        const uint32_t arg = c->r[29] + 20, was = mem_r32(c, arg);
+        char cur[16];
+        for (int i = 0; i < 15; i++) { cur[i] = (char)mem_r8(c, was + (uint32_t)i); cur[i + 1] = 0; if (!cur[i]) break; }
+        if (!strcmp(cur, "Enemies: 12")) {
+            snprintf(text, sizeof text, "Enemies: %d", enemies_true);
             const uint32_t buf = DM_TEXT + 0x40;
             for (int i = 0; i < 16; i++) { mem_w8(c, buf + (uint32_t)i, (uint8_t)text[i]); if (!text[i]) break; }
             mem_w32(c, arg, buf);
