@@ -293,6 +293,24 @@ int mod_cars_human_car(int h)
 
 /* players 3..16's car numbers (the settings keep their bytes in sessionPortHumanCars, written by four.c): a skin's
  * number, or -1 (the byte's car), so a skin of an earlier match is never left over */
+/* (four.c: the texture banks) a player among the first `humans` drives a mod car (a skin or a character): its own
+ * textures, as large as a modder makes them (Joodeh's Darkside, 178 KB: 4 of its images found no room in a tournament
+ * arena's VRAM, "Relocatable texture not loaded"); in a bank of its own they always fit */
+int mod_cars_human_on(int humans)
+{
+    static uint32_t numbers = 1;
+    if (numbers == 1) numbers = port_sym("portSettingsHumanCar");
+    const uint32_t S = GA(0x8016475Cu);
+    static uint32_t more = 1;
+    if (more == 1) more = port_sym("sessionPortHumanCars");
+    for (int h = 0; numbers && h < humans && h < 16; h++) {
+        int number = (int16_t)mem_r16(&M.cpu, numbers + 2u * (uint32_t)h);
+        int byte = h < 2 ? (int8_t)mem_r8(&M.cpu, S + 8 + (uint32_t)h) : more ? (int8_t)mem_r8(&M.cpu, more + (uint32_t)(h - 2)) : -1;
+        if (number >= FIRST && mod_car_on(number) && byte == mod_car_base(number)) return 1;
+    }
+    const char *t = getenv("TM2PC_TEST_P1_SKIN"); /* (tests: player 1's skin, set at the load) */
+    return t && atoi(t) >= 0 && atoi(t) < mod_cars_count() && humans > 0;
+}
 void mod_cars_human_number(int h, int number)
 {
     static uint32_t numbers = 1;

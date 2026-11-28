@@ -179,6 +179,8 @@ void vp_SessionLoad(CPU *c)
         for (int i = 0; i < nc; i++) banks |= (cars[i] & 0xFF) == 14; /* (a player's Dark Tooth, car 14: the same) */
         for (int i = 0; i < nc; i++) banks |= (cars[i] & 0xFF) >= 0x20; /* (a computer car on a mod: its own textures, its
                                                                            * base's type) */
+        int mod_cars_human_on(int humans); /* vplus/mod_cars.c */
+        banks |= mod_cars_human_on(humans); /* (a player on a mod car: its textures, any size, in their own bank) */
         if (banks) fprintf(stderr, "cars: texture banks (%d types%s)\n", types, twice ? ", a type twice" : "");
         dup_types = twice;
     }
