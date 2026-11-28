@@ -424,27 +424,34 @@ void mod_cars_carsel_frame(void)
     }
     static int failed[CARSEL_LOADS] = {-1, -1, -1, -1}; /* (a number whose files failed: not again this car select) */
     static int slot_dt2[CARSEL_LOADS]; /* (a slot's Dark Tooth: 1 his second phase, the head alone; request 118, DARK_TOOTH_PLAYER.md) */
+    static int slot_team[CARSEL_LOADS] = {-1, -1, -1, -1}; /* (a slot's Dark Tooth: the team color he was loaded in, -1 his own) */
+    int vp_carsel_team(int p); /* ui/options.c: player p's team color in car select, -1 no teams */
+    int vp_team_dark_tooth_file(uint32_t buf, int team); /* vplus/fixes.c: his pink in the team's color */
     if (!loads || !load_fn || !sel || (int)mem_r32(&M.cpu, sel + 4) <= DARK_TOOTH) { /* (not the extended carousel) */
-        for (int k = 0; k < CARSEL_LOADS; k++) failed[k] = -1, slot_dt2[k] = 0;
+        for (int k = 0; k < CARSEL_LOADS; k++) failed[k] = -1, slot_dt2[k] = 0, slot_team[k] = -1;
         return;
     }
     for (int k = 0; k < CARSEL_LOADS; k++) {
         int number = carsel_shown(k), dt2 = number == LOOK_DT2;
         if (dt2) number = DARK_TOOTH;
+        int team = number == DARK_TOOTH ? vp_carsel_team(k) : -1; /* (teams: his truck in this player's team color) */
         if (number < DARK_TOOTH || (number > DARK_TOOTH && !mod_car_on(number)) || number >= (int)mem_r32(&M.cpu, sel + 4)) continue;
         uint32_t slot = loads + CARSEL_SLOT * (uint32_t)k;
         int shown = 0;
         int other = 0; /* (Dark Tooth on the carousel in his other look: one child, the first player's look kept) */
         for (int j = 0; j < CARSEL_LOADS; j++)
             if ((int)mem_r32(&M.cpu, loads + CARSEL_SLOT * (uint32_t)j) == number) {
-                if (number != DARK_TOOTH || slot_dt2[j] == dt2) shown = 1;
+                if (number != DARK_TOOTH || (slot_dt2[j] == dt2 && slot_team[j] == team)) shown = 1;
                 else if (j != k) other = 1;
             }
-        if (shown || other || failed[k] == number + (dt2 << 8)) continue; /* (on the carousel already: another player's slot too) */
+        if (shown || other || failed[k] == number + (dt2 << 8) + ((team + 1) << 12)) continue; /* (on the carousel already: another
+                                                                                                * player's slot too; his team color:
+                                                                                                * the first player's) */
         uint32_t dmd = slot + CARSEL_DMD, dmd_n, tms = MOD_FILES, tms_n;
         if (number == DARK_TOOTH) {
             dmd_n = read_disc("\\DMD\\BB.DMD;1", dmd, dmd + CARSEL_DMD_BYTES);
             tms_n = read_disc("\\TMS\\BB.TMS;1", tms, MOD_FILES_END);
+            if (tms_n && team >= 0) vp_team_dark_tooth_file(tms, team);
         } else {
             const Mod *mod = mods_get(skin_mod[number - FIRST]);
             int own = mod_car_picture(number, "carselect.dmd", (char[700]){0}, 700);
@@ -453,8 +460,8 @@ void mod_cars_carsel_frame(void)
         }
         uint32_t index = (uint32_t)number | (dt2 ? 0x10000u : 0u); /* (TM2_CARSEL_DT_PHASE2: the head alone) */
         int r = dmd_n && tms_n ? (int)guest_call7(load_fn, (uint32_t)k, index, dmd, dmd_n, tms, tms_n, 0) : 0;
-        if (r != 1) failed[k] = number + (dt2 << 8);
-        else slot_dt2[k] = dt2;
+        if (r != 1) failed[k] = number + (dt2 << 8) + ((team + 1) << 12);
+        else slot_dt2[k] = dt2, slot_team[k] = team;
         if (getenv("TM2PC_MODS_DEBUG") || r != 1)
             fprintf(stderr, "mods: car select slot %d shows car %d's own model (%u + %u bytes): %d\n", k, number, dmd_n, tms_n, r);
     }

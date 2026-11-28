@@ -22,6 +22,14 @@ int bind_layout_button(int layout, int action);
 /* The button an action has for a player: the player's own choice, or the
  * layout's. */
 int bind_button(int player, int action);
+/* NONE (the user's 2026-11-26, Triangle on a row): an action with no button of its own (its controller column) */
+#define BIND_NONE 0xFF
+void bind_clear(int player, int action);
+int bind_action_code(int action);                 /* the game's action number (0x18 accelerate ...) */
+/* the CONTROLLER ALT column: a second button for the same action (0 none). By default the left stick's directions for
+ * Forward, Reverse, and the steering (it was the D-pad's copy in a match: Tegu's, unbound Up / Down still drove) */
+int bind_alt_button(int player, int action);
+void bind_set_alt_button(int player, int action, int button); /* 0: none */
 /* Sets a player's button for an action (0: back to the layout's). */
 void bind_set(int player, int action, int button);
 /* Drops a player's own buttons (when the layout changes); the keyboard keys
@@ -47,7 +55,17 @@ const char *bind_key_name(int scancode); /* for the Controls page */
 #define BIND_PTT 2     /* push to talk (online voice chat, held) */
 #define BIND_SCOREBOARD 3 /* the scoreboard in a battle (held): the touchpad and Tab by default, on any controller */
 #define BIND_QUIT 4    /* "QUIT OPENTM2?" (runtime/gpu_psyz.c): Escape by default, no controller button (Tegu's, 2026-11-23) */
-#define BIND_EXTRAS 5
+/* Start and Select (the user's 2026-11-26): rows of their own, each player's, used in a match (the menus always take
+ * the controller's own Start / Select, Enter / Backspace). which: 0 Start, 1 Select; col: 0 the controller's, 1 its
+ * Alt; a button 1..BIND_BUTTONS_ALL, 0 none. Start's own column is never none (a player could not pause) */
+enum { BIND_START, BIND_SELECT, BIND_PADS };
+extern const char *const bind_pad_names[BIND_PADS];
+int bind_pad_button(int player, int which, int col);
+int bind_set_pad_button(int player, int which, int col, int button); /* 0: refused (Start's own, none) */
+int bind_pad_key(int which);                                        /* player 1's keyboard */
+void bind_set_pad_key(int which, int scancode);
+#define BIND_TEXT_CHAT 5 /* online, in a match: the chat's keyboard at once (T by default; the user's 2026-11-26) */
+#define BIND_EXTRAS 6
 extern const char *const bind_extra_names[BIND_EXTRAS];
 int bind_extra_button(int i);
 void bind_set_extra_button(int i, int button);

@@ -35,6 +35,8 @@ ORDER = ["HH", "OT", "WH", "MG", "PV", "TH", "SP", "RK", "IR", "AX", "FL", "HS",
 NAMES = ["Hammerhead", "Outlaw 2", "Warthog", "Mr. Grimm", "Grasshopper", "Thumper", "Spectre", "Roadkill",
          "Twister", "Axel", "Mr. Slam", "Shadow", "Sweet Tooth", "Minion"]
 
+DT_PINK = (295, 350, 0.35, 0.25)  # Dark Tooth's hot pink
+DT_IMAGES = (0, 5, 6)  # his images with it: the body, the legs and turret, the ice cream cone
 RED = (340, 20, 0.45, 0.30)  # hue window (degrees), minimum saturation and value: a strong red
 # per car: entries added (hue window, min s, min v, in a texture rectangle x0, y0, x1, y1 or None),
 # rectangles whose entries are taken away (and kept anyway when in a 'keep' rectangle), the
@@ -50,9 +52,9 @@ TUNE = {
            "split": [(0, 100, 32, 128), (60, 100, 94, 128), (35, 86, 73, 99), (30, 82, 86, 89), (100, 84, 128, 128),
                      (0, 64, 32, 82)],
            "smin": 0.70, "vgain": 1.30},
-    # the white panels: a solid team color, not a tint; the light bar, the head- and taillights and the
-    # lenses keep theirs (split)
-    "OT": {"smin": 0.85, "vgain": 0.80,
+    # the white panels: a solid team color, not a tint, darker than the white (65%: the user's pick, 2026-11-27); the
+    # light bar, the head- and taillights and the lenses keep theirs (split)
+    "OT": {"smin": 0.85, "vgain": 0.65,
            "split": [(0, 0, 128, 24), (0, 57, 30, 70), (70, 57, 100, 70), (96, 24, 128, 48), (96, 72, 128, 104),
                      (0, 76, 25, 86), (70, 76, 95, 86), (12, 106, 38, 128), (86, 106, 112, 128)]},
     # every pink and red of the polka dots and the ice cream; the clown sign on the roof, his flaming
@@ -117,6 +119,51 @@ def mask_read(code):
     w, h = int(words[1]), int(words[2])
     bits = "".join(words[3:])
     return {(i % w, i // w) for i, c in enumerate(bits[:w * h]) if c == "1"}
+
+
+def dt_import(path, bb):
+    """Dark Tooth's sheet, paint_BB.png: every image of TMS\\BB.TMS at 6x, in the file's order (row by row), on a plain
+    background (its top-left pixel's color); magenta where the team's color goes. -> team_masks/BB_<image>.pbm for each
+    image with paint (the others' files removed)"""
+    w, h, rows_ = png_read(path)
+    bg = rows_[0][0]
+    def is_bg(p):
+        return all(abs(p[i] - bg[i]) < 40 for i in range(3))
+    seen, boxes = [bytearray(w) for _ in range(h)], []
+    for y in range(h):
+        x = 0
+        while x < w:
+            if seen[y][x] or is_bg(rows_[y][x]):
+                x += 1
+                continue
+            x1 = x
+            while x1 < w and not is_bg(rows_[y][x1]):
+                x1 += 1
+            y1 = y
+            while y1 < h and not is_bg(rows_[y1][x]):
+                y1 += 1
+            for yy in range(y, y1):
+                seen[yy][x:x1] = b"\1" * (x1 - x)
+            if x1 - x >= 60 and y1 - y >= 60:
+                boxes.append((x, y, x1, y1))
+            x = x1
+    boxes.sort(key=lambda b: (b[1] // 200, b[0]))
+    assert len(boxes) == len(bb), f"{len(boxes)} pictures on the sheet, {len(bb)} images in BB.TMS"
+    for k, (b, img) in enumerate(zip(boxes, bb)):
+        sx, sy = (b[2] - b[0]) / img.width, (b[3] - b[1]) / img.height
+        assert abs(sx - 6) < 0.1 and abs(sy - 6) < 0.1, f"image {k}: not at 6x on the sheet"
+        cells = set()
+        for y in range(img.height):
+            for x in range(img.width):
+                r, g, bl = rows_[int(b[1] + (y + 0.5) * sy)][int(b[0] + (x + 0.5) * sx)]
+                if r > 200 and g < 90 and bl > 200:
+                    cells.add((x, y))
+        p = MASK_DIR / ("BB_%02d.pbm" % k)
+        if cells:
+            mask_write("BB_%02d" % k, cells, img.width, img.height)
+            print(f"Dark Tooth image {k}: {len(cells)} pixels take the team's color -> {p}")
+        elif p.exists():
+            p.unlink()
 
 
 def mask_write(code, cells, w=128, h=128):
@@ -295,10 +342,11 @@ def main():
             if not p.exists():
                 continue
             w, h, rows_ = png_read(p)
-            sx, sy = w / 128, h / 128
+            tw, th = round(w / 6), round(h / 6)  # (the kit's 6x: the texture's own size, 128x128; Minion's 256x128)
+            sx, sy = w / tw, h / th
             cells = set()
-            for y in range(128):
-                for x in range(128):
+            for y in range(th):
+                for x in range(tw):
                     votes = 0
                     for yy in range(int(y * sy), max(int(y * sy) + 1, int((y + 1) * sy))):
                         for xx in range(int(x * sx), max(int(x * sx) + 1, int((x + 1) * sx))):
@@ -306,10 +354,12 @@ def main():
                             votes += 1 if (r > 200 and g < 90 and b > 200) else -1
                     if votes > 0:
                         cells.add((x, y))
-            mask_write(code, cells)
+            mask_write(code, cells, tw, th)
             print(f"{code}: {len(cells)} pixels take the team's color -> {MASK_DIR / (code + '.pbm')}")
     rows = lists()
     cd = CdImage(str(a.disc))
+    if a.imp and (a.imp / "paint_BB.png").exists():
+        dt_import(a.imp / "paint_BB.png", [img for _, img in tim.scan(cd.read("/TMS/BB.TMS"))])
     out = ["/* The paint entries of each car's body CLUT (image 0 of TMS\\<code>.TMS), one bit per",
            " * entry, and how strongly they take the team's color: made by tools/art/team_masks.py",
            " * (decomp TEAM_COLORS.md 4.3, tuned per car; do not edit). */",
@@ -386,9 +436,24 @@ def main():
     out.append(" * merge: pixels from -> to everywhere (near-identical colors, freeing entries); copy: in the rects (not")
     out.append(" * the except ones), pixels from -> to, the CLUT's 'to' a copy of 'from' */")
     keeps = [sp["keep"] for sp in splits if sp and sp.get("keep")]
-    out.append("/* painted masks (tools/art/team_masks): a bit per pixel of the 128x128 texture, 1 = takes the copies */")
-    out.append("static const uint8_t team_keep[%d][2048] = {" % max(1, len(keeps)))
-    for k in keeps or [bytes(2048)]:
+    # Minion's car select: his own 256x128 texture (CARSEL.TMS image 0, palette (768,36)), the same layout as the
+    # mask: its paint and split from the mask on that texture (else the decomp's list, no split)
+    sel_idx, sel_split = set(rows["MN_SEL"]), None
+    mn_mask = mask_read("MN")
+    if mn_mask is not None:
+        sel = next(tim.scan(cd.read("/SHELLDB1/CARSEL.TMS")))[1]
+        assert (sel.width, sel.height, sel.clut_vram) == (256, 128, (768, 36)), "CARSEL.TMS image 0 is not Minion's"
+        sel_idx = {sel.pixels[y * sel.width + x] for (x, y) in mn_mask}
+        sel_idx = {i for i in sel_idx if sel.palettes[0][i] & 0x7FFF}
+        sel_split = do_split(sel, sel_idx, {"mask": mn_mask, "split": []})
+        if a.preview:
+            preview(a.preview, "MN_SEL", sel, sel_idx, sel_split, {})
+        print(f"Minion's car select: {len(sel_idx)} entries ({len(sel_split['merge'])} merged, {len(sel_split['copy'])} copies)")
+        keeps.append(sel_split["keep"])
+    out.append("/* painted masks (tools/art/team_masks): a bit per pixel of the texture (128x128; Minion's 256x128), 1 = takes")
+    out.append(" * the copies */")
+    out.append("static const uint8_t team_keep[%d][4096] = {" % max(1, len(keeps)))
+    for k in keeps or [bytes(4096)]:
         out.append("    {%s}," % ", ".join(str(v) for v in k))
     out.append("};")
     out.append("typedef struct { uint8_t n_merge, n_copy, n_rect; uint8_t merge[128][2], copy[128][2], rect[8][5]; int8_t keep; } TeamSplit;")
@@ -415,7 +480,48 @@ def main():
         out.append("    {%s}," % ", ".join(cells))
     out.append("};")
     out.append("static const uint8_t team_paint_minion_select[32] = %s; /* Minion's car select palette (768,36) */"
-               % mask_text(rows["MN_SEL"]))
+               % mask_text(sel_idx))
+    # Dark Tooth (TMS\BB.TMS): his paint is in several images, each with its own CLUT. With painted masks
+    # (team_masks/BB_<image>.pbm, Gibbers's): per image the entries most of whose pixels are painted (his body has no
+    # room for a split: an entry follows its pixels' majority); else the hot pink of the body, legs and cone
+    bb = [img for _, img in tim.scan(cd.read("/TMS/BB.TMS"))]
+    dt = {}
+    for k in range(len(bb)):
+        m = mask_read("BB_%02d" % k)
+        if m is None:
+            continue
+        pal, tot, ins = bb[k].palettes[0], {}, {}
+        for y in range(bb[k].height):
+            for x in range(bb[k].width):
+                p = bb[k].pixels[y * bb[k].width + x]
+                tot[p] = tot.get(p, 0) + 1
+                if (x, y) in m:
+                    ins[p] = ins.get(p, 0) + 1
+        dt[k] = {p for p in ins if ins[p] * 2 >= tot[p] and p < len(pal) and pal[p] & 0x7FFF}
+    if dt:
+        out.append("/* Dark Tooth (TMS\\BB.TMS): his images with paint and, per image, the entries most of whose pixels his"
+                   " painted masks (team_masks/BB_<image>.pbm) paint */")
+    else:
+        dt = {k: {i for i in set(bb[k].pixels) if i < len(bb[k].palettes[0]) and in_window(bb[k].palettes[0][i], DT_PINK)}
+              for k in DT_IMAGES}
+        out.append("/* Dark Tooth (TMS\\BB.TMS): his images with paint and, per image, its pink entries (hue %d..%d, s >= %.2f,"
+                   " v >= %.2f) */" % DT_PINK)
+    out.append("#define TEAM_DT_IMAGES %d" % len(dt))
+    out.append("static const uint8_t team_dt_image[TEAM_DT_IMAGES] = {%s};" % ", ".join(map(str, sorted(dt))))
+    out.append("static const uint8_t team_paint_dt[TEAM_DT_IMAGES][32] = {")
+    for k in sorted(dt):
+        out.append("    %s, /* image %d: %d */" % (mask_text(dt[k]), k, len(dt[k])))
+        print(f"Dark Tooth image {k}: {len(dt[k])} entries")
+    out.append("};")
+    out.append("/* Minion's car select texture (CARSEL.TMS image 0, 256x128): its split, as team_split's */")
+    if sel_split:
+        sp = sel_split
+        mg = ", ".join("{%d, %d}" % p for p in sp["merge"]) or "{0}"
+        cp = ", ".join("{%d, %d}" % p for p in sp["copy"]) or "{0}"
+        out.append("static const TeamSplit team_split_minion_select = {%d, %d, 0, {%s}, {%s}, {{0}}, %d};"
+                   % (len(sp["merge"]), len(sp["copy"]), mg, cp, len(keeps) - 1))
+    else:
+        out.append("static const TeamSplit team_split_minion_select = {0, 0, 0, {{0}}, {{0}}, {{0}}, -1};")
     out.append("/* the recolor: saturation = floor + (1 - floor) x the entry's; brightness x gain (in hundredths) */")
     out.append("static const uint8_t team_smin[15] = {%s, 35};" % ", ".join(str(round(v * 100)) for v in smins))
     out.append("static const uint8_t team_vgain[15] = {%s, 100};" % ", ".join(str(round(v * 100)) for v in gains))

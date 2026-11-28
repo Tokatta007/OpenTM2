@@ -126,6 +126,16 @@ void vp_SessionLoad(CPU *c)
         uint32_t hc = port_sym("sessionPortHumanCars");
         for (int h = 2; hc && h < four_n; h++) mem_w8(c, hc + (uint32_t)(h - 2), (uint8_t)four_car[h - 2]);
     }
+    if (getenv("TM2PC_TEST_ALL_CARS")) { /* tests: every human this car (team colors: one car in each team's color) */
+        uint8_t car = (uint8_t)atoi(getenv("TM2PC_TEST_ALL_CARS"));
+        mem_w8(c, s + 8, car);
+        mem_w8(c, s + 9, car);
+        uint32_t hc = port_sym("sessionPortHumanCars");
+        for (int h = 2; h < four_n && h < 16; h++) {
+            four_car[h - 2] = (int8_t)car; /* (the team colors read it: car_of_group) */
+            if (hc) mem_w8(c, hc + (uint32_t)(h - 2), car);
+        }
+    }
     int opps = four_computer(s), humans = mem_r8(c, s + 4);
     /* Dark Tooth's second phase (decomp request 118, DARK_TOOTH_PLAYER.md, portDtPlayer.phase2 +0x28, bit h): each human who chose it in car
      * select (LOOK_DT2) and drives Dark Tooth; read by the decomp at every start, restart and respawn. Game state: the
@@ -495,17 +505,20 @@ void vp_RenderScene(CPU *c) /* renderScene(rec, view): after view 2's in the mai
     static int pkt_log = -1;
     if (pkt_log < 0) pkt_log = getenv("TM2PC_PKT_LOG") != NULL;
     uint32_t pkt_from = pkt_log ? mem_r32(c, rec0 + 8) : 0;
-    /* Holland's rear-view mirror at the original's detail bands (no far LOD, near scale 1, no budget): at Far and
-     * Farthest the whole grass field's finest beams were drawn again in the mirror, and the frames dropped (the user's,
+    /* The rear-view mirror at the original's detail bands (no far LOD, near scale 1, no budget): at Far and
+     * Farthest Holland's whole grass field's finest beams were drawn again in the mirror, and the frames dropped (the user's,
      * 2026-11-04; measured at 1920x1080, uncapped, Farthest, in the field: VBlanks over 19 ms in 70 s, mirror off 35,
      * on 591, these bands 33; near scale 2: 226). The main view keeps its grass; the mirror's shows near the car.
-     * Every other arena's mirror as its view (Los Angeles: 50 with the mirror, 33 without). TM2PC_MIRROR_FULL: tests */
+     * Now every arena's mirror (its far distance kept): at Farthest Amazonia's mirror walked the far bands at 16x as
+     * the view does, and frames went over 16.7 ms (Jean Alter's 40 FPS, 2026-11-26; one copy at 60 FPS, Farthest,
+     * resolution 8: VBlanks over 20 ms in 110 s, the mirror off 20, on 1,973, these bands 25). A 101 x 30 picture
+     * shows no difference. TM2PC_MIRROR_FULL: tests, the view's bands */
     static int mirror_full = -1;
     if (mirror_full < 0) mirror_full = getenv("TM2PC_MIRROR_FULL") != NULL;
     uint32_t far_lod = 0, near_scale = 0, budget = 0;
     static uint32_t near_word = 1, budget_word = 1;
     if (near_word == 1) near_word = port_sym("portFarLodNearScale"), budget_word = port_sym("portFarLodBudget");
-    int lod_off = mirror && !mirror_full && rc_port_far_lod && mem_r8(c, GA(0x8016475Cu) + 24) == 7; /* (7: Holland) */
+    int lod_off = mirror && !mirror_full && rc_port_far_lod;
     if (lod_off) {
         far_lod = mem_r32(c, rc_port_far_lod), mem_w32(c, rc_port_far_lod, 0);
         if (near_word) near_scale = mem_r32(c, near_word), mem_w32(c, near_word, 1);
@@ -703,6 +716,21 @@ void vp_CarViewHotkeys(CPU *c) /* carViewHotkeys(car): its split toggle with 3 p
     }
     four_views_create();
     guest_call(GA(0x800FB0B0u), 0, 0, 0, 0);      /* hudInitPanels */
+}
+
+/* Online, the host's state in place (net/game_tm2.c): this machine's own split and views again. The state brought the
+ * host's (one view for its one player): a split screen PC here with 2-4 players drew one view, half of it over the menu's
+ * last picture (the user's 2026-11-26). Nothing for one player here. */
+void four_views_again(void)
+{
+    int local = humans_local_count();
+    if (local < 2) return;
+    uint32_t mode = local == 2 ? (settings_video.split == 1 ? 2u : 1u) : 2u; /* (viewSetSplitMode; its hook, fixes.c, picks
+                                                                              * the rest: 3-4 players' own) */
+    guest_call(GA(0x800D1C24u), mode, 0, 0, 0); /* viewSetSplitMode */
+    if (four_vn()) four_views_create();
+    guest_call(GA(0x800FB0B0u), 0, 0, 0, 0);    /* hudInitPanels */
+    fprintf(stderr, "views: this machine's %d views again (the host's state in place)\n", local);
 }
 
 /* ---- HUDs: one per player ----

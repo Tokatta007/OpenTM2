@@ -286,7 +286,7 @@ void vp_CarAccept(CPU *c)
     if (drawing) /* 3-4 players: their cars aren't drawn either */
         for (int h = 2; h < four_humans(); h++) if ((int)car == four_car_of(h)) c->r[2] = 0;
     /* a Challenge Match: only the drivers its game type allows */
-    if (!drawing && ui_battle_live() && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1))
+    if (!drawing && ui_battle_live() && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), (int)car))
         c->r[2] = 0;
 }
 
@@ -405,6 +405,15 @@ enum { SPAWN_RECENT = 16, SPAWN_RECENT_VBLANKS = 30 };
 static int32_t spawn_recent[SPAWN_RECENT][2];
 static uint64_t spawn_recent_at[SPAWN_RECENT];
 static int spawn_recent_n;
+/* online, a step run again (a rollback): the spawns remembered at this step or later were the undone steps' (port
+ * memory, not the game state the rollback put back). Kept, the re-run's start saw its own first run's cars on every
+ * start point, called each one crowded and sent every car to the same fallback node: twelve players' Suicide Swamp
+ * start all on one spot (Twistedmoto's video, 2026-11-26) */
+void vp_spawn_rewind(void)
+{
+    for (int k = 0; k < SPAWN_RECENT; k++)
+        if (spawn_recent_at[k] >= vp_gv()) spawn_recent_at[k] = 0;
+}
 static int64_t nearest_car2(int32_t x, int32_t y)
 {
     int64_t best = INT64_MAX;
@@ -444,6 +453,7 @@ void F_800F636C_orig(CPU *c);
 void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
 {
     int count = (int)c->r[4];
+    uint32_t pick_ra = c->r[31];
     spawn_count = count > 0 && count <= 15 ? count : 0;
     for (int k = 0; k < spawn_count; k++) spawn_taken[k] = mem_r8(c, START_TAKEN + (uint32_t)k); /* before the pick */
     F_800F636C_orig(c);
@@ -457,7 +467,7 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
                     (int32_t)mem_r32(c, ROUTE_NODES + 24u * (uint32_t)i + 4), (int16_t)mem_r16(c, ROUTE_NODES + 24u * (uint32_t)i + 8),
                     (int8_t)mem_r8(c, ROUTE_NODES + 24u * (uint32_t)i + 22));
     }
-    if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: the game picked node %d\n", id);
+    if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: the game picked node %d (from %08X)\n", id, pick_ra);
     if (!vp_on(VP_SPAWN_SPACING) || id < 0 || n <= 0 || n > 400 || count <= 0 || count > 15) return;
     int32_t x, y;
     /* the decomp's start along a route link (request 85, portStartLink: set, x, y, ...): the car's start puts it there,
@@ -476,7 +486,8 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
     const int64_t clear2 = (int64_t)SPAWN_CLEAR * SPAWN_CLEAR;
     if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: node %d nearest car %.0f (vblank %llu)\n", id, sqrt((double)nearest_car2(x, y)),
                                              (unsigned long long)vp_gv());
-    if (nearest_car2(x, y) >= clear2) { spawn_remember(x, y); return; } /* the game's pick is clear */
+    int64_t game_d = nearest_car2(x, y);
+    if (game_d >= clear2) { spawn_remember(x, y); return; } /* the game's pick is clear */
     /* the clearest start point not taken */
     int best = -1, best_k = -1;
     int64_t best_d = -1;
@@ -519,7 +530,68 @@ void vp_StartNodePick(CPU *c) /* startNodePickRandom(count): a node id */
                 int64_t d = nearest_car2(x, y);
                 if (d > best_d) { best_d = d; best = i; }
             }
-        if (best < 0) return;
+        /* (no clearer place than the game's own: keep it. Every node taken (Suicide Swamp's 8 are its 8 start points),
+         * the clearest was another car's too, the same one for every car: the humans placed again after the computer
+         * cars (humanCarPlaceAtStart twice, the second pick each a node of another human's) all went to node 0, onto its
+         * computer car and onto each other: twelve players on one spot, Twistedmoto's video 2026-11-26) */
+        /* no node clear (Suicide Swamp's 8, all start points, with 9 or more cars): the clearest point along the route's
+         * links, as the decomp's start does for a pick with every start point taken (request 85, portStartLinkFind):
+         * each link at |dx| + |dy| / 256 points (2..16 parts, the ends left out), the farthest from every car; at
+         * least SPAWN_CLEAR away and with ground under it (not over a gap: Roof Tops), the car goes there by
+         * portStartLink (its start puts it on the ground there, facing along the link). The humans' second placement
+         * online took a node another human had: nine players, three pairs 180 apart (the user's 12-16 players) */
+        if (best_d < clear2 && start_link) {
+            static uint32_t ground = 1;
+            if (ground == 1) ground = GA(0x800EF340u); /* worldGroundHeightAt (decomp CODE_MAP.md) */
+            int lf = -1, lt = -1;
+            int32_t lx = 0, ly = 0;
+            int64_t ld = -1;
+            for (int i = 0; i < n; i++) {
+                uint32_t a = ROUTE_NODES + 24u * (uint32_t)i;
+                int cnt = (int8_t)mem_r8(c, a + 22);
+                for (int j = 0; j < cnt && j < 4; j++) {
+                    int m = (int16_t)mem_r16(c, a + 10 + 2u * (uint32_t)j);
+                    if (m < 0 || m >= n || m == i) continue;
+                    int32_t ax, ay, bx, by;
+                    node_xy(i, &ax, &ay);
+                    node_xy(m, &bx, &by);
+                    int32_t dx = bx - ax, dy = by - ay;
+                    int parts = (abs(dx) + abs(dy)) / 256;
+                    parts = parts < 2 ? 2 : parts > 16 ? 16 : parts;
+                    for (int s = 1; s < parts; s++) {
+                        int32_t px = ax + (int32_t)((int64_t)dx * s / parts), py = ay + (int32_t)((int64_t)dy * s / parts);
+                        int64_t d = nearest_car2(px, py);
+                        if (d > ld) ld = d, lx = px, ly = py, lf = i, lt = m;
+                    }
+                }
+            }
+            if (getenv("TM2PC_SPAWN_TRACE"))
+                fprintf(stderr, "spawn: the clearest link point %d-%d at %d %d, nearest car %.0f (ground %08X)\n", lf, lt, lx, ly,
+                        ld >= 0 ? sqrt((double)ld) : -1.0, ground);
+            if (lf >= 0 && ld > best_d && ld > game_d && ground) { /* (under SPAWN_CLEAR too: still the farthest from every car) */
+                int zt = zs[lf] > zs[lt] ? zs[lf] : zs[lt], zl = zs[lf] < zs[lt] ? zs[lf] : zs[lt];
+                const uint32_t q = 0x80DF6C40u; /* (the port's scratch: x, y, z of the probe) */
+                mem_w32(c, q, (uint32_t)lx), mem_w32(c, q + 4, (uint32_t)ly), mem_w32(c, q + 8, (uint32_t)(zt + 256));
+                int g = (int)guest_call(ground, q, 0, 0, 0);
+                if (g >= zl - 160) {
+                    mem_w32(c, start_link + 0x00, 1);
+                    mem_w32(c, start_link + 0x04, (uint32_t)lx);
+                    mem_w32(c, start_link + 0x08, (uint32_t)ly);
+                    mem_w32(c, start_link + 0x0C, (uint32_t)zt);
+                    mem_w32(c, start_link + 0x10, (uint32_t)lf);
+                    mem_w32(c, start_link + 0x14, (uint32_t)lt);
+                    fprintf(stderr, "spawn: node %d crowded, every node too: the link %d-%d at %d %d instead (nearest car %.0f)\n",
+                            id, lf, lt, lx, ly, sqrt((double)ld));
+                    spawn_remember(lx, ly);
+                    c->r[2] = (uint32_t)lf;
+                    return;
+                }
+            }
+        }
+        if (best < 0 || best_d <= game_d) {
+            if (getenv("TM2PC_SPAWN_TRACE")) fprintf(stderr, "spawn: node %d crowded, nothing clearer: kept\n", id);
+            return;
+        }
     }
     /* always logged (rare: a start point crowded), with where it puts the car: SupahFlyKev's and Slick!'s cars under
      * Amazonia and Antarctica, 2026-11-23, with no log of where they came in */
@@ -1347,10 +1419,12 @@ void vp_EnergyAttack(CPU *c) /* weaponFireEnergyAttack(car, human) */
          * the kind was one the game type has off, on and on until another attack replaced it (shuriken8147's Minion
          * volley, 2026-11-24); the request then taken, as the game's own refusals do */
         uint32_t req = car + (c->r[5] & 0xFF ? 0xECu : 0x60u);
-        /* a Custom Tournament: every energy attack, as the game's own tournament (the user's 2026-11-25); online still never
-         * the volley or invisibility */
+        /* a Custom Tournament: every energy attack, as the game's own tournament (the user's 2026-11-25); online never the
+         * volley or invisibility, whatever the game type says (a host's own type with them on: its menu hides those rows
+         * online, but the type kept them, and they fired; Ryupichu's, v1.0.19) */
         int ui_custom_tour_on(void), netplay_in_match(void);
-        unsigned allowed = ui_custom_tour_on() ? ~(netplay_in_match() ? BATTLE_ONLINE_NEVER_ENERGY : 0u) : t->energy;
+        unsigned allowed = ui_custom_tour_on() ? ~0u : t->energy;
+        if (netplay_in_match()) allowed &= ~BATTLE_ONLINE_NEVER_ENERGY;
         if (kind >= 100 && kind <= 106 && bit[kind - 100] >= 0 && !((allowed >> bit[kind - 100]) & 1) && mem_r8(c, req)) {
             if (c->r[5] & 0xFF) mem_w8(c, GA(0x80180A04u), 1); /* the "can't" sound, as the game's */
             mem_w8(c, req, 0);
@@ -2002,7 +2076,8 @@ static void lives_hud_put(int h)
 static int coop_out[CARS_HUMANS_MAX]; /* (by human) VP_COOP_SPECTATE: a player out of the tournament's lives, watching (3-4 players: out of a match's) */
 int vp_player_out(int p) { return p >= 0 && p < CARS_HUMANS_MAX && coop_out[p]; } /* vplus/four.c: an out player 3-4 watches */
 static int showdown_on; /* Final showdown music: switched this round */
-static void showdown_reset(void) { showdown_on = 0; music_showdown_play(0); }
+static int minion_music_on; /* the Minion fight song: switched this round */
+static void showdown_reset(void) { showdown_on = minion_music_on = 0; music_showdown_play(0); music_minion_play(0); }
 void killcam_new_round(void); /* killcam.c */
 /* A player down first sees their wreck for the game's own delay (the tournament's, before its restart: the delay
  * of the death's event), then watches the others: out of lives, to the end; with a respawn timer (Deathmatch's),
@@ -2239,6 +2314,31 @@ static void spawn_check_start(int i, uint32_t rec)
 }
 static void spawn_check_frame(void)
 {
+    { /* tests (TM2PC_SPAWN_TRACE): every car's place 2 s into a round, and its nearest other car (cars on each other) */
+        static int trace = -1;
+        static uint64_t logged_round;
+        if (trace < 0) trace = getenv("TM2PC_SPAWN_TRACE") != NULL;
+        if (trace && test_round_gv && test_round_gv != logged_round && vp_gv() >= test_round_gv + 120) {
+            logged_round = test_round_gv;
+            int humans = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu)), n = 0;
+            int32_t xy[CARS_HUMANS_MAX + 32][2];
+            for (int k = 0; k < humans + ais && n < CARS_HUMANS_MAX + 32; k++) {
+                if (k < humans ? k >= CARS_HUMANS_MAX : k - humans >= cars_ai_max()) continue;
+                uint32_t pos = k < humans ? HUMAN_REC(k) + 0x6FC : AI_REC(k - humans) + 0x73C;
+                xy[n][0] = (int32_t)mem_r32(&M.cpu, pos), xy[n][1] = (int32_t)mem_r32(&M.cpu, pos + 4), n++;
+            }
+            for (int i = 0; i < n; i++) {
+                double best = 1e18;
+                for (int j = 0; j < n; j++)
+                    if (j != i) {
+                        double dx = xy[i][0] - xy[j][0], dy = xy[i][1] - xy[j][1];
+                        if (dx * dx + dy * dy < best) best = dx * dx + dy * dy;
+                    }
+                fprintf(stderr, "spawn: round start, %s %d at %d %d, nearest car %.0f\n", i < humans ? "player" : "computer car",
+                        i < humans ? i + 1 : i - humans + 1, xy[i][0], xy[i][1], sqrt(best));
+            }
+        }
+    }
     /* a car under the arena may not fall: it can drive about down there, or a jump can put it back on top (the user's,
      * 2026-11-23). Twice a second, each player's height against the arena's lowest route point (the lowest place cars
      * drive): far below it, logged once (with where they last came in), and once when back above. Reads only (no game
@@ -2434,6 +2534,19 @@ static void test_kills(void) /* tests: TM2PC_TEST_KILL="1@2400,2@3000" destroys 
     if (eiffel_at >= 0 && vp_round_frames() == eiffel_at && mem_r8(&M.cpu, GA(0x8016475Cu) + 24) == 3) { /* (Paris) */
         guest_call(GA(0x800D6710u), 0, 0, 0, 0); /* eiffelTowerStartFall (a second call does nothing) */
         fprintf(stderr, "test: the Eiffel tower falls (round frame %d)\n", vp_round_frames());
+    }
+    static int hurt_at = -2, hurt_h, hurt_pct; /* tests: TM2PC_TEST_HURT=N,H,P, human H (0..) set to P% of its health at the
+                                                * round's frame N (every machine the same; the damage looks, DaToastyMane's
+                                                * Hammerhead) */
+    if (hurt_at == -2) {
+        hurt_at = -1;
+        if (getenv("TM2PC_TEST_HURT")) sscanf(getenv("TM2PC_TEST_HURT"), "%d,%d,%d", &hurt_at, &hurt_h, &hurt_pct);
+    }
+    if (hurt_at >= 0 && vp_round_frames() == hurt_at && hurt_h >= 0 && hurt_h < CARS_HUMANS_MAX) {
+        uint32_t rec = HUMAN_REC(hurt_h);
+        int max_hp = (int16_t)mem_r16(&M.cpu, rec + 0x186);
+        mem_w32(&M.cpu, rec + 0x1F0, (uint32_t)(max_hp * hurt_pct / 100));
+        fprintf(stderr, "test: human %d's health %d%% (round frame %d)\n", hurt_h + 1, hurt_pct, vp_round_frames());
     }
     static int flashed;
     if (!flashed && getenv("TM2PC_TEST_FLASH") && vp_gv() >= (getenv("TM2PC_TEST_FLASH_AT") ? strtoull(getenv("TM2PC_TEST_FLASH_AT"), 0, 10) : 2000)) { /* tests: a port message at VBlank 2000 */
@@ -2655,6 +2768,7 @@ static void stage_clear_test(void)
 static void vp_duo_frame(void);
 static void duo_round_start(void);
 static void showdown_frame(void);
+static void minion_music_frame(void);
 static void watch_frame(void); /* (below, with the watching) */
 static void survival_watch_frame(void);
 static void versus_frame(void);
@@ -2816,6 +2930,7 @@ void vp_lives_frame(void)
      * Challenge rules' frame: in a co-op tournament, online or with 3-4 players, the view stayed on its first car, the
      * user's 2026-11-05) */
     survival_watch_frame();
+    minion_music_frame();
     showdown_frame();
     vp_duo_frame();
     spectate_frame();
@@ -3729,6 +3844,23 @@ int four_views(void);
 void four_view_size(int player, int *w, int *h);
 int four_divider_kind(void);
 void F_800F9D48_orig(CPU *c);
+/* The target panel in a split view (the user's 2026-11-26): the game's split HUD draws it in the co-op tournament only
+ * (mode 2); here in every other mode too, each view's under its radar, through the layout. Customize HUD's Target still
+ * hides it (vp_HudTargetPanel). */
+static void split_target_panel(int who)
+{
+    static int off = -1; /* (tests: TM2PC_NO_SPLIT_TARGET=1, the game's split HUD alone) */
+    if (off < 0) off = getenv("TM2PC_NO_SPLIT_TARGET") != NULL;
+    if (off) return;
+    if (guest_call(GA(0x80121560u), 0, 0, 0, 0) == 2) return; /* gameGetMode: the co-op tournament's split HUD draws it */
+    /* (the split HUD has sent its list (its DrawOTag) by now: the panel in an order table of our own, as the banner's) */
+    const uint32_t ot = 0x80DF6C08u; /* (high RAM: an order table of 2, between BANNER_OT's and its sprites) */
+    hudlay_force(G_TL);
+    guest_call(GA(0x80141938u), ot, 2, 0, 0);                       /* ClearOTagR */
+    guest_call(GA(0x800FD0D0u), ot, (uint32_t)who, 0, 0);           /* hudDrawTargetPanel(ot, i) */
+    guest_call(GA(0x80141A30u), ot + 4, 0, 0, 0);                   /* DrawOTag */
+    hudlay_force(-1);
+}
 static void vp_HudDrawSplitHorizontal_body(CPU *c)
 {
     int who = (int)(c->r[4] & 3), player = who & 1;
@@ -3745,6 +3877,7 @@ static void vp_HudDrawSplitHorizontal_body(CPU *c)
         hudlay_begin(2, w, h);
         hudlay_player(who);
         F_800F9D48_orig(c);
+        split_target_panel(who);
         hudlay_force(G_TM);
         split_message_print(c, who, 157, 16);
         mode_status_print(c, who, 159, 28);
@@ -3764,6 +3897,7 @@ static void vp_HudDrawSplitHorizontal_body(CPU *c)
         return;
     }
     F_800F9D48_orig(c);
+    split_target_panel(player);
     split_message_print(c, player, 157, 16);
     mode_status_print(c, player, 159, 28);
     score_line_print(c, player, 11, 107, 2);
@@ -4010,6 +4144,12 @@ void vp_ViewSetSplitMode(CPU *c)
     if (c->r[4] && hotkey && !four_vn()) { /* (switched in a battle: kept as the setting) */
         settings_video.split = c->r[4] == 2 ? 1 : 2;
         settings_save_section("video");
+    }
+    static int told = -1; /* (the log: each change of the split, and why) */
+    if ((int)c->r[4] != told) {
+        told = (int)c->r[4];
+        fprintf(stderr, "views: split mode %u (players here %d, from %08X%s)\n", (unsigned)c->r[4], local, (unsigned)rr,
+                hotkey ? ", the view key" : "");
     }
     F_800D1C24_orig(c);
 }
@@ -6178,11 +6318,19 @@ static uint16_t team_recolor(uint16_t e, int hue, int car) /* car: its strength 
     double r = (e & 31) / 31.0, g = ((e >> 5) & 31) / 31.0, b = ((e >> 10) & 31) / 31.0;
     double mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
     double s = mx > 0 ? (mx - mn) / mx : 0, v = mx;
-    double smin = team_smin[car < 0 || car > 14 ? 14 : car] / 100.0;
+    double smin = team_smin[car < 0 || car > 14 ? 14 : car] / 100.0, gain = team_vgain[car < 0 || car > 14 ? 14 : car] / 100.0;
+    static int tune_car = -2, tune_smin, tune_gain, tune_flat; /* tests: TM2PC_TEAM_TUNE=car:smin:gain[:flat] (hundredths), a
+                                                                * car's strength; flat: its paint's brightness evened out */
+    if (tune_car == -2 && (tune_car = -1, getenv("TM2PC_TEAM_TUNE")))
+        if (sscanf(getenv("TM2PC_TEAM_TUNE"), "%d:%d:%d:%d", &tune_car, &tune_smin, &tune_gain, &tune_flat) < 3) tune_car = -1;
+    if (car == tune_car) {
+        smin = tune_smin / 100.0, gain = tune_gain / 100.0;
+        if (tune_flat > 0 && v > 0.15) v = 0.75 + (v - 0.75) * (1 - tune_flat / 100.0); /* (not the dark seams and shadows) */
+    }
     double floor_team = hue == 0 ? 0.68 : hue == 55 ? 0.72 : 0; /* red not pink, yellow not pale */
     if (smin < floor_team) smin = floor_team;
     s = smin + (1 - smin) * s;
-    v *= team_vgain[car < 0 || car > 14 ? 14 : car] / 100.0;
+    v *= gain;
     if (hue == 55) v *= 1.3; /* yellow: bright, not olive */
     if (v > 1) v = 1;
     double h = hue / 60.0, f = h - floor(h), p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
@@ -6284,11 +6432,18 @@ static void team_split_apply(uint32_t buf, int n)
     team_split_pixels(car, body, pix, w, h);
 }
 /* a body texture's pixels (128 x 128, 8-bit) and its palette (body): the painted pixels moved to their own entries */
+static void team_split_with(const TeamSplit *sp, int car, uint32_t body, uint32_t pix, int w, int h);
 static void team_split_pixels(int car, uint32_t body, uint32_t pix, int w, int h)
 {
-    const TeamSplit *sp = &team_split[car];
+    team_split_with(&team_split[car], car, body, pix, w, h);
+}
+static void team_split_with(const TeamSplit *sp, int car, uint32_t body, uint32_t pix, int w, int h)
+{
     if (!sp->n_merge && !sp->n_copy) return;
-    if (w != 128 || h != 128) { fprintf(stderr, "team colors: car %d's texture is %dx%d, not split\n", car, w, h); return; }
+    if ((w != 128 && !(car == 13 && w == 256)) || h != 128) { /* (Minion's body: 256 x 128) */
+        fprintf(stderr, "team colors: car %d's texture is %dx%d, not split\n", car, w, h);
+        return;
+    }
     uint8_t map[256], cp[256];
     for (int i = 0; i < 256; i++) map[i] = cp[i] = (uint8_t)i;
     for (int i = 0; i < sp->n_merge; i++) map[sp->merge[i][0]] = sp->merge[i][1];
@@ -6338,6 +6493,68 @@ static void team_carsel_test(uint32_t buf)
         fprintf(stderr, "team colors: car select car %d in team %d's colors (test)\n", car, team);
     }
 }
+/* Car select with teams: Minion's own texture (CARSEL.TMS image 0, 256 x 128 at (640, 0), its palette at (768, 36),
+ * decomp TEAM_COLORS.md 5.1) split as his painted mask says (team_split_minion_select), so vp_team_palette
+ * recolors only his paint (the parts the mask leaves keep their colors) */
+static void team_split_minion_carsel(uint32_t buf)
+{
+    int vp_carsel_teams(void); /* ui/options.c */
+    if (!vp_carsel_teams()) return;
+    uint32_t count = mem_r32(&M.cpu, buf + 12);
+    uint32_t body = buf + 4u * (4u + count + 1u + 5u);
+    uint32_t pblk = body - 12 + mem_r32(&M.cpu, body - 12), pix = pblk + 12;
+    if (mem_r32(&M.cpu, body - 8) != (768u | 36u << 16) || mem_r32(&M.cpu, pblk + 4) != 640u) return; /* (not CARSEL) */
+    int w = (int)mem_r16(&M.cpu, pblk + 8) * 2, h = (int)mem_r16(&M.cpu, pblk + 10);
+    team_split_with(&team_split_minion_select, 13, body, pix, w, h);
+    /* the 13 others: each car's body image, its CLUT at (768, 23 + car) and its 128 x 128 pixels the battle's (decomp
+     * TEAM_COLORS.md 5.1), split as in a match (its merges and copies: without them the merged pixels kept their own
+     * color in the paint, speckled panels: Warthog, Outlaw 2, Thumper, Sweet Tooth) */
+    uint32_t t = buf + 4u * (4u + count + 1u);
+    for (uint32_t img = 0; img < count && img < 64; img++) {
+        uint32_t flags = mem_r32(&M.cpu, t + 4), clut = flags & 8 ? mem_r32(&M.cpu, t + 8) : 0;
+        if (mem_r32(&M.cpu, t) != 0x10u || clut > 0x20Cu) break;
+        uint32_t xy = clut ? mem_r32(&M.cpu, t + 12) : 0, pb = t + 8 + clut;
+        int car = (int)(xy >> 16) - 23;
+        if (clut == 0x20Cu && (xy & 0xFFFF) == 768 && car >= 0 && car <= 12)
+            team_split_pixels(car, t + 8 + 12, pb + 12, (int)mem_r16(&M.cpu, pb + 8) * 2, (int)mem_r16(&M.cpu, pb + 10));
+        t += 8 + clut + mem_r32(&M.cpu, pb) + 4;
+    }
+}
+/* Dark Tooth in a team: his paint (Gibbers's masks: team_masks.py) is in several images of TMS\BB.TMS, each with its own
+ * CLUT (decomp TEAM_COLORS.md 4: the body, the wheel hubs, his effects), so it is recolored in the file before it goes
+ * up. The container: 4 words, a key per image (his first 0xEA65), a word, then the images (TIMs), a word between
+ * each two. */
+int vp_team_dark_tooth_file(uint32_t buf, int team) /* (vplus/mod_cars.c: car select's truck too) the entries changed */
+{
+    uint32_t count = mem_r32(&M.cpu, buf + 12);
+    if (team < 0 || count < 7 || count > 64 || mem_r32(&M.cpu, buf + 16) != 0xEA65u) return 0; /* (not his file) */
+    uint32_t t = buf + 4u * (4u + count + 1u);
+    int changed = 0;
+    for (uint32_t img = 0; img < count && img <= team_dt_image[TEAM_DT_IMAGES - 1]; img++) {
+        uint32_t flags = mem_r32(&M.cpu, t + 4), clut = flags & 8 ? mem_r32(&M.cpu, t + 8) : 0;
+        if (mem_r32(&M.cpu, t) != 0x10u || clut > 0x20Cu) {
+            fprintf(stderr, "team colors: Dark Tooth's image %u is not where it should be\n", img);
+            return changed;
+        }
+        for (int j = 0; j < TEAM_DT_IMAGES; j++) {
+            if (team_dt_image[j] != img || !clut) continue;
+            uint32_t pal = t + 8 + 12;
+            for (uint32_t i = 0; i < (clut - 12) / 2 && i < 256; i++)
+                if (team_paint_dt[j][i >> 3] & (1 << (i & 7))) {
+                    mem_w16(&M.cpu, pal + 2 * i, team_recolor(mem_r16(&M.cpu, pal + 2 * i), team_hue[team], 14));
+                    changed++;
+                }
+        }
+        t += 8 + clut + mem_r32(&M.cpu, t + 8 + clut) + 4;
+    }
+    return changed;
+}
+static void team_dark_tooth(uint32_t buf, int n)
+{
+    if (mem_r32(&M.cpu, buf + 16) != 0xEA65u) return; /* (not his file: no team lookup) */
+    int team = team_of_group(n), changed = vp_team_dark_tooth_file(buf, team);
+    if (getenv("TM2PC_TEAM_DEBUG") && changed) fprintf(stderr, "team colors: group %d Dark Tooth team %d, %d entries\n", n, team, changed);
+}
 void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
 {
     uint32_t buf = c->r[4];
@@ -6347,7 +6564,9 @@ void vp_BitmapParseContainer(CPU *c) /* bitmapParseContainer(buf, group) */
     const unsigned char *mod_car_team_paint(int number);
     int mod_number = buf == 0x80019C40u && n >= 1 ? mod_cars_group_number(n) : -1;
     if (buf == 0x80019C40u && n >= 1 && mod_number < 0) team_split_apply(buf, n); /* (a mod's texture: not the base's layout) */
+    if (buf == 0x80019C40u && n >= 1 && mod_number < 0) team_dark_tooth(buf, n);
     if (buf == 0x80019C40u && n == 0) team_carsel_test(buf);
+    if (buf == 0x80019C40u && n == 0) team_split_minion_carsel(buf);
     F_80121A2C_orig(c);
     void hdtex_arena_parsed(uint32_t buf);
     if (buf == 0x80019C40u && n == 0) hdtex_arena_parsed(buf); /* (the arena's textures: the PC's sharper ones) */
@@ -7014,6 +7233,27 @@ void vp_team_palette(int car, int team, const uint16_t *in, uint16_t *out)
  * the respawn modes: a car or team one kill (point, Gun Game level) from
  * winning, or the time limit's last minute. Not in the tournament's last
  * level (Dark Tooth's), nor in a match with Dark Tooth. */
+/* The Minion fight's own song (Music: Minion fight, Navi's 2026-11-26): the tournament's Minion fight only (the user's:
+ * not every match he is in): the game's tournament (modes 1 and 2; not a custom one) at level 4, Amazonia, reloaded after
+ * its stage with Minion its one opponent (sessionRun, decomp FOUR_PLAYERS.md). As he comes into play, the boss track as
+ * the showdown switches to it, the row's song on it (music.c); the rest of the round, the showdown left out. Default:
+ * nothing happens. */
+static void minion_music_frame(void)
+{
+    if (minion_music_on || !music_minion() || !mem_r32(&M.cpu, GA(0x80180BCCu)) || mem_r8(&M.cpu, GA(0x80180A05u))) return;
+    int mode = mem_r8(&M.cpu, GA(0x8016475Cu)), level = mem_r8(&M.cpu, GA(0x8016475Cu) + 24);
+    int ui_custom_tour_on(void); /* ui/options.c */
+    if ((mode != 1 && mode != 2) || level != 4 || ui_custom_tour_on()) return;
+    int n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int k = 0; k < n && k < cars_ai_max(); k++)
+        if ((int)((mem_r32(&M.cpu, AI_REC(k) + 0x30) >> 4) & 15) == 14 && ai_alive(k)) {
+            minion_music_on = 1;
+            fprintf(stderr, "music: the Minion fight's song (computer car %d)\n", k);
+            music_minion_play(1);
+            guest_call(GA(0x800D3944u), 0, 0, 0, 0); /* audioAlternateMusicTrack: track 10 */
+            return;
+        }
+}
 static void showdown_frame(void)
 {
     static const char *alt_test; /* tests: TM2PC_TEST_ALT_MUSIC="V1,V2": the boss music switch at those VBlanks, as
@@ -7027,7 +7267,7 @@ static void showdown_frame(void)
         alt_test = strchr(alt_test, ',');
         if (alt_test) alt_test++;
     }
-    if (showdown_on || !music_showdown() || !mem_r32(&M.cpu, GA(0x80180BCCu))) return;
+    if (showdown_on || minion_music_on || !music_showdown() || !mem_r32(&M.cpu, GA(0x80180BCCu))) return;
     int mode = mem_r8(&M.cpu, GA(0x8016475Cu)), level = mem_r8(&M.cpu, GA(0x8016475Cu) + 24);
     if (mode < 1 || mode > 4 || ((mode == 1 || mode == 2) && level == 8)) return;
     const GameType *t = battle_rules();

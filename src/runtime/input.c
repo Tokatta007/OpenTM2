@@ -244,6 +244,18 @@ int input_stick_bits(int p)
     return m;
 }
 
+/* The actions (bit a) whose key is held while their controller button is NONE (no button to press: vplus/humans.c
+ * turns them into the actions themselves) */
+int input_none_action_keys(int player)
+{
+    const bool *keys = player >= 0 && player < 2 && !input_pads_off ? input_keys(NULL) : NULL;
+    int m = 0;
+    for (int a = 0; keys && a < BIND_ACTIONS; a++) {
+        int k = bind_key(player, a);
+        if (!bind_button(player, a) && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]) m |= 1 << a;
+    }
+    return m;
+}
 /* A player's driving keys, as the PS1 buttons of their actions. */
 static uint16_t action_key_bits(const bool *keys, int player)
 {
@@ -288,6 +300,7 @@ static const bool *input_keys(int *n)
 
 /* Once per VBlank: fill M.pad_buttons (active-low) from the devices. */
 static uint16_t player_pad_bits(int p);
+static uint16_t start_select_bits(int p, uint16_t bits, int with_keys);
 void input_poll(void)
 {
     static int frames;
@@ -309,6 +322,8 @@ void input_poll(void)
     uint16_t p2 = player_pad_bits(1) | action_key_bits(keys, 1);
     for (unsigned i = 0; keys && i < sizeof menu_keys / sizeof menu_keys[0]; i++)
         if (keys[menu_keys[i].key]) p1 |= menu_keys[i].bits;
+    p1 = start_select_bits(0, p1, 1); /* (in a match: Start and Select as Controls has them) */
+    p2 = start_select_bits(1, p2, 0);
     M.pad_connected[1] = pads[1] != 0 || bind_player_has_keys(1); /* keys can change on the Controls page */
     M.pad_buttons[0] = (uint16_t)~one_direction(0, p1);
     M.pad_buttons[1] = M.pad_connected[1] ? (uint16_t)~one_direction(1, p2) : 0xFFFF;
@@ -324,10 +339,34 @@ static int cheat_shoulders(uint16_t bits)
 /* A player's controller in a battle: with energy attacks on the D-pad
  * (Controls), its D-pad is not steering (the stick is): input_easy_buttons. */
 int feats_in_battle(void); /* profile/feat_hooks.c: a match is running */
+/* Start and Select in a match: their bindings (Controls, the user's 2026-11-26), not the controller's own buttons nor
+ * Enter / Backspace (the menus: always those). Player 1's keys with with_keys. */
+static int pad_bind_held(int p, int b)
+{
+    if (b <= 0 || p < 0 || p >= PLAYERS || !pads[p]) return 0;
+    if (b >= BIND_STICK && b <= BIND_LSTICK + 3) return stick_held(pads[p], b);
+    return b <= 16 && (gamepad_bits_ex(pads[p], 0) & button_bits[b]) != 0;
+}
+static uint16_t start_select_bits(int p, uint16_t bits, int with_keys)
+{
+    if (!feats_in_battle() || input_pads_off) return bits;
+    bits &= (uint16_t)~(PSX_START | PSX_SELECT);
+    const bool *keys = with_keys && p == 0 ? input_keys(0) : NULL;
+    static const uint16_t bit[BIND_PADS] = {PSX_START, PSX_SELECT};
+    for (int w = 0; w < BIND_PADS; w++) {
+        int k = bind_pad_key(w);
+        if (pad_bind_held(p, bind_pad_button(p, w, 0)) || pad_bind_held(p, bind_pad_button(p, w, 1)) ||
+            (keys && k > 0 && k < SDL_SCANCODE_COUNT && keys[k]))
+            bits |= bit[w];
+    }
+    return bits;
+}
 static uint16_t player_pad_bits(int p)
 {
-    /* in a battle, a left stick direction given its own action (Controls) is not the D-pad's (bind_lstick_mask) */
-    int own = pads[p] && feats_in_battle() ? bind_lstick_mask(p) : 0;
+    /* in a battle the left stick is not the D-pad's copy: its directions are bindings of their own (Controls' CONTROLLER
+     * ALT column: by default Forward, Reverse, and the steering; vplus/humans.c). Before, it always drove: unbound Up /
+     * Down still drove (Tegu's, 2026-11-26) */
+    int own = pads[p] && feats_in_battle() ? 0xF : 0;
     uint16_t bits = gamepad_bits_ex(pads[p], 0);
     if (pads[p] && !(input_pads_off && !pads_raw)) {
         int x = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(pads[p], SDL_GAMEPAD_AXIS_LEFTY);
@@ -352,7 +391,7 @@ static uint16_t player_pad_bits(int p)
 /* Players 3 and 4 in a battle (vplus/four.c): their controller's PS1 buttons (set = held). */
 uint16_t input_player_bits(int p)
 {
-    return p >= 0 && p < PLAYERS ? one_direction(p, player_pad_bits(p)) : 0;
+    return p >= 0 && p < PLAYERS ? one_direction(p, start_select_bits(p, player_pad_bits(p), 0)) : 0;
 }
 /* How far a player steers, 0..4096 of full lock: the left stick's tilt past the deadzone (analog
  * steering on), else 4096 (the D-pad, the keyboard: full lock as the game's). */
@@ -512,6 +551,16 @@ int input_scoreboard_held(void)
     return 0;
 }
 
+/* Text chat (online, in a match): its key (T by default) or its button on player 1's controller held */
+int input_text_chat_held(void)
+{
+    static long long test = -2; /* tests: TM2PC_TEST_TEXT_CHAT=V, held for 6 VBlanks from VBlank V */
+    if (test == -2) test = getenv("TM2PC_TEST_TEXT_CHAT") ? atoll(getenv("TM2PC_TEST_TEXT_CHAT")) : -1;
+    if (test >= 0 && M.vblanks >= (uint64_t)test && M.vblanks < (uint64_t)test + 6) return 1;
+    SDL_UpdateGamepads();
+    return input_extra_held(BIND_TEXT_CHAT, input_keys(0), gamepad_bits_ex(pads[0], 0));
+}
+
 /* Any gamepad's touchpad held (the Controls page's capture: not a PS1 button) */
 int input_pad_touchpad(void)
 {
@@ -652,7 +701,7 @@ uint16_t input_player_menu_buttons(int player)
     const bool *keys = input_keys(0);
     for (unsigned i = 0; player == 0 && keys && i < sizeof menu_keys / sizeof menu_keys[0]; i++)
         if (keys[menu_keys[i].key]) bits |= menu_keys[i].bits;
-    return bits;
+    return start_select_bits(player, bits, 1); /* (in a match, the online menu's: Start and Select as Controls has them) */
 }
 
 /* What a player's controller is: 1 PlayStation, 2 Xbox, 0 other or none. */

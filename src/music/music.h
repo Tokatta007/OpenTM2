@@ -22,6 +22,8 @@ int music_slot(int track);
  * the showdown's own setting (until a new round: 0). */
 int music_showdown(void);
 void music_showdown_play(int on);
+int music_minion(void);            /* the Minion fight row set (not default) */
+void music_minion_play(int on);    /* the Minion fight on: the boss track plays its song */
 int music_page_has_off(int i);
 const char *music_page_dir(int i); /* the row's arena folder (in the music folder), NULL none */
 int music_include_original(void);  /* an arena's own song among its random / order songs */

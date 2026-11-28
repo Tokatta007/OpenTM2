@@ -158,7 +158,7 @@ static const uint32_t button_bit[BIND_BUTTONS_ALL + 1] = { /* padButtonHeld's bu
                                                              * the left stick's 21-24: bits 20-23 */
     0, 0x0001, 0x0008, 0x0400, 0x0100, 0x0010, 0x0040, 0x0080, 0x0020, 0x0800, 0x0200, 0x1000, 0x4000, 0x8000, 0x2000,
     0x0002, 0x0004, 1u << 16, 1u << 17, 1u << 18, 1u << 19, 1u << 20, 1u << 21, 1u << 22, 1u << 23};
-static uint8_t bare[128], own[4][128];
+static uint8_t bare[128], own[4][128], alt_of[4][128]; /* (alt_of: each action's CONTROLLER ALT button, 0 none) */
 static uint32_t bare_used, own_used[4];
 static int bare_ok, own_ok[4];
 /* the actions a human's word is read for (humanCarReadInput's ACTION(), decomp car_input.c; carReadMoveCodes' D-pad
@@ -188,13 +188,24 @@ static void bare_table(uint8_t out[128]) /* the Standard layout's table, no one'
 }
 /* local player L's buttons held (PS1 bits, set = held) as Standard's: each action they hold, its Standard button; a
  * button no action uses (in their table or Standard's) as it is */
-static uint16_t as_standard(int L, uint32_t mine) /* (mine: bits 16-19 the right stick) */
+static int held_by(int L, int a, uint32_t mine) /* action a (the game's number) held on its button or its Alt one */
+{
+    int b = own[L][a], c = alt_of[L][a];
+    return (b >= 1 && b <= BIND_BUTTONS_ALL && (mine & button_bit[b])) || (c >= 1 && c <= BIND_BUTTONS_ALL && (mine & button_bit[c]));
+}
+static uint16_t as_standard(int L, uint32_t mine) /* (mine: bits 16-19 the right stick, 20-23 the left) */
 {
     if (L < 0 || L > 3 || !own_ok[L] || !bare_ok) return (uint16_t)mine;
     uint16_t out = (uint16_t)(mine & ~(own_used[L] | bare_used));
     for (int i = 0; i < CAR_ACTIONS; i++) {
-        int a = car_actions[i], b = own[L][a], s = bare[a];
-        if (b >= 1 && b <= BIND_BUTTONS_ALL && (mine & button_bit[b]) && s >= 1 && s <= 14) out |= (uint16_t)button_bit[s];
+        int a = car_actions[i], s = bare[a];
+        if (held_by(L, a, mine) && s >= 1 && s <= 14) out |= (uint16_t)button_bit[s];
+    }
+    int input_none_action_keys(int player); /* runtime/input.c: a NONE action's key */
+    int nk = input_none_action_keys(L);
+    for (int i = 0; nk && i < BIND_ACTIONS; i++) {
+        int s = bare[bind_action_code(i)];
+        if ((nk >> i & 1) && s >= 1 && s <= 14) out |= (uint16_t)button_bit[s];
     }
     return out;
 }
@@ -212,10 +223,16 @@ static uint32_t throttle_of(int L, uint32_t mine)
      * left stick too while it is the D-pad's) */
     static const uint8_t drive[4] = {0x18, 0x19, 0x1A, 0x1B};
     for (int i = 0; i < 4; i++) {
-        int b = own[L][drive[i]];
-        if (b < 1 || b > BIND_BUTTONS_ALL || !(mine & button_bit[b])) continue; /* (a trigger, a stick direction: its amount) */
-        int a = input_trigger_amount(L, b);
-        return a < 0 ? 4096u : (uint32_t)a;
+        int b = own[L][drive[i]], c = alt_of[L][drive[i]];
+        if (b >= 1 && b <= BIND_BUTTONS_ALL && (mine & button_bit[b])) { /* (a trigger, a stick direction: its amount) */
+            int a = input_trigger_amount(L, b);
+            return a < 0 ? 4096u : (uint32_t)a;
+        }
+        if (c >= 1 && c <= BIND_BUTTONS_ALL && (mine & button_bit[c])) { /* (the Alt one; the left stick: full, as it always
+                                                                       * was as the D-pad's) */
+            int a = c >= BIND_LSTICK && c <= BIND_LSTICK + 3 ? -1 : input_trigger_amount(L, c);
+            return a < 0 ? 4096u : (uint32_t)a;
+        }
     }
     return 4096;
 }
@@ -230,12 +247,19 @@ static uint32_t steer_of(int L, uint32_t mine)
     if (!bind_analog_steer(L)) return 4096;
     static const uint8_t steer[2] = {0x17, 0x16};
     for (int i = 0; i < 2; i++) {
-        int b = own[L][steer[i]];
-        if (b < 1 || b > BIND_BUTTONS_ALL || !(mine & button_bit[b])) continue;
-        if (b >= 5 && b <= 8) /* the D-pad, or the left stick as it (not when its Left / Right have actions of their own) */
-            return bind_lstick_mask(L) & 0xC ? 4096u : (uint32_t)input_steer_amount(L);
-        int a = input_steer_amount_of(L, b);
-        return a < 0 ? 4096u : (uint32_t)a;
+        int b = own[L][steer[i]], c = alt_of[L][steer[i]];
+        if (b >= 1 && b <= BIND_BUTTONS_ALL && (mine & button_bit[b])) {
+            if (b >= 5 && b <= 8) /* the D-pad (the left stick's own directions bindings of their own: full) */
+                return bind_lstick_mask(L) & 0xC ? 4096u : (uint32_t)input_steer_amount(L);
+            int a = input_steer_amount_of(L, b);
+            return a < 0 ? 4096u : (uint32_t)a;
+        }
+        if (c >= 1 && c <= BIND_BUTTONS_ALL && (mine & button_bit[c])) { /* the Alt one (the left stick's Left / Right:
+                                                                       * its tilt as it always steered, input_steer_amount) */
+            int a = c >= 5 && c <= 8 ? 4096 : c == BIND_LSTICK + 2 || c == BIND_LSTICK + 3 ? input_steer_amount(L)
+                                                                                            : input_steer_amount_of(L, c);
+            return a < 0 ? 4096u : (uint32_t)a;
+        }
     }
     return (uint32_t)input_steer_amount(L);
 }
@@ -261,7 +285,13 @@ void humans_frame(void) /* each step (hle_SetFrameStart, after the kill cam's fr
                                  * change in Controls (humans_controls_changed: at once, the next step) */
         if (!own_ok[L] && humans_of_slot(L) >= 0 && humans_of_slot(L) < n) {
             humans_local_table(L, own[L]);
-            own_used[L] = buttons_used(own[L]);
+            memset(alt_of[L], 0, sizeof alt_of[L]);
+            for (int a = 0; a < BIND_ACTIONS; a++) { /* (NONE: no button; the Alt column's) */
+                int code = bind_action_code(a);
+                if (!bind_button(L, a)) own[L][code] = 0;
+                alt_of[L][code] = (uint8_t)bind_alt_button(L, a);
+            }
+            own_used[L] = buttons_used(own[L]) | buttons_used(alt_of[L]);
             own_ok[L] = 1;
         }
     if (tables_n < n) { /* the button tables, once a battle (after sessionRun built them from the layouts); a player

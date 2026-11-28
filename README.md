@@ -93,6 +93,10 @@ Details: [docs/RUNTIME.md](docs/RUNTIME.md) (the runtime), [docs/HYBRID.md](docs
 - [Rogue Trip: Vacation 2012 partial decompilation](https://github.com/Tokatta007/Rogue-Trip-Vacation-2012-Decomp):
   the same engine family.
 
+## Credits
+
+- Team colors: every car's paint marked by hand by Gibbers.
+
 ## License
 
 OpenTM2's own code is under the MIT License ([LICENSE](LICENSE)). Twisted Metal 2, its code and content are © their

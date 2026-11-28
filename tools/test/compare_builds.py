@@ -264,7 +264,7 @@ SCENARIOS = {
 }
 
 
-def dev_ini(video=()):
+def dev_ini(video=(), music=()):
     """the play build's ini (only read), with the test profile and auto controllers; `video`: lines for [video]"""
     if not any(l.startswith('frame_rate') for l in video):  # (the comparisons: the game's frames; interp* scenarios: 60)
         video = list(video) + ['frame_rate = original']
@@ -291,6 +291,8 @@ def dev_ini(video=()):
         lines.append(line)
         if line.strip() == '[video]':
             lines += list(video)
+        if line.strip() == '[music]':  # (extra['music']: [music] lines, e.g. "MINION = Alpha Song.wav")
+            lines += list(music)
         if line.strip() == '[vanilla_plus]':  # (CB_VPLUS="bal_mines = off;bal_axel = off": every scenario, e.g. the
             lines += vplus  # balance off)
     lines += ['[update]', 'check = off']
@@ -333,7 +335,7 @@ def run(exe, name, tag, seconds, shot, env, extra):
     if d.exists():
         shutil.rmtree(d)
     d.mkdir(parents=True)
-    dev_ini(extra.get('ini', ()))
+    dev_ini(extra.get('ini', ()), extra.get('music', ()))
     profiles(extra)
     e = dict(os.environ, SDL_AUDIO_DRIVER='dummy', SDL_WINDOW_ACTIVATE_WHEN_SHOWN='0', SDL_WINDOW_ACTIVATE_WHEN_RAISED='0', TM2PC_SEED='7', TM2PC_STATE_LOG=str(d / 'state.txt'),
              TM2PC_NO_PRECISE_C='1')  # (the hybrid's own subpixel sprites: off, as the plain build)

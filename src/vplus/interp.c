@@ -870,9 +870,12 @@ static double refresh_hz(void);
 static int display_paced(void)
 {
     if (settings_video.frame_rate == 2) return 1;
-    if (settings_video.frame_rate != 1 || getenv("TM2PC_INTERP_HZ")) return 0;
-    double hz = refresh_hz();
-    return hz >= 58 && hz <= 62;
+    if (settings_video.frame_rate != 1) return 0;
+    /* (and on a faster display, 60 frames a second the same way, every one a redraw: there the game's own frame showed
+     * every third VBlank between two redraws, and what the two draw differently jumped at 20 Hz: the name tags, the
+     * effect sprites, a car's missiles and Mr. Slam's claw; Darkside's and Conejo's at 144 Hz, 2026-11-27. A display
+     * under 58 Hz keeps the VBlank's frames) */
+    return refresh_hz() >= 58;
 }
 #define SCENE_OBJS 32
 typedef struct { uint32_t obj[SCENE_OBJS]; int32_t pos[SCENE_OBJS][6]; int n; uint64_t at_ns; } SceneShot;
@@ -1058,6 +1061,9 @@ int interp_extra(double left)
     Uint64 now = SDL_GetTicksNS();
     /* on the display's clock: vsync holds each present to a refresh (the limit: a guard, a hidden window does not wait) */
     if (now - gpu_last_present_ns < (Uint64)(1e9 / (clocked ? hz * 1.5 : hz))) return 0;
+    /* 60 FPS on a faster display: 60 a second (its vsync holds a present to its own refresh only); a little early, so
+     * the pacing wait's 1 ms polls do not drop one */
+    if (clocked && settings_video.frame_rate == 1 && hz > 62 && now - gpu_last_present_ns < (Uint64)(0.94e9 / NTSC_HZ_)) return 0;
     double into = 1 - left; /* how far into this VBlank */
     if (!clocked && left / NTSC_HZ_ < 0.5 / hz) return 0; /* (the VBlank's own frame is near) */
     const Poses *ea = &early[POSE_A], *eb = &early[POSE_B];

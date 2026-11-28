@@ -98,7 +98,7 @@ enum {
     SMALL_SIZE = 18, SMALL_PITCH = 24,  /* rows of long lists (the Vanilla Plus changes) */
     TINY_SIZE = 15, TINY_PITCH = 18,    /* the button rows of the Controls page */
     BATTLE_SIZE = 16,                   /* the Challenge Match pages' rows (beside their summary; SMALL_PITCH) */
-    VALUE_RIGHT = INNER_RIGHT, LEVEL_W = 200, PAD_COLUMN = INNER_RIGHT - 230, BAR_LEFT = LEGEND_X + 2, BAR_PAD = 12,
+    VALUE_RIGHT = INNER_RIGHT, LEVEL_W = 200, PAD_COLUMN = INNER_RIGHT - 259, ALT_COLUMN = INNER_RIGHT - 144, /* (Controls: CONTROLLER, CONTROLLER ALT, KEYBOARD) */ BAR_LEFT = LEGEND_X + 2, BAR_PAD = 12,
     /* Custom Music: the playback (centered) just past the longest track name,
      * the song from beside it, as far as the window allows (past the page
      * into the sides of a wide screen) */
@@ -410,10 +410,12 @@ typedef struct {
     int keys;                         /* a binding row: controller and keyboard columns */
     int extra;                        /* a binding row for an extra control (bindings.h): its index + 1 */
     int energy;                       /* a binding row for an energy attack's own button (arg: player * 8 + attack) */
+    int padrow;                       /* a binding row for Start / Select (bindings.h BIND_START ...): + 1 (arg: player * 16 + it) */
     int meter;                        /* the mic test: a level read live, the open mic's threshold marked on it */
     int music;                        /* a Custom Music row: playback and song columns */
     int tiny;                         /* drawn smaller still (the button rows) */
     const char *col1, *col2;          /* a header's column titles (over the two value columns) */
+    const char *col_alt;              /* (Controls) the CONTROLLER ALT column's title, between them */
     int light;                        /* a connected controller (index + 1): lights up while used */
     int team;                         /* a car's team (color index + 1): a dot in its color left of the name */
     int lobby;                        /* the lobby: a player (1 + index) or a computer car (10 + index); its cell: lobby_cell[] */
@@ -484,6 +486,8 @@ static char results_title_tour[64];  /* and its title */
 static char results_lines[3][48];    /* without the scoreboard (Survival): a few lines under the title */
 static int row_count;
 static int capturing = -1;            /* the row waiting for a button or key (X on a binding row) */
+static int bind_col;                  /* (Controls) the column marked: 0 CONTROLLER, 1 CONTROLLER ALT, 2 KEYBOARD (Left /
+                                       * Right; X sets it, Triangle clears it: the user's 2026-11-26) */
 static uint16_t capture_pads;         /* controller buttons held when it started */
 enum { SAVE_GAMEPLAY = 1, SAVE_VIDEO = 2, SAVE_AUDIO = 4, SAVE_CONTROLS = 8, SAVE_VPLUS = 16, SAVE_MUSIC = 32,
        SAVE_BATTLE = 64 /* the Challenge Match setup: the profile */ };
@@ -728,6 +732,8 @@ static int get_energy_button(int a) { return bind_energy_button(a / 16, a % 16);
 static void set_energy_button(int a, int v) { bind_set_energy_button(a / 16, a % 16, v); changed |= SAVE_CONTROLS; }
 static int get_extra_button(int a) { return bind_extra_button(a); }
 static void set_extra_button(int a, int v) { bind_set_extra_button(a, v); changed |= SAVE_CONTROLS; }
+static int get_pad_row(int a) { return bind_pad_button(a / 16, a % 16, 0); }
+static void set_pad_row(int a, int v) { if (bind_set_pad_button(a / 16, a % 16, 0, v)) changed |= SAVE_CONTROLS; }
 
 /* Custom Music: each track's playback (default, random, in order, a song)
  * and, for a song, which one */
@@ -1047,6 +1053,45 @@ static void set_keypad(int a, int v)
 /* a binding row's arg: player * 16 + action; values: the buttons 1..14 */
 static int get_binding(int a) { return bind_button(a / 16, a % 16) - 1; }
 static void set_binding(int a, int v) { bind_set(a / 16, a % 16, v + 1); changed |= SAVE_CONTROLS; }
+/* (Controls) a binding row's columns: 0 CONTROLLER, 1 CONTROLLER ALT (the actions only), 2 KEYBOARD (players 1-2's, and
+ * the extra controls') */
+static int binding_col_ok(const Row *r, int col)
+{
+    int action = !r->extra && !r->energy; /* (the actions, Start and Select: an Alt column) */
+    return col == 0 || (col == 1 && action) || (col == 2 && (r->extra || (r->padrow ? r->arg / 16 == 0 : r->arg / 16 < 2)));
+}
+static int binding_col(const Row *r) { return binding_col_ok(r, bind_col) ? bind_col : 0; }
+static int binding_clear(Row *r, int col) /* (Triangle, or Delete while capturing: NONE; an energy attack's first four
+                                           * with Easy Energy Attacks: back to their D-pad direction). 0: refused (Start's
+                                           * own button: a player could not pause) */
+{
+    int p = r->arg / 16, a = r->arg % 16;
+    if (r->padrow) {
+        if (col == 2) bind_set_pad_key(a, 0);
+        else return bind_set_pad_button(p, a, col, 0);
+        return 1;
+    }
+    if (r->extra) { if (col == 2) bind_set_extra_key(r->extra - 1, 0); else bind_set_extra_button(r->extra - 1, 0); return 1; }
+    if (r->energy) { if (col == 2) bind_set_energy_key(p, a, 0); else bind_set_energy_button(p, a, 0); return 1; }
+    if (col == 2) bind_set_key(p, a, 0);
+    else if (col == 1) bind_set_alt_button(p, a, 0);
+    else bind_clear(p, a);
+    return 1;
+}
+static void binding_set_button(Row *r, int col, int button) /* (button: 1.., as the capture's) */
+{
+    if (col == 1 && r->padrow) {
+        bind_set_pad_button(r->arg / 16, r->arg % 16, 1, button);
+        changed |= SAVE_CONTROLS;
+        return;
+    }
+    if (col == 1 && !r->extra && !r->energy) {
+        bind_set_alt_button(r->arg / 16, r->arg % 16, button);
+        changed |= SAVE_CONTROLS;
+        return;
+    }
+    r->set(r->arg, r->extra || r->energy ? button : button - 1);
+}
 static int get_volume(int a) { return (a ? settings_game.effects : settings_game.music) / 10; }
 static void set_volume(int a, int v)
 {
@@ -1560,7 +1605,7 @@ static void set_opponent(int a, int v)
     battle_match()->opponent[a] = v ? opponent_order[v - 1] : -1;
     changed |= SAVE_BATTLE;
 }
-static int get_driver(int a) { return (int)(battle_match_type()->drivers >> a) & 1; }
+static int get_driver(int a) { return battle_driver_allowed(battle_match_type(), a); }
 
 /* the game type's weapons and pickups (arg: a weapon, -1 all of them) */
 enum { ALL_ROW = -1 };
@@ -1744,7 +1789,7 @@ static void set_drivers_group(int a, int v)
     (void)a;
     MatchSetup *m = match_rules();
     unsigned all = (1u << BATTLE_DRIVERS) - 1;
-    m->drivers = v == 0 ? all : all & ~(1u << 13);
+    m->drivers = v == 0 ? all : (all & ~(1u << 13)) | DRIVER_DT_OFF; /* (No bosses: Minion and Dark Tooth out) */
     if (v) m->dark_tooth = m->minion_random = 0; /* (No bosses: out of the random ones too) */
     rebuild_page = 1;
 }
@@ -1759,6 +1804,11 @@ static void set_gt_dark_tooth(int a, int v)
 static void set_driver(int a, int v)
 {
     MatchSetup *m = match_rules();
+    if (a == TOUR_DARK_TOOTH) { /* (his own bit: set, off) */
+        m->drivers = v ? m->drivers & ~DRIVER_DT_OFF : m->drivers | DRIVER_DT_OFF;
+        rebuild_page = 1;
+        return;
+    }
     unsigned d = v ? m->drivers | 1u << a : m->drivers & ~(1u << a);
     if (!(d & ((1u << BATTLE_OPPONENT_CARS) - 1))) return; /* one of the twelve stays: someone to drive */
     m->drivers = d;
@@ -1828,8 +1878,9 @@ enum { DRIVERS_ALL, DRIVERS_NO_BOSSES, DRIVERS_CUSTOM };
 static const char *const drivers_values[3] = {"ALL", "NO BOSSES", "CUSTOM"};
 static int drivers_group(const GameType *t)
 {
-    unsigned all = (1u << BATTLE_DRIVERS) - 1, no_boss = all & ~(1u << 13); /* the bosses: Minion and Dark Tooth */
-    return t->drivers == all ? DRIVERS_ALL : t->drivers == no_boss && !t->dark_tooth ? DRIVERS_NO_BOSSES : DRIVERS_CUSTOM;
+    unsigned all = (1u << BATTLE_DRIVERS) - 1, no_boss = (all & ~(1u << 13)) | DRIVER_DT_OFF; /* the bosses: Minion and Dark Tooth */
+    return t->drivers == all ? DRIVERS_ALL
+         : t->drivers == no_boss && !t->dark_tooth && !t->minion_random ? DRIVERS_NO_BOSSES : DRIVERS_CUSTOM;
 }
 
 /* The game type's settings in a few lines (the summary): only what differs
@@ -1965,7 +2016,7 @@ static void build_battle(PageId page)
             rows[row_count - 1].text = battle_text[2];
         }
         if (gt->mode == MODE_LAST_CAR) {
-            add_choice("Lives", "Each player's lives (the computer cars have one for now).", get_battle, set_battle,
+            add_choice("Lives", "Each player's and computer car's lives.", get_battle, set_battle,
                        BF_LIVES, lives_values, 10);
         } else if (gt->mode != MODE_LAST_CAR) {
             if (gt->mode == MODE_DEATHMATCH)
@@ -2108,6 +2159,9 @@ static void build_battle(PageId page)
                                 get_driver, set_driver, car, onoff_values, 2);
             r->locked = car == 12 ? !profile_sweet_tooth_unlocked() : car == 13 ? !profile_minion_unlocked() : 0;
         }
+        if (profile_dark_tooth_unlocked() || netplay_lobby()) /* (online every machine has him) */
+            add_choice(profile_character_name(TOUR_DARK_TOOTH), "Can Dark Tooth be picked (by players, and as an opponent)?",
+                       get_driver, set_driver, TOUR_DARK_TOOTH, onoff_values, 2);
         add(ROW_HEADER, "Random opponents", NULL); /* the bosses: each on its own row (once unlocked) */
         if (profile_minion_unlocked())
             add_choice("Minion in random", "Can Minion be drawn as a random opponent?", get_gt_dark_tooth, set_gt_dark_tooth, 1,
@@ -2248,7 +2302,7 @@ static const char *const tour_enemy_values[10] = {"RANDOM", "1", "2", "3", "4", 
 static const char *const tour_boss_count_values[TOUR_BOSSES_MAX + 1] = {"NONE", "1", "2"};
 enum { TOUR_BOSS_CHOICES = 15 };
 static const char *const tour_boss_values[TOUR_BOSS_CHOICES] = {
-    "HAMMERHEAD", "OUTLAW 2", "WARTHOG", "MR. GRIMM", "PIT VIPER", "THUMPER", "SPECTRE", "ROADKILL", "TWISTER", "AXEL",
+    "HAMMERHEAD", "OUTLAW 2", "WARTHOG", "MR. GRIMM", "GRASSHOPPER", "THUMPER", "SPECTRE", "ROADKILL", "TWISTER", "AXEL",
     "MR. SLAM", "SHADOW", "SWEET TOOTH", "MINION", "DARK TOOTH"};
 static int get_tour_boss(int a) { return battle_tour()->stage[(a >> 1) % TOUR_STAGES_MAX].boss[a & 1]; }
 static void set_tour_boss(int a, int v) { battle_tour()->stage[(a >> 1) % TOUR_STAGES_MAX].boss[a & 1] = v; changed |= SAVE_BATTLE; }
@@ -2374,6 +2428,8 @@ static struct {
 static char net_join_where[64], net_join_password[LOBBY_PASSWORD]; /* a private server's join: where, the password typed */
 static char net_last_join[64];        /* the address last joined (a refusal for its password: typed, then again) */
 static int net_pw_asked;              /* (that join) a password typed for it already */
+static int net_pw_prompt;             /* (host) Private chosen with no password: the password's keyboard opens (the user's
+                                       * 2026-11-26: a private server always has one; none typed, it stays Public) */
 static void net_password_apply(void) /* (host) the lobby asks for the password while the server is private */
 {
     Lobby *l = netplay_lobby();
@@ -2432,6 +2488,7 @@ typedef struct {
     const char *who;                /* the players there, comma separated */
     char addr[48];                  /* a real server (LAN): where, its port (else a sample) */
     int port, other_build;
+    char region[3];                 /* the host's continent (lobby_region: "NA" .. "OC"; "" unknown) */
 } NetServer;
 void netplay_lan_search(void);                            /* net/game_tm2.c: the LAN browser's question */
 int netplay_lan_results(LobbyListing *out, int max);      /* the servers that answered */
@@ -2474,6 +2531,9 @@ int ui_online(void) { return net_hosting || net_in_server || netplay_lobby() != 
 static int net_carsel_host_game;    /* (a joiner) car select under the host's game */
 static int net_return;              /* the title: straight back to the lobby (after car select) */
 static int net_ready[4];            /* the local players who chose their car (their cells solid) */
+/* a match over, back to the lobby: this PC's players not ready again (each readies up for the next one; the user's
+ * 2026-11-26: everyone ready in the last match stayed READY); the lobby told as its choices are next sent */
+static void net_unready(void) { for (int p = 0; p < 4; p++) net_ready[p] = 0; }
 static char net_text[4][48];        /* rows' values */
 static const char *const net_text_ptr[2] = {net_text[0], net_text[2]};
 static const char *const net_blank[1] = {""};
@@ -2578,7 +2638,12 @@ static void set_net_server(int a, int v)
     case NS_SLOTS: net_slots_total(v + 2); rebuild_page = 1; break;
     case NS_HUMANS: net_slots_set(SLOT_HUMAN, v + 1); rebuild_page = 1; break;
     case NS_REPLACE: net_server.replace = v; break;
-    case NS_VISIBILITY: net_server.visibility = v; net_password_apply(); rebuild_page = 1; break;
+    case NS_VISIBILITY: /* (Private with no password: its keyboard at once, the page loop's net_pw_prompt) */
+        net_server.visibility = v;
+        if (v && !net_server.password[0]) net_pw_prompt = 1;
+        net_password_apply();
+        rebuild_page = 1;
+        break;
     case NS_VOICE: net_server.voice = v; rebuild_page = 1; break;
     case NS_FIXED_CPUS: net_slots_set(SLOT_CPU, v); rebuild_page = 1; break; /* (the slots' total kept) */
     case NS_TEAM_MODE: net_server.team_mode = v; break;
@@ -2844,6 +2909,18 @@ static struct { int n, level, kind, choice; } net_tour_dec; /* (host) its last; 
 static int net_story_n, story_idx; /* (host) the story screens gone on from; (every machine) the ones come to */
 static void net_send_settings(void);
 void net_send_settings_now(void) { net_send_settings(); }
+/* a car this server's Drivers rows allow (a Challenge Match's: its rules as the host sends them, its match's over its type;
+ * -1 random and the mod cars: yes) */
+static int net_driver_ok(int car)
+{
+    Lobby *l = netplay_lobby();
+    if (!l || car < 0 || car > TOUR_DARK_TOOTH) return 1;
+    const LobbyView *v = lobby_view(l);
+    const NetSettings *ns = v->settings_len == (int)sizeof(NetSettings) ? (const NetSettings *)v->settings : NULL;
+    const GameType *gt = lobby_is_host(l) ? battle_match_type() : ns ? &ns->type : NULL;
+    int game = lobby_is_host(l) ? net_server.game : ns ? ns->game : -1;
+    return !gt || game != NET_GAME_CHALLENGE || battle_driver_allowed(gt, car);
+}
 static void net_send_settings(void) /* (host) the game as it is now */
 {
     Lobby *l = netplay_lobby();
@@ -3072,11 +3149,24 @@ static int net_sync(void)
         }
     if (getenv("TM2PC_NET_CAR")) { /* tests, trailer footage: this PC's players' cars ("7,3,6,11") */
         const char *q = getenv("TM2PC_NET_CAR");
+        static int given[4]; /* (once each: a car Drivers has off goes to Random, below, and stays) */
         for (int p = 0; p < 4 && *q; p++) {
-            if (net_car[p] < 0) net_car[p] = atoi(q);
+            if (net_car[p] < 0 && !given[p]) net_car[p] = atoi(q), given[p] = 1;
             q += strcspn(q, ",");
             if (*q == ',') q++;
         }
+    }
+    { /* a car the host's Drivers rows have off (chosen before the host turned it off): Random, the lobby's random car at
+       * the start (the user's 2026-11-27) */
+        for (int p = 0; p < play_players && p < 4; p++)
+            if (!net_driver_ok(net_car[p])) {
+                char line[96];
+                snprintf(line, sizeof line, "%s is off on this server: %s gets a random car.", profile_character_name(net_car[p]),
+                         player_name(p));
+                net_chat_add("SERVER", line);
+                net_car[p] = -1;
+                net_skin[p] = -1;
+            }
     }
     for (int p = 0; p < play_players && p < 4; p++) { /* this PC's players' choices */
         int car = net_car[p], team = net_teams() ? get_net_team(p) : -1, ready = net_ready[p];
@@ -3287,7 +3377,12 @@ static void net_refresh(void) /* the servers found (LAN: those answering; tests:
             {"Modded Mayhem", "Minion", NET_GAME_CHALLENGE, 4, 6, 12, 99, 1, 0, 1, "Twisted Metal", MODE_LAST_CAR, "New Cars Pack, Neon Skins, Midnight Arenas, Classic HUD, TM1 Music",
              "Minion, Axel"},
         };
-        for (unsigned i = 0; i < sizeof sample / sizeof sample[0]; i++) net_list[net_list_n++] = sample[i];
+        static const char *const sample_region[] = {"NA", "EU", "NA", "SA", "EU", "OC", "AS", "NA", "EU", "", "AS", "NA"};
+        for (unsigned i = 0; i < sizeof sample / sizeof sample[0]; i++) {
+            net_list[net_list_n] = sample[i];
+            snprintf(net_list[net_list_n].region, 3, "%s", sample_region[i % 12]);
+            net_list_n++;
+        }
     }
     fprintf(stderr, "network: %s servers asked for (each logged as it answers)%s\n", net_lan ? "LAN" : "online",
             net_list_n ? ", the test samples listed" : ""); /* (the answers come after: not a count of 0) */
@@ -3319,6 +3414,10 @@ static int net_browser_tick(void)
         static char mod_names[NET_SERVERS_MAX][48];
         snprintf(mod_names[net_list_n - 1], 48, "%s", found[i].mod_names);
         s->mod_names = mod_names[net_list_n - 1];
+        static char who[NET_SERVERS_MAX][240]; /* (the players there: a v1.0.20 host through a v1.0.20 master; else none) */
+        snprintf(who[net_list_n - 1], 240, "%s", found[i].who);
+        s->who = who[net_list_n - 1][0] ? who[net_list_n - 1] : NULL;
+        snprintf(s->region, sizeof s->region, "%s", found[i].region);
         s->other_build = !found[i].same_build;
         s->locked = found[i].locked;
         fprintf(stderr, "network: %s server \"%s\" at %s:%d (%d of %d players, %d ms, %d mods%s%s%s%s)\n", net_lan ? "LAN" : "online",
@@ -3468,8 +3567,7 @@ static void net_host_rows(void)
         add_choice("Public / Private", "Private: shown in the browser, but joining needs the server's password.", get_net_server,
                    set_net_server, NS_VISIBILITY, net_visibility_values, 2);
         if (net_server.visibility) {
-            add_page("Password", PAGE_ACTION, net_server.password[0] ? "Players type it when they join. Tell it to your friends."
-                                                                   : "Set a password: until then anyone can join.");
+            add_page("Password", PAGE_ACTION, "Players type it when they join. Tell it to your friends.");
             rows[row_count - 1].act = ACT_NET_PASSWORD;
             rows[row_count - 1].text = net_server.password[0] ? net_server.password : "NONE";
         }
@@ -3851,7 +3949,7 @@ static int net_host_start(void)
         for (int tries = 0; tries < 64 && cars[h] < 0; tries++) {
             int car = (int)SDL_rand(roster_n()), taken = 0;
             for (int q = 0; q < humans; q++) taken |= q != h && cars[q] == car;
-            if (!taken && random_car_ok(car)) cars[h] = (int8_t)car;
+            if (!taken && random_car_ok(car) && net_driver_ok(car)) cars[h] = (int8_t)car; /* (one the Drivers rows allow) */
         }
     }
     if (net_server.game == NET_GAME_TOURNAMENT && net_tour_loading && !net_tour_save_loaded()) { /* (LOAD, a gray slot) */
@@ -5145,22 +5243,36 @@ static void build(PageId page)
                    get_easy_energy, set_easy_energy, p, onoff_values, 2)->small = 1;
         add_choice("Layout", "The game's button layout. Changing it resets this player's controller buttons.",
                    get_keypad, set_keypad, p, keypad_values, 4)->small = 1; /* (last: right above the buttons it sets, the user's) */
-        Row *h = add(ROW_HEADER, "Buttons", NULL);
-        h->col1 = "CONTROLLER";
-        h->col2 = "KEYBOARD";
-        for (int a = 0; a < BIND_ACTIONS; a++) {
-            Row *r = add_choice(bind_action_names[a], /* (Left / Right only turn the controller's: Da Toasty Mane, 2026-11-22) */
-                                p < 2 ? "Press X or Enter, then the new button or key. Left and Right change the controller button."
-                                      : "Press X or Enter, then the new button. Left and Right change it too.",
-                                get_binding, set_binding, p * 16 + a, bind_button_names + 1, BIND_BUTTONS_ALL); /* (L3, R3, the right
-                                                                                    * stick too: turned into the actions) */
+        /* the actions by what they do (the user's 2026-11-26): driving, then the weapons; Forward and Reverse beside
+         * Accelerate and Brake */
+        static const int action_order[BIND_ACTIONS] = {0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 10, 11};
+        for (int k = 0; k < BIND_ACTIONS; k++) {
+            int a = action_order[k];
+            if (k == 0 || k == 8) {
+                Row *h = add(ROW_HEADER, "", NULL); /* (the column titles: a row of their own, above the section's name: the user's) */
+                h->col1 = "CONTROLLER";
+                h->col_alt = "CONTROLLER ALT";
+                h->col2 = p < 2 ? "KEYBOARD" : NULL;
+                add(ROW_HEADER, k ? "Weapons" : "Driving", NULL);
+            }
+            const char *desc = p >= 2 ? "Left and Right pick the column. X or Enter, then the new button. Triangle clears it."
+                             : a == 4 ? "D-pad Up and the left stick's Up by default. Left and Right pick the column; X or "
+                                        "Enter, then the new button or key; Triangle clears it."
+                             : a == 5 ? "D-pad Down and the left stick's Down by default. Left and Right pick the column; X "
+                                        "or Enter, then the new button or key; Triangle clears it."
+                             : a == 2 || a == 3 ? "The D-pad and the left stick by default. Left and Right pick the column; "
+                                                  "X or Enter, then the new button or key; Triangle clears it."
+                             : "Left and Right pick the column. X or Enter, then the new button or key. Triangle clears it.";
+            Row *r = add_choice(bind_action_names[a], desc, get_binding, set_binding, p * 16 + a, bind_button_names + 1,
+                                BIND_BUTTONS_ALL); /* (L3, R3, the sticks too: turned into the actions) */
             r->tiny = 1;
             r->press = 1;
             r->keys = 1;
         }
-        Row *eh = add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
+        Row *eh = add(ROW_HEADER, "", NULL);
         eh->col1 = "CONTROLLER";
         eh->col2 = "KEYBOARD";
+        add(ROW_HEADER, "Energy attacks", NULL); /* (the user's: their own buttons, with the D-pad's option) */
         static const int energy_order[BIND_ENERGY] = {0, 8, 1, 2, 3, 6, 4, 7, 5}; /* napalm and volley: their own rows, none by
                                                                           * default (Gibbers's), as the Energy page's order */
         for (int k = 0; k < BIND_ENERGY; k++) {
@@ -5174,15 +5286,38 @@ static void build(PageId page)
             r->keys = 1;
             r->energy = 1;
         }
-        add(ROW_HEADER, "Music, voice and more", NULL);
-        static const int extra_order[BIND_EXTRAS] = {1, 0, BIND_PTT, BIND_SCOREBOARD, BIND_QUIT}; /* previous song above next song (the user's) */
+        /* Match and online, then Music and more (the user's 2026-11-26); previous song above next song (the user's) */
+        static const int extra_order[BIND_EXTRAS] = {BIND_SCOREBOARD, BIND_TEXT_CHAT, BIND_PTT, 1, 0, BIND_QUIT};
         for (int k = 0; k < BIND_EXTRAS; k++) {
             int i = extra_order[k];
+            if (k == 0 || k == 3) {
+                Row *xh = add(ROW_HEADER, "", NULL);
+                xh->col1 = "CONTROLLER";
+                xh->col2 = "KEYBOARD";
+                add(ROW_HEADER, k ? "Music and more" : "Match and online", NULL);
+                if (!k) {
+                    xh->col_alt = "CONTROLLER ALT";
+                    static const char *const pad_desc[BIND_PADS] = {
+                        "Opens the pause menu. Online, it opens the menu over the match. Its controller button can be "
+                        "changed but not cleared.",
+                        "Normal Select actions combined with a D-pad press, plus the vote box online and skins in car select."};
+                    for (int w = 0; w < BIND_PADS; w++) {
+                        Row *pr = add_choice(bind_pad_names[w], pad_desc[w], get_pad_row, set_pad_row, p * 16 + w,
+                                             bind_button_names, BIND_BUTTONS_ALL + 1);
+                        pr->tiny = 1;
+                        pr->press = 1;
+                        pr->keys = 1;
+                        pr->padrow = w + 1;
+                    }
+                }
+            }
             Row *r = add_choice(bind_extra_names[i], p && i == BIND_SCOREBOARD ? "Set on player 1's page. Works on every controller."
                                 : p ? "Player 1's controller and keyboard only."
                                 : i == BIND_SCOREBOARD ? "Hold it in a battle to see the scores. Works on every controller."
                                 : i == BIND_PTT ? "Online: hold it to talk (voice chat). No controller button by default."
                                 : i == BIND_QUIT ? "Asks to quit OpenTM2. Escape by default; no controller button by default."
+                                : i == BIND_TEXT_CHAT ? "Online: opens the chat's keyboard in a match. Start sends, and you're "
+                                                        "back in the game. T by default."
                                                 : "Custom music on Random or In order. No controller button by default.",
                                 get_extra_button, set_extra_button, i, bind_button_names, BIND_TOUCHPAD + 1);
             r->tiny = 1;
@@ -7127,11 +7262,12 @@ static void draw_server_browser(const View *v, int sel)
     draw_fill(v->c, X(v, SB_TX), Y(v, SB_TY), S(v, SB_TW), S(v, th), panel, 200);
     draw_fill(v->c, X(v, SB_TX), Y(v, SB_TY), S(v, SB_TW), t, line, 255);
     /* the columns: the server's name from the left, the others centered on their x */
-    static const struct { const char *head; int x; } col[8] = {{"SERVER", 30}, {"", 192}, {"ARENA", 252}, {"GAME MODE", 362},
-                                                              {"STATUS", 452}, {"PLAYERS", 506}, {"PING", 552}, {"MODS", 594}};
+    static const struct { const char *head; int x; } col[9] = {{"SERVER", 30}, {"", 186}, {"ARENA", 242}, {"GAME MODE", 344},
+                                                              {"STATUS", 428}, {"PLAYERS", 476}, {"REGION", 522}, {"PING", 563},
+                                                              {"MODS", 598}};
     int cs = S(v, 9);
     text_draw(v->c, col[0].head, X(v, col[0].x), text_top_for_center(Y(v, SB_TY + 12), cs), cs, COPPER);
-    for (int k = 1; k < 8; k++)
+    for (int k = 1; k < 9; k++)
         text_draw(v->c, col[k].head, X(v, col[k].x) - text_width(col[k].head, cs) / 2, text_top_for_center(Y(v, SB_TY + 12), cs), cs, COPPER);
     plain_text();
     int n = 0, at = -1;
@@ -7150,23 +7286,24 @@ static void draw_server_browser(const View *v, int sel)
         int full = sv->players >= sv->max, pals = server_friends(sv);
         TextColor ink = WHITE;
         char fit[48];
-        fit_text(fit, sizeof fit, sv->name, X(v, 182) - X(v, 30) - (pals ? S(v, 12) : 0), size);
+        fit_text(fit, sizeof fit, sv->name, X(v, 176) - X(v, 30) - (pals ? S(v, 12) : 0), size);
         text_draw(v->c, fit, X(v, 30), text_top_for_center(cy, size), size, pals ? CUSTOM : ink); /* (friends there: sky) */
-        if (pals) draw_person(v, X(v, 192) - S(v, 6) - (sv->locked ? S(v, 14) : 0), cy, S(v, 12), CUSTOM);
-        if (sv->locked) draw_lock(v, X(v, 192) - S(v, 6), cy, S(v, 12), COPPER); /* a password */
+        if (pals) draw_person(v, X(v, 186) - S(v, 6) - (sv->locked ? S(v, 14) : 0), cy, S(v, 12), CUSTOM);
+        if (sv->locked) draw_lock(v, X(v, 186) - S(v, 6), cy, S(v, 12), COPPER); /* a password */
         if (sv->game == NET_GAME_TOURNAMENT) /* (its level: "LEVEL 3") */
             snprintf(s, sizeof s, "%s", sv->type && !strncmp(sv->type, "LEVEL ", 6) ? sv->type : "LEVEL 1");
         else snprintf(s, sizeof s, "%s", sv->arena ? arena_name(sv->arena) : "RANDOM");
-        sb_cell(v, s, 252, 96, cy, ss, ink);
+        sb_cell(v, s, 242, 92, cy, ss, ink);
         snprintf(s, sizeof s, "%s", sv->game == NET_GAME_CHALLENGE ? battle_mode_names[sv->mode % MODE_COUNT] : net_game_values[sv->game]);
         upper(s);
-        sb_cell(v, s, 362, 116, cy, ss, ink);
-        sb_cell(v, sv->playing ? "IN GAME" : "LOBBY", 452, 56, cy, ss, sv->playing ? ORANGE : PALE);
+        sb_cell(v, s, 344, 106, cy, ss, ink);
+        sb_cell(v, sv->playing ? "IN GAME" : "LOBBY", 428, 54, cy, ss, sv->playing ? ORANGE : PALE);
         snprintf(s, sizeof s, "%d/%d", sv->players, sv->max);
-        sb_cell(v, s, 506, 44, cy, ss, full ? ORANGE : ink); /* (full: gold) */
+        sb_cell(v, s, 476, 42, cy, ss, full ? ORANGE : ink); /* (full: gold) */
+        sb_cell(v, sv->region[0] ? sv->region : "?", 522, 40, cy, ss, sv->region[0] ? ink : GRAY); /* (the host's continent) */
         snprintf(s, sizeof s, "%d", sv->ping);
-        sb_cell(v, s, 552, 40, cy, ss, sv->ping > 150 ? ORANGE : ink);
-        sb_cell(v, sv->mods ? "YES" : "NO", 594, 40, cy, ss, sv->mods ? ORANGE : ink);
+        sb_cell(v, s, 563, 34, cy, ss, sv->ping > 150 ? ORANGE : ink);
+        sb_cell(v, sv->mods ? "YES" : "NO", 598, 32, cy, ss, sv->mods ? ORANGE : ink);
     }
     int ps = S(v, 9), pages = (n + SB_ROWS - 1) / SB_ROWS;
     if (pages > 1) {
@@ -7204,7 +7341,13 @@ static void draw_server_browser(const View *v, int sel)
         if (hl->game != NET_GAME_TOURNAMENT) /* (a co-op tournament's arenas are its levels, in order: no one arena) */
             snprintf(l[nl++], sizeof l[0], "ARENA: %s", hl->arena ? arena_name(hl->arena) : "RANDOM");
         snprintf(l[nl++], sizeof l[0], "PLAYERS: %d OF %d%s", hl->players, hl->max, hl->locked ? ", PASSWORD" : "");
-        snprintf(l[nl++], sizeof l[0], "HOST: %s, %d MS", hl->host, hl->ping);
+        static const char *const regions[][2] = {{"NA", "NORTH AMERICA"}, {"SA", "SOUTH AMERICA"}, {"EU", "EUROPE"},
+                                                 {"AF", "AFRICA"}, {"AS", "ASIA"}, {"OC", "OCEANIA"}};
+        const char *rn = NULL;
+        for (unsigned k = 0; k < sizeof regions / sizeof regions[0]; k++) if (!strcmp(hl->region, regions[k][0])) rn = regions[k][1];
+        /* (the host's continent on the host's line: the mods stay on the first page, no scrolling) */
+        if (rn) snprintf(l[nl++], sizeof l[0], "HOST: %s, %d MS, %s", hl->host, hl->ping, rn);
+        else snprintf(l[nl++], sizeof l[0], "HOST: %s, %d MS", hl->host, hl->ping);
         int mods_at = nl; /* (the mods: the list's end, each on a line) */
         if (!hl->mods || !hl->mod_names) snprintf(l[nl++], sizeof l[0], "MODS: NONE");
         else {
@@ -8103,12 +8246,15 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
             if (r->kind == ROW_HEADER) {
                 int hs = S(&v, HEADER_SIZE), hy = Y(&v, y + (pitch - HEADER_SIZE) / 2 + 2);
                 text_draw(c, r->label, X(&v, LIST_X), hy, hs, COPPER);
+                int cs = page == PAGE_CONTROLS ? S(&v, 12) : hs, cy0 = page == PAGE_CONTROLS ? text_top_for_center(Y(&v, y + pitch / 2 + 1), cs) : hy;
                 if (r->col1)
-                    text_draw(c, r->col1, X(&v, r->music ? MUSIC_PLAY_X : PAD_COLUMN) - text_width(r->col1, hs) / 2, hy,
-                              hs, COPPER);
+                    text_draw(c, r->col1, X(&v, r->music ? MUSIC_PLAY_X : PAD_COLUMN) - text_width(r->col1, cs) / 2, cy0,
+                              cs, COPPER);
+                if (r->col_alt)
+                    text_draw(c, r->col_alt, X(&v, ALT_COLUMN) - text_width(r->col_alt, cs) / 2, cy0, cs, COPPER);
                 if (r->col2)
-                    text_draw(c, r->col2, r->music ? X(&v, MUSIC_SONG_X) : X(&v, list_right(page)) - text_width(r->col2, hs),
-                              hy, hs, COPPER);
+                    text_draw(c, r->col2, r->music ? X(&v, MUSIC_SONG_X) : X(&v, list_right(page)) - text_width(r->col2, cs),
+                              cy0, cs, COPPER);
             } else {
                 int size = S(&v, r->tiny ? TINY_SIZE : page == PAGE_HUD ? 13 : BATTLE_PAGE(page) ? BATTLE_SIZE : r->small ? SMALL_SIZE : ITEM_SIZE),
                     cy = Y(&v, y + pitch / 2);
@@ -8158,24 +8304,31 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
                 }
                 TextColor vc = r->locked || (r->dim && r->kind == ROW_CHOICE && r->dim(r->arg, r->get(r->arg))) ? GRAY : ORANGE;
                 if (r->keys) {
+                    int action = !r->extra && !r->energy && !r->padrow, col = binding_col(r), p_of = r->arg / 16;
                     if (i == capturing) {
-                        const char *msg = "PRESS A BUTTON OR KEY";
-                        text_draw(c, msg, right - text_width(msg, size), ty, size, ORANGE);
+                        const char *msg = col == 2 ? "PRESS A KEY" : "PRESS A BUTTON";
+                        int mx = col == 2 ? right - text_width(msg, size) : X(&v, col ? ALT_COLUMN : PAD_COLUMN) - text_width(msg, size) / 2;
+                        text_draw(c, msg, mx, ty, size, ORANGE);
                     } else {
-                        int button = r->extra || r->energy ? r->get(r->arg) : r->get(r->arg) + 1;
+                        int button = action ? r->get(r->arg) + 1 : r->get(r->arg);
+                        int alt = action ? bind_alt_button(p_of, r->arg % 16) : r->padrow ? bind_pad_button(p_of, r->arg % 16, 1) : 0;
                         char key[64];
-                        int k = r->energy ? bind_energy_key(r->arg / 16, r->arg % 16)
+                        int k = r->padrow ? bind_pad_key(r->arg % 16) : r->energy ? bind_energy_key(r->arg / 16, r->arg % 16)
                               : r->extra ? bind_extra_key(r->extra - 1) : bind_key(r->arg / 16, r->arg % 16);
                         shorten(key, sizeof key, bind_key_name(k), 0);
-                        if (i == sel) { /* both columns marked too: X, then a button or a key sets either (the user's) */
-                            const char *bn = button >= 1 && button <= BIND_TOUCHPAD
-                                                 ? (glyph_kind == 2 ? bind_button_names_xbox : bind_button_names)[button] : "-";
-                            int bw = button >= 11 && button <= 14 ? size : text_width(bn, size), pad = S(&v, BAR_PAD);
-                            draw_bar(&v, X(&v, PAD_COLUMN) - bw / 2 - pad, X(&v, PAD_COLUMN) + bw / 2 + pad, cy, size);
-                            draw_bar(&v, right - text_width(key, size) - pad, right + pad, cy, size);
+                        int has_keys = r->extra || (r->padrow ? p_of == 0 : p_of < 2);
+                        if (i == sel) { /* the marked column (Left / Right: the user's 2026-11-26) */
+                            int b = col == 1 ? alt : button, pad = S(&v, BAR_PAD);
+                            const char *bn = b >= 1 && b <= BIND_TOUCHPAD
+                                                 ? (glyph_kind == 2 ? bind_button_names_xbox : bind_button_names)[b] : "-";
+                            int bw = b >= 11 && b <= 14 ? size : text_width(bn, size), cx = X(&v, col == 1 ? ALT_COLUMN : PAD_COLUMN);
+                            if (col == 2) draw_bar(&v, right - text_width(key, size) - pad, right + pad, cy, size);
+                            else draw_bar(&v, cx - bw / 2 - pad, cx + bw / 2 + pad, cy, size);
                         }
-                        draw_button(&v, button, X(&v, PAD_COLUMN), cy, size, vc, glyph_kind);
-                        text_draw(c, key, right - text_width(key, size), ty, size, vc);
+                        /* (Start's own button: never cleared, in a color of its own: the user's) */
+                        draw_button(&v, button, X(&v, PAD_COLUMN), cy, size, r->padrow == BIND_START + 1 ? PALE : vc, glyph_kind);
+                        if (action || r->padrow) draw_button(&v, alt, X(&v, ALT_COLUMN), cy, size, vc, glyph_kind);
+                        if (has_keys) text_draw(c, key, right - text_width(key, size), ty, size, vc);
                     }
                 } else if (r->music) {
                     int t = music_playback(r->arg);
@@ -8262,7 +8415,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
     static const char *const legend_page[] = {CROSS " = SELECT", CIRCLE " = BACK"};
     static const char *const legend_choice[] = {ARROWS " = CHANGE", CIRCLE " = BACK"};
     static const char *const legend_back[] = {CIRCLE " = BACK"};
-    static const char *const legend_press[] = {CROSS " = SET", ARROWS " = CHANGE", CIRCLE " = BACK"};
+    static const char *const legend_press[] = {CROSS " = SET", ARROWS " = COLUMN", TRIANGLE " = CLEAR", CIRCLE " = BACK"};
     static const char *const legend_waiting[] = {"PRESS A BUTTON OR KEY"};
     static const char *const legend_music[] = {SQUARE " = PLAYBACK", ARROWS " = SONG", CIRCLE " = BACK"};
     static const char *const legend_profile[] = {CROSS " = SIGN IN", SQUARE " = EDIT", CIRCLE " = BACK"};
@@ -8308,7 +8461,7 @@ static void compose(Image *c, PageId page, int sel, float *scroll)
         return;
     }
     if (sel >= 0 && rows[sel].press && !rows[sel].locked) {
-        draw_legend(&v, legend_press, 3);
+        draw_legend(&v, legend_press, 4);
         return;
     }
     if (sel >= 0 && rows[sel].kind == ROW_CHOICE && (rows[sel].locked || rows[sel].info))
@@ -8780,9 +8933,18 @@ static int run(PageId start)
             int key = script ? 0 : input_new_key();
             capture_pads = pads_now;
             Row *cr = &rows[capturing];
+            int ccol = binding_col(cr);
+            if (key == SDL_SCANCODE_DELETE) { /* (Delete: the column cleared, as Triangle) */
+                if (binding_clear(cr, ccol)) changed |= SAVE_CONTROLS;
+                else denied_sound();
+                key = 0;
+                capturing = -1;
+            }
+            if (ccol == 2) new_pads = 0; /* (the keyboard's column: only a key) */
+            else key = 0;                /* (a controller's: only a button) */
             static int touch_before = 1; /* (held when the capture started: not a press) */
             int touch = !script && input_pad_touchpad();
-            if (touch && !touch_before && cr->extra) { /* the touchpad: only the extra controls (no PS1 button) */
+            if (touch && !touch_before && cr->extra && ccol != 2 && capturing >= 0) { /* the touchpad: only the extra controls (no PS1 button) */
                 cr->set(cr->arg, BIND_TOUCHPAD);
                 key = 0;
                 capturing = -1;
@@ -8790,37 +8952,38 @@ static int run(PageId start)
             touch_before = touch;
             int input_pad_stick_any(void);   /* runtime/input.c: any controller's right stick (bit d: BIND_STICK + d) */
             static int stick_before = 0xF;   /* (tilted when the capture started: not a press) */
-            int stick = script ? 0 : input_pad_stick_any(), stick_new = stick & ~stick_before;
+            int stick = script || ccol == 2 ? 0 : input_pad_stick_any(), stick_new = stick & ~stick_before;
             stick_before = stick;
             for (int d = 0; d < 4 && capturing >= 0; d++)
                 if (stick_new & (1 << d)) { /* the right stick flicked one way: that direction, as a button (Sage's) */
-                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_STICK + d : BIND_STICK + d - 1);
+                    binding_set_button(cr, ccol, BIND_STICK + d);
                     key = 0;
                     capturing = -1;
                 }
             int input_pad_lstick_any(void);  /* runtime/input.c: any controller's left stick (bit d: BIND_LSTICK + d) */
             static int lstick_before = 0xF, lstick_row = -1; /* (tilted when the capture started: not a press; the stick also
                                                                * moves through the menus, so each capture starts from it) */
-            int lstick = script ? 0 : input_pad_lstick_any();
+            int lstick = script || ccol == 2 ? 0 : input_pad_lstick_any();
             if (lstick_row != capturing) lstick_row = capturing, lstick_before = lstick;
             int lstick_new = lstick & ~lstick_before;
             lstick_before = lstick;
             for (int d = 0; d < 4 && capturing >= 0; d++)
                 if (lstick_new & (1 << d)) { /* the left stick flicked one way: that direction (before the D-pad it also
                                               * counts as in the menus: the user's, any control on the left stick) */
-                    cr->set(cr->arg, cr->extra || cr->energy ? BIND_LSTICK + d : BIND_LSTICK + d - 1);
+                    binding_set_button(cr, ccol, BIND_LSTICK + d);
                     key = 0;
                     capturing = -1;
                 }
             for (unsigned k = 0; k < sizeof buttons / sizeof buttons[0]; k++)
                 if (capturing >= 0 && (new_pads & buttons[k].bit) && (cr->extra || cr->energy || buttons[k].button <= BIND_BUTTONS_ALL)) {
-                    cr->set(cr->arg, cr->extra || cr->energy ? buttons[k].button : buttons[k].button - 1);
+                    binding_set_button(cr, ccol, buttons[k].button);
                     key = 0;
                     capturing = -1;
                     break;
                 }
             if (capturing >= 0 && key) {
-                if (cr->energy) bind_set_energy_key(cr->arg / 16, cr->arg % 16, key);
+                if (cr->padrow) bind_set_pad_key(cr->arg % 16, key);
+                else if (cr->energy) bind_set_energy_key(cr->arg / 16, cr->arg % 16, key);
                 else if (cr->extra) bind_set_extra_key(cr->extra - 1, key);
                 else bind_set_key(cr->arg / 16, cr->arg % 16, key);
                 changed |= SAVE_CONTROLS;
@@ -9390,6 +9553,23 @@ static int run(PageId start)
                 dirty = 1;
             } else if (r->press && r->locked) {
                 /* not this player's */
+            } else if (r->press && r->keys && (pressed & (B_LEFT | B_RIGHT))) { /* the column (the user's 2026-11-26) */
+                int cols[3], n = 0, at = 0;
+                for (int k = 0; k < 3; k++)
+                    if (binding_col_ok(r, k)) { if (k == binding_col(r)) at = n; cols[n++] = k; }
+                if (n > 1) {
+                    bind_col = cols[(at + ((pressed & B_LEFT) ? n - 1 : 1)) % n];
+                    menu_sound(0);
+                    dirty = 1;
+                }
+            } else if (r->press && r->keys && (pressed & B_TRIANGLE)) { /* the marked column cleared (NONE) */
+                if (binding_clear(r, binding_col(r))) {
+                    changed |= SAVE_CONTROLS;
+                    menu_sound(1);
+                } else {
+                    denied_sound(); /* (Start's own button: kept) */
+                }
+                dirty = 1;
             } else if (r->press && (pressed & (B_CROSS | B_START))) { /* (Enter on a keyboard too: it cycled the button) */
                 capturing = sel; /* buttons and keys held now (this X) do not count: only new presses */
                 capture_pads = script ? b : input_pad_buttons();
@@ -9463,6 +9643,16 @@ static int run(PageId start)
         if (page == PAGE_FRIENDS) { /* (the friends' news: the page again each second) */
             static uint64_t friends_built;
             if (SDL_GetTicks() - friends_built >= 1000) { friends_built = SDL_GetTicks(); rebuild_page = 1; }
+        }
+        if (net_pw_prompt && !naming.active) { /* (host) Private chosen: its password typed at once */
+            net_pw_prompt = 0;
+            net_action(ACT_NET_PASSWORD, 0);
+            naming.prev = 0xFFFF; /* (the press that chose Private types nothing) */
+            dirty = 1;
+        } else if (net_server.visibility && !net_server.password[0] && !naming.active) { /* none typed, or cleared: Public */
+            net_server.visibility = 0;
+            net_password_apply();
+            rebuild_page = 1;
         }
         if (rebuild_page) { /* the Controls page shows another player */
             rebuild_page = 0;
@@ -12425,7 +12615,7 @@ static int cs_available(int car);
 static int carsel_teams(void);
 static int bar_shows(int car) /* in the bars: a driver the match allows (a locked secret one: as the setting has it) */
 {
-    if (M.ram && battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
+    if (M.ram && battle_live && car >= 0 && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), car)) return 0;
     return !vp_on(VP_HIDE_LOCKED_DRIVERS) || car < 12 || cs_available(car);
 }
 static int bar_count(void)
@@ -12761,7 +12951,7 @@ static int cs_available(int car)
     if (!M.ram) return car >= 0 && car < 12; /* previews: the game is not running */
     /* a Challenge Match (a server's too): only the drivers its game type has on (the others out of the bars and the
      * cursor's way, the user's 2026-11-24; vp_CarAccept refuses them to the game as well) */
-    if (battle_live && car >= 0 && car < BATTLE_DRIVERS && !((battle_match_type()->drivers >> car) & 1)) return 0;
+    if (battle_live && car >= 0 && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), car)) return 0;
     if (car == 12) return mem_r8(&M.cpu, GA(0x80180D04u)) != 0;
     if (car == 13) return mem_r8(&M.cpu, GA(0x80180D05u)) != 0;
     if (car == 14) return vp_dt_player_offered();
@@ -13894,6 +14084,11 @@ static void ot_area(CPU *c, uint32_t frame, uint32_t ot, int k, int x0, int y0, 
  * the id at each draw). Triangle switches the player's team. */
 int net_carsel_neutral(void);
 static int carsel_teams(void) { return battle_live && !survival_on && battle_match_teams() >= 2 && !net_carsel_neutral(); }
+int vp_carsel_teams(void) { return carsel_teams(); } /* (vplus/fixes.c: Minion's car select texture) */
+int vp_carsel_team(int p) /* (vplus/mod_cars.c: Dark Tooth's truck) player p's team color in car select, -1 no teams */
+{
+    return carsel_teams() && p >= 0 && p < 4 ? battle_match()->player_team[p] % BATTLE_TEAM_COLORS : -1;
+}
 static struct { int car, team; } team_row[2] = {{-1, -1}, {-1, -1}};
 static uint32_t team_patched[1024];
 static int team_npatched;
@@ -14406,6 +14601,12 @@ static int pause_run(const char *password)
             compose_pause(&canvas, sel, password, NULL);
             Psyz_VideoSetDisplayRGB24(canvas.px, canvas.w, canvas.h);
             dirty = 0;
+            static int pause_shot; /* tests: TM2PC_MENU_SHOT=dir, the pause's first picture too (menu_PAUSE.bmp) */
+            if (getenv("TM2PC_MENU_SHOT") && !pause_shot++) {
+                char path[512];
+                snprintf(path, sizeof path, "%s/menu_PAUSE.bmp", getenv("TM2PC_MENU_SHOT"));
+                image_save_bmp(&canvas, path);
+            }
         }
         rt_vblank(); /* the game's VBlank (sounds), and the frame shown */
     }
@@ -14989,6 +15190,7 @@ static int net_tour_over(CPU *c) /* an online tournament over (the title next: w
     battle_match_override(NULL);
     battle_type_override(NULL);
     apply_game_settings(); /* (this PC's difficulty again) */
+    net_unready();
     net_return = 1;
     c->r[2] = TITLE_SCREEN_FN;
     return 1;
@@ -15049,6 +15251,7 @@ void ui_ScrollText(CPU *c)
         battle_match_override(NULL);
         battle_type_override(NULL);
         battle_live = 0;
+        net_unready();
         net_return = 1;
         c->r[2] = TITLE_SCREEN_FN;
     } else if (battle_live && (mode == 3 || mode == 4) && (M.live_input || script) && text_ready()) {
@@ -15593,7 +15796,7 @@ void ui_AiSelect(CPU *c)
     unsigned drivers = trun.on ? battle_tour()->roster : battle_match_type()->drivers;
     if (!trun.on) /* Challenge Match: the bosses by their own rows (Minion in random, Dark Tooth in random) */
         drivers = (drivers & ~(1u << TOUR_MINION)) | (battle_match_type()->minion_random ? 1u << TOUR_MINION : 0u) |
-                  (battle_match_type()->dark_tooth ? 1u << TOUR_DARK_TOOTH : 0u);
+                  (battle_match_type()->dark_tooth && battle_driver_allowed(battle_match_type(), TOUR_DARK_TOOTH) ? 1u << TOUR_DARK_TOOTH : 0u);
     /* (a tournament: the roster's, CPU Drivers: Sweet Tooth, Minion and Dark Tooth too, once unlocked; else the bosses
      * only in their waves) */
     /* the mod characters that are on, for the Random drivers (Options > Mods; offline: online every machine rolls the
@@ -15670,6 +15873,12 @@ void ui_AiSelect(CPU *c)
     int dt_room = !dt_boss_here && port_config_on() && (cars_banks() || level >= 13 || boss_room[level] > humans + n);
     for (int i = 0; i < n && i < BATTLE_OPPONENT_SLOTS; i++) {
         int car = b->opponent[i];
+        /* a pick the Drivers rows have off (No bosses, or the driver's own row; a pick kept from before, online the
+         * host's): Random, from the allowed ones (a tournament's: its stage's enemies, kept) */
+        if (!trun.on && car >= 0 && car <= TOUR_DARK_TOOTH && !battle_driver_allowed(battle_match_type(), car)) {
+            fprintf(stderr, "challenge match: opponent %d, %s, off in Drivers: Random\n", i + 1, car_label(car));
+            car = -1;
+        }
         /* a boss picked on the page (opponent_values_init): only while this profile has him (another profile's match setup
          * keeps its picks; online the host's pick, every machine alike) and, Dark Tooth, once a match where his textures
          * fit, as the random ones; else Random */
@@ -16196,6 +16405,39 @@ void photo_legend(int show)
 void hudlay_overlay_ui(int on);
 int hudlay_divider_rects(int w, int h, int r[2][4]);
 int vp_watching(int player);
+/* A dark edge around the lit pixels within x0..x1, y0..y1 (not pure black: that is see-through in the overlay's blended
+ * pieces), o pixels wide: words straight on the game, readable over anything */
+static void dark_edge(Image *sb, int x0, int y0, int x1, int y1, int o)
+{
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > sb->w) x1 = sb->w;
+    if (y1 > sb->h) y1 = sb->h;
+    int w = x1 - x0, h = y1 - y0;
+    uint8_t *lit = w > 0 && h > 0 ? calloc((size_t)w * h, 1) : NULL;
+    if (lit) {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                const uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                lit[(size_t)y * w + x] = (q[0] | q[1] | q[2]) != 0;
+            }
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                if (lit[(size_t)y * w + x]) continue;
+                int near = 0;
+                for (int dy = -o; dy <= o && !near; dy++)
+                    for (int dx = -o; dx <= o && !near; dx++) {
+                        int ax = x + dx, ay = y + dy;
+                        near = ax >= 0 && ay >= 0 && ax < w && ay < h && lit[(size_t)ay * w + ax];
+                    }
+                if (near) {
+                    uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
+                    q[0] = 14, q[1] = 14, q[2] = 16;
+                }
+            }
+        free(lit);
+    }
+}
 static void overlay_with_lines(Image *sb, int *rect, int n) /* our rects, and the split lines */
 {
     static const uint8_t black[3] = {0, 0, 0};
@@ -16321,6 +16563,21 @@ static void pm_input(void)
     int n = pm_humans(node_of), target, yes, needed, vote = pm_vote(&target, &yes, &needed);
     int b_caller = 0, b_yes = 0, b_no = 0, b_needed = 0, b_ask = 0, b_state = pm_back(&b_caller, &b_yes, &b_no, &b_needed, &b_ask);
     int b_row = vote ? 1 : 0; /* (the back vote's YES / NO row: after the kick vote's) */
+    { /* Text chat's own button (Controls; T by default): its keyboard straight from the match, back to the game after it */
+        int input_text_chat_held(void); /* runtime/input.c */
+        static int tc_was = 1;           /* (held when the match started: not a press) */
+        int held = input_text_chat_held();
+        if (held && !tc_was && pm_open < 0 && !pv_on && l) {
+            name_start(0);
+            naming.game_type = 4; /* (a chat line: v1.0.19's fix) */
+            naming.max = 40;
+            naming.text[0] = 0;
+            tc_on = 1, pm_open = 0, np_on = 0;
+            pm_prev[0] = 0xFFFF; /* (its press not seen as the keyboard's) */
+            menu_sound(0);
+        }
+        tc_was = held;
+    }
     for (int p = 0; p < local && p < 4; p++) {
         uint16_t b = (uint16_t)(input_player_menu_buttons(p) | (p == 0 ? net_test_menu_buttons() : 0)), pressed = (uint16_t)(b & ~pm_prev[p]);
         pm_prev[p] = b;
@@ -16553,6 +16810,7 @@ static int pm_frame(Image *sb, int *shown)
     View v = view_fit(sb);
     static const uint8_t panel[3] = {10, 10, 14}, line[3] = {188, 188, 196};
     int rect[4 * 8], nr = 0; /* (the overlay's pieces: the notes, the chat's lines, the talkers, a box or the menu) */
+    int np_blend[4] = {0}, np_blended = 0; /* (the online menu's words: a blended piece) */
     char text[96];
     static const uint8_t mic_on[3] = {120, 220, 120};
     if (pm_open < 0 && talking) { /* who is talking: a note each at the side, under the kill feed (and the vote's) */
@@ -16621,6 +16879,17 @@ static int pm_frame(Image *sb, int *shown)
             k++;
         }
     }
+    /* split screen (the user's 2026-11-26): the menu, the chat's keyboard, and the vote's box in their player's own view
+     * only (the others play on); the page's scale and place for that view (v restored after them) */
+    View v_all = v;
+    int vr[4] = {0, 0, sb->w, sb->h};
+    int hudlay_view_rect(int view, int w, int h, int r[4]); /* vplus/hud_layout.c */
+    int split = pm_open >= 0 && hudlay_view_rect(pm_open, sb->w, sb->h, vr);
+    if (split) {
+        v.s = vr[2] / 640.0f < vr[3] / 480.0f ? vr[2] / 640.0f : vr[3] / 480.0f;
+        v.ox = vr[0] + (vr[2] - (int)(640 * v.s + 0.5f)) / 2;
+        v.oy = vr[1] + (vr[3] - (int)(480 * v.s + 0.5f)) / 2;
+    }
     if (tc_on && pm_open >= 0) { /* the chat's keyboard: over the game's lower middle */
         float bx = 150, bw = 340, by = 196, bh = 206;
         draw_fill(sb, X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh), panel, 255);
@@ -16671,6 +16940,30 @@ static int pm_frame(Image *sb, int *shown)
         text_draw(sb, "SELECT: VOTE", X(&v, bx + 8), text_top_for_center(Y(&v, by + 33), ls), ls, WHITE); /* (Select: the vote's box) */
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
+    } else if (pm_open >= 0 && !pv_on && !tc_on && np_on && gfont_ready(0) && gfont_ready(6)) {
+        /* the online menu in the single-player pause's look (the user's 2026-11-26): the game's fonts and colors (compose_pause),
+         * its items 20 apart; no box and no edge (the user's): the words straight on the game, darkened by half */
+        static const uint8_t title_c[3] = {115, 84, 35}, item_c[3] = {93, 30, 23},
+                             chosen_c[3] = {115, 61, 27};
+        static const char *const yn[2] = {"YES", "NO"};
+        int items = np_sure ? 2 : 5;
+        float s = vr[3] / 240.0f; /* (the player's view: the whole window, or theirs in a split screen) */
+        if (vr[2] / 320.0f < s) s = vr[2] / 320.0f;
+        float ox = vr[0] + (vr[2] - 320 * s) / 2, oy = vr[1] + (vr[3] - 240 * s) / 2;
+        const char *title = np_sure ? "QUIT THE MATCH?" : "BATTLE PAUSED"; /* (the single-player pause's title, the user's) */
+        int tf = gfont_width(6, title) > 312 ? 0 : 6; /* (as compose_pause: a long title in the items' font) */
+        /* (the game's 320x240, as compose_pause: the title's baseline at 60, the items' from 140, 20 apart) */
+#define NP_TEXT(font, text, gy, color) \
+    gfont_draw(sb, font, text, ox + (159 - (gfont_width(font, text) >> 1)) * s, oy + (gy) * s, s, color)
+        NP_TEXT(tf, title, 60, title_c);
+        for (int k = 0; k < items; k++) {
+            const char *it = np_sure ? yn[k] : np_items[k];
+            int chosen = np_sure ? np_sure_sel == k : np_sel == k;
+            NP_TEXT(chosen ? 1 : 0, it, 140 + 20 * k, chosen ? chosen_c : item_c);
+        }
+#undef NP_TEXT
+        np_blend[0] = vr[0], np_blend[1] = vr[1], np_blend[2] = vr[2], np_blend[3] = vr[3], np_blended = 1; /* (the view
+                                    * darkened by half behind the words, as the single-player pause's: the user's) */
     } else if (pm_open >= 0 && !pv_on && !tc_on && np_on) { /* the online menu: the pause menu's items (or QUIT's question) */
         int items = np_sure ? 2 : 5;
         float bx = 220, bw = 200, rh = 24, bh = 56 + rh * (float)items, by = 240 - bh / 2;
@@ -16765,7 +17058,10 @@ static int pm_frame(Image *sb, int *shown)
         rect[4 * nr] = X(&v, bx), rect[4 * nr + 1] = Y(&v, by), rect[4 * nr + 2] = S(&v, bw), rect[4 * nr + 3] = S(&v, bh);
         nr++;
     }
+    v = v_all;
     overlay_with_lines(sb, rect, nr);
+    if (np_blended) Psyz_VideoSetOverlayDim(np_blend, 1); /* (the online menu: after the overlay, which clears them; the
+                                                           * other pieces' own pixels stay as they are) */
     static int shot;
     if (getenv("TM2PC_NET_MENU_SHOT") && shot < 4 && key != shown_key) { /* tests: the first few looks, as BMPs */
         char path[512];
@@ -16941,34 +17237,7 @@ static int win_frame(Image *sb, int *shown)
             text_draw(sb, title, tx, text_top_for_center(Y(&v, ty), ts), ts, TITLE);
         }
         int o = S(&v, 2) > 1 ? S(&v, 2) : 1, x0 = tx - o - 2, x1 = tx + tw_px + o + 2, y0 = Y(&v, ty) - ts * 2 - o, y1 = Y(&v, ty) + ts + o;
-        if (x0 < 0) x0 = 0;
-        if (y0 < 0) y0 = 0;
-        if (x1 > sb->w) x1 = sb->w;
-        if (y1 > sb->h) y1 = sb->h;
-        int w = x1 - x0, h = y1 - y0;
-        uint8_t *lit = w > 0 && h > 0 ? calloc((size_t)w * h, 1) : NULL;
-        if (lit) {
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++) {
-                    const uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
-                    lit[(size_t)y * w + x] = (q[0] | q[1] | q[2]) != 0;
-                }
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++) {
-                    if (lit[(size_t)y * w + x]) continue;
-                    int near = 0;
-                    for (int dy = -o; dy <= o && !near; dy++)
-                        for (int dx = -o; dx <= o && !near; dx++) {
-                            int ax = x + dx, ay = y + dy;
-                            near = ax >= 0 && ay >= 0 && ax < w && ay < h && lit[(size_t)ay * w + ax];
-                        }
-                    if (near) {
-                        uint8_t *q = sb->px + ((size_t)(y0 + y) * sb->w + x0 + x) * 3;
-                        q[0] = 14, q[1] = 14, q[2] = 16;
-                    }
-                }
-            free(lit);
-        }
+        dark_edge(sb, x0, y0, x1, y1, o);
     }
     plain_text();
     int rect[4] = {X(&v, bx), Y(&v, by), S(&v, bw), S(&v, bh)};
@@ -17319,7 +17588,7 @@ static void net_vote_overlay(void)
                     car += dir;
                     if (car < -1) car = PROFILE_CHARACTERS - 1;
                     if (car >= PROFILE_CHARACTERS) car = -1;
-                    if (car == -1 || cs_available(car)) break;
+                    if (car == -1 || (cs_available(car) && net_driver_ok(car))) break;
                 }
                 net_vote_lock[p] = 0;
                 menu_sound(0);
