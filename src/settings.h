@@ -47,6 +47,7 @@ typedef struct {
     int hud_no_marker_health; /* their thin health bars hidden */
     int hud_marker_names; /* the names over them: 0 the players' only, 1 every car's, 2 none */
     int hud_reticle;      /* the lock-on reticle shown (TM2012's four arcs; off by default) */
+    int hud_no_team_score; /* with teams: each team's score (kills, points, lives) under the message bar hidden */
     int hud_mirror_height; /* the rear-view mirror's eye: 0 the original's (the chase camera's, high), 1 on the car's roof */
     int draw_distance;    /* 0 the game's (4800), 1 far (6000), 2 farthest (8000) */
     int widescreen;       /* battles as wide as the window (Hor+: more to the sides), vplus/wide.c; 0: 4:3 (default on) */
@@ -68,7 +69,7 @@ extern VideoSettings settings_video;
 typedef struct {
     int no_radar, full_weapons, no_target, no_messages, no_turbo, no_speed, no_lives;
     int style, buttons, mirror, low_top, layout, size, no_energy, turbo_bar;
-    int markers, no_marker_health, marker_names, reticle, mirror_height;
+    int markers, no_marker_health, marker_names, reticle, mirror_height, no_team_score;
 } HudSettings;
 extern HudSettings hud_players[4];
 void hud_select(int p);

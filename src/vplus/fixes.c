@@ -1673,6 +1673,9 @@ static int ai_team_plus1[CARS_MAX];     /* (by computer record) a handed-over ca
 static int dropped_bot[CARS_MAX];      /* online: computer records a player dropping in took the place of (gone) */
 static int back_wait[CARS_HUMANS_MAX];  /* online: the player back while the computer driver's car is down: theirs once it
                                          * comes back (vp_ai_frame) */
+static void team_pool_start(void);
+static void team_pool_took(int team, int left);
+int vp_team_pool(int team);
 void vp_lives_match_start(void)
 {
     if (!battle_rules()) return;
@@ -1681,6 +1684,7 @@ void vp_lives_match_start(void)
     for (int i = 0; i < CARS_HUMANS_MAX; i++) life[i].left = (ui_tour_lives(i) > 0 ? ui_tour_lives(i) : battle_lives()) - 1;
     memset(human_gone, 0, sizeof human_gone);
     memset(dropped_bot, 0, sizeof dropped_bot); /* (a new match: every computer car its own again) */
+    team_pool_start();
 }
 
 /* A Challenge Match without "No round restarts": a lost life restarts the
@@ -2214,6 +2218,7 @@ void vp_ScheduleEvent(CPU *c) /* rtScheduleEvent(value, delay) */
                 if (life[i].left <= 0) break;                         /* out of lives: the round ends */
                 life[i].left--;
                 lives_hud_put(i);
+                team_pool_took(team_of_human(i), life[i].left);
             }
             /* the game's delay (60 a second), then the game type's respawn time (a mode with respawns, or Last Car
              * Standing with lives: the user's 2026-10-30), watching */
@@ -2959,6 +2964,51 @@ void vp_lives_frame(void)
  * always hurt: their stray hits on each other count). */
 static struct { int left; uint64_t at, shield_off; } ai_life[CARS_MAX];
 
+/* ---- team lives (Last Car Standing with teams, the game type's Team lives; the user's 2026-11-27) ----
+ * Each team's extra lives pooled: at the match's start the members' own added up; every member's count then held equal
+ * to its team's pool, so a member who dies takes one from it (the game's own life handling), and with it empty a member
+ * who dies is out. Gameplay: kept with the network states. */
+static int team_pool[BATTLE_TEAM_COLORS];
+static int team_lives_on(void)
+{
+    const GameType *t = battle_rules();
+    int ui_tour_on(void);
+    return t && t->team_lives && t->mode == MODE_LAST_CAR && teams_on() && !vp_dm() && !ui_survival() && !ui_tour_on();
+}
+static void lives_hud_put(int h);
+static void team_pool_spread(int team) /* every member's count: the pool */
+{
+    int H = (int)mem_r32(&M.cpu, GA(0x80181014u));
+    for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++)
+        if (team_of_human(h) == team) { life[h].left = team_pool[team]; lives_hud_put(h); }
+    for (int k = 0; k < cars_ai_max(); k++)
+        if (team_of_ai(k) == team && ai_life[k].left >= 0 && k < (int)mem_r32(&M.cpu, GA(0x8018101Cu))) ai_life[k].left = team_pool[team];
+}
+static void team_pool_took(int team, int left) /* a member took a life: its count is the pool now */
+{
+    if (!team_lives_on() || team < 0 || team >= BATTLE_TEAM_COLORS) return;
+    team_pool[team] = left < 0 ? 0 : left;
+    team_pool_spread(team);
+    fprintf(stderr, "team lives: team %d has %d left\n", team, team_pool[team]);
+}
+int vp_team_pool(int team) { return team_lives_on() && team >= 0 && team < BATTLE_TEAM_COLORS ? team_pool[team] : -1; }
+static void team_pool_start(void)
+{
+    memset(team_pool, 0, sizeof team_pool);
+    if (!team_lives_on()) return;
+    int H = (int)mem_r32(&M.cpu, GA(0x80181014u)), n = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++) {
+        int t = team_of_human(h);
+        if (t >= 0 && t < BATTLE_TEAM_COLORS && life[h].left > 0) team_pool[t] += life[h].left;
+    }
+    for (int k = 0; k < n && k < cars_ai_max(); k++) {
+        int t = team_of_ai(k);
+        if (t >= 0 && t < BATTLE_TEAM_COLORS && ai_life[k].left > 0) team_pool[t] += ai_life[k].left;
+    }
+    for (int t = 0; t < BATTLE_TEAM_COLORS; t++) team_pool_spread(t);
+    fprintf(stderr, "team lives: pools %d %d %d %d\n", team_pool[0], team_pool[1], team_pool[2], team_pool[3]);
+}
+
 int vp_ai_ignore_ai(void) { return 0; } /* accidental hits between computer cars count in every setting */
 
 static void ai_lives_start(void)
@@ -2994,6 +3044,7 @@ void vp_AiCarDamageUpdate(CPU *c) /* aiCarDamageUpdate(i) */
     if (was || k < 0 || k >= cars_ai_max() || !battle_rules() || !mem_r8(c, AI_REC(k) + 0x6C)) return;
     if (ai_life[k].left > 0 && !ai_life[k].at) { /* dead with a life left: back in 7 seconds */
         ai_life[k].left--;
+        team_pool_took(team_of_ai(k), ai_life[k].left);
         ai_life[k].at = vp_gv() + (vp_dm() ? burn_wait : 420) + 60u * (uint64_t)respawn_extra(); /* (the burning, then the extra) */
         fprintf(stderr, "lives: computer car %d lost a life (%d left)\n", k + 1, ai_life[k].left);
     }
@@ -3009,6 +3060,8 @@ void vp_AiCountRemaining(CPU *c) /* aiCarsRemaining = the cars with HP > 0: and 
         mem_w32(c, AI_REMAINING, mem_r32(c, AI_REMAINING) + (uint32_t)(ai_pending() + vp_survival_waiting() + boss_coming()));
 }
 void F_8011E16C_orig(CPU *c);
+static int enemies_true; /* the last count, before the cap at 12 (the message table's last "Enemies: N") */
+static int vp_dm(void);
 void vp_AiCountAlive(CPU *c) /* the HUD's "Enemies: N": the same */
 {
     F_8011E16C_orig(c);
@@ -3035,6 +3088,14 @@ void vp_AiCountAlive(CPU *c) /* the HUD's "Enemies: N": the same */
         fprintf(stderr, "enemies: %d at gv %llu (ai remaining %d, humans %d in %d, duo %d versus %d)\n", last,
                 (unsigned long long)vp_gv(), (int)mem_r32(c, AI_REMAINING), H, in, vp_duo(), vp_versus_on());
     }
+    /* the HUD's message number: the game's table has "Enemies: 1" .. "Enemies: 12" at 1..12, then the pickups' messages
+     * ("Missiles Loaded" 13, "Homers Loaded" 14 ...): 13 or more enemies (16-car matches) posted a pickup's message at
+     * every kill and every reset of the line, both views (KinggzZ's, v1.0.19). Never past 12: the line itself shows the
+     * true number (enemies_shown). In the respawn modes the others always come back: never 0, "Enemies Toasted!" */
+    int n = (int)c->r[2];
+    if (n < 1 && vp_dm()) n = 1;
+    enemies_true = n;
+    c->r[2] = (uint32_t)(n > 12 ? 12 : n < 0 ? 0 : n);
 }
 
 /* a car's key (the 16-car variant: the second car of a type has its own key, decomp portCarKey; the damage stage, the
@@ -3667,6 +3728,7 @@ static int score_player; /* the player whose one-view HUD the game draws (vp_Hud
 static int score_text(int p, char *out, size_t n);
 static void score_dash_raise(uint32_t sprites, const char *text);
 static void timer_print(CPU *c, int p, int x, int y);
+static void team_score_print(CPU *c, int p, int x, int y);
 static void hud_extra_print(CPU *c, int p, int x, int right, int big_y, int small);
 void hudlay_prescale(int x, int y, float k); /* hud_layout.c */
 void hudlay_force(int group);
@@ -3780,7 +3842,17 @@ static void split_message_print(CPU *c, int player, int x, int y)
     else if (vp_gv() < split_msg[player & 3].until) id = split_msg[player & 3].id;
     else if ((mem_r32(c, GA(0x8018101Cu)) > 0 || mem_r32(c, GA(0x80181014u)) > 1) && !vp_dm()) { /* the cars still to beat */
         int left = vp_duo() || mem_r32(c, GA(0x8018101Cu)) == 0 ? duo_enemies(player & 3) : (int)mem_r32(c, AI_REMAINING);
-        id = left < 0 ? 0 : left > 12 ? 12 : left;
+        if (left > 12) { /* (past the table's "Enemies: 12": the true number) */
+            char t[16];
+            snprintf(t, sizeof t, "Enemies: %d", left);
+            const uint32_t buf = msg_text_buf(player);
+            int i = 0;
+            for (; t[i]; i++) mem_w8(c, buf + (uint32_t)i, (uint8_t)t[i]);
+            mem_w8(c, buf + (uint32_t)i, 0);
+            message_line_draw(c, player, x, y, buf);
+            return;
+        }
+        id = left < 0 ? 0 : left;
     } else return;
     if (id < 0 || id >= 37) return;
     uint32_t str = mem_r32(c, GA(0x8016286Cu) + 4u * (uint32_t)id); /* hudMessageStrs */
@@ -3804,6 +3876,7 @@ void four_hud_done(int who); /* vplus/four.c: after a view's HUD: views 3-4 and 
 static void vp_HudDraw_body(CPU *c);
 static void vp_HudDrawSplitVertical_body(CPU *c);
 static void vp_HudDrawSplitHorizontal_body(CPU *c);
+static void split_target_panel(int who);
 static void vp_HudDrawSplitVertical_body(CPU *c)
 {
     int player = (int)(c->r[4] & 1); /* before the call: it changes the registers */
@@ -3813,10 +3886,12 @@ static void vp_HudDrawSplitVertical_body(CPU *c)
         hudlay_begin(1, 160, 240);
         hudlay_player(player);
         F_800F9084_orig(c);
+        split_target_panel(player); /* (side by side too: only top and bottom had it, Mohamed Eissa's) */
         hudlay_force(G_TM);
         split_message_print(c, player, 77, 16);
         mode_status_print(c, player, 79, 28);
         timer_print(c, player, 77, 28); /* (the bar's centre: hud_layout.c's tm_c) */
+        team_score_print(c, player, 77, 28);
         hudlay_force(G_BL);
         score_line_print(c, player, 11, 222, 1);
         hudlay_force(-1);
@@ -3832,6 +3907,7 @@ static void vp_HudDrawSplitVertical_body(CPU *c)
         return;
     }
     F_800F9084_orig(c);
+    split_target_panel(player);
     split_message_print(c, player, 77, 16);
     mode_status_print(c, player, 79, 74); /* below the radar (side by side views are narrow) */
     score_line_print(c, player, 11, 222, 1);
@@ -3882,6 +3958,7 @@ static void vp_HudDrawSplitHorizontal_body(CPU *c)
         split_message_print(c, who, 157, 16);
         mode_status_print(c, who, 159, 28);
         timer_print(c, who, 157, 28);
+        team_score_print(c, who, 157, 28);
         hudlay_force(G_BL);
         score_line_print(c, who, 11, h - 13, 2);
         hudlay_force(-1);
@@ -3945,6 +4022,7 @@ static void vp_HudDraw_body(CPU *c)
     hudlay_force(G_TM);
     mode_status_print(c, player, 159, 48);
     timer_print(c, player, 149, 44); /* (the bar's centre in one view, x 149: hud_layout.c's tm_c) */
+    team_score_print(c, player, 149, 44);
     hudlay_force(G_BL);
     /* (the score line: the game's own lives print, its text swapped, vp_FontSpritePrintCentered) */
     hudlay_force(-1);
@@ -4104,6 +4182,20 @@ void vp_FontSpritePrintCentered(CPU *c) /* fontSpritePrintCenteredXY(font, x, y,
             snprintf(text, sizeof text, "Enemies: %d", n + 1);
             static int said;
             if (!said++) fprintf(stderr, "enemies: player %d out, watching: %s on this screen (the shared %d)\n", h + 1, text, n);
+            const uint32_t buf = DM_TEXT + 0x40;
+            for (int i = 0; i < 16; i++) { mem_w8(c, buf + (uint32_t)i, (uint8_t)text[i]); if (!text[i]) break; }
+            mem_w32(c, arg, buf);
+            F_80113A14_orig(c);
+            mem_w32(c, arg, was);
+            return;
+        }
+    }
+    if (c->r[7] == GA(0x80181E28u) && enemies_true > 12) { /* "Enemies: 12", the table's last: the true number (vp_AiCountAlive) */
+        const uint32_t arg = c->r[29] + 20, was = mem_r32(c, arg);
+        char cur[16];
+        for (int i = 0; i < 15; i++) { cur[i] = (char)mem_r8(c, was + (uint32_t)i); cur[i + 1] = 0; if (!cur[i]) break; }
+        if (!strcmp(cur, "Enemies: 12")) {
+            snprintf(text, sizeof text, "Enemies: %d", enemies_true);
             const uint32_t buf = DM_TEXT + 0x40;
             for (int i = 0; i < 16; i++) { mem_w8(c, buf + (uint32_t)i, (uint8_t)text[i]); if (!text[i]) break; }
             mem_w32(c, arg, buf);
@@ -5811,6 +5903,61 @@ static void timer_print(CPU *c, int p, int x, int y)
     hudlay_prescale(0, 0, 1);
     hudlay_force(-1);
 }
+/* ---- each team's score under the message bar (the user's 2026-11-27; Customize HUD: Team scores) ----
+ * With teams, a number per team in its color: the respawn modes' score (kills or points, as the scoreboard's), else (Last
+ * Car Standing) the team's cars still in (a car with lives left, coming back, counts). Drawn on the timer's row: with a
+ * timer, two teams on its left and two on its right; else in a row on the bar's middle. Display only. */
+static const uint8_t team_rgb[BATTLE_TEAM_COLORS][3];
+static int timer_shown(void)
+{
+    const MatchSetup *m = battle_match();
+    return (ui_survival() && surv_clock_start) || sd_seconds_left() >= 0 || (vp_dm() && m->time_limit > 0 && !dm_ended);
+}
+static int team_cars_in(int team)
+{
+    int n = 0, H = (int)mem_r32(&M.cpu, GA(0x80181014u)), ais = (int)mem_r32(&M.cpu, GA(0x8018101Cu));
+    for (int h = 0; h < H && h < CARS_HUMANS_MAX; h++)
+        if (team_of_human(h) == team && !coop_out[h] && (!mem_r8(&M.cpu, HUMAN_REC(h) + 0x9C) || life[h].at)) n++;
+    for (int k = 0; k < ais && k < cars_ai_max(); k++)
+        if (team_of_ai(k) == team && (ai_alive(k) || ai_life_pending(k))) n++;
+    return n;
+}
+int vp_hud_row_under_bar(void) /* (hud_layout.c: the kill feed under the bar starts a row lower) the timer's row in use */
+{
+    if (!ui_battle_live() || settings_video.hud_no_messages) return 0;
+    return timer_shown() || (teams_on() && battle_match_teams() >= 2 && !settings_video.hud_no_team_score && !ui_survival());
+}
+static void team_score_print(CPU *c, int p, int x, int y)
+{
+    (void)p;
+    int teams = battle_match_teams();
+    if (!teams_on() || teams < 2 || settings_video.hud_no_team_score || settings_video.hud_no_messages || ui_survival()) return;
+    if (teams > BATTLE_TEAM_COLORS) teams = BATTLE_TEAM_COLORS;
+    const int timer = timer_shown(), font = 2;
+    const uint32_t ot = DM_TEXT + 0x660, text = 0x80DF6B80u;
+    hudlay_force(G_TM);
+    uint32_t font_was = vp_font_color_get(font);
+    for (int t = 0; t < teams; t++) {
+        int pool = vp_team_pool(t); /* (team lives: its pool) */
+        int score = vp_dm() ? car_kills_team(t, NULL, NULL) : pool >= 0 ? pool : team_cars_in(t);
+        char num[12];
+        snprintf(num, sizeof num, "%d", score);
+        int tx; /* (the bar's centre is x: the timer there when shown) */
+        if (timer) tx = x + (t < (teams + 1) / 2 ? -1 : 1) * (42 + 22 * (t < (teams + 1) / 2 ? (teams + 1) / 2 - 1 - t : t - (teams + 1) / 2));
+        else tx = x - 11 * (teams - 1) + 22 * t;
+        uint32_t sprites = 0x80DF6400u + 0x180u * (uint32_t)t;
+        guest_text(c, text, num);
+        hudlay_prescale(tx, y, 0.8f);
+        guest_call(GA(0x80114284u), (uint32_t)font, team_rgb[t][0], team_rgb[t][1], team_rgb[t][2]); /* fontSetColor */
+        for (uint32_t o = 0; o < 12; o += 4) mem_w32(c, sprites + o, mem_r32(c, GA(0x80181E28u) + o)); /* (font 2's draw mode) */
+        guest_call(GA(0x80141938u), ot, 2, 0, 0); /* ClearOTagR */
+        guest_call7(GA(0x80113A14u), (uint32_t)font, (uint32_t)tx, (uint32_t)y, sprites, sprites + 12, text, ot);
+        guest_call(GA(0x80141A30u), ot + 4, 0, 0, 0); /* DrawOTag */
+    }
+    vp_font_color_put(font, font_was);
+    hudlay_prescale(0, 0, 1);
+    hudlay_force(-1);
+}
 static int slot_team(int slot) /* a car's team (-1: no teams) */
 {
     if (!teams_on() || slot < 0) return -1;
@@ -7113,6 +7260,20 @@ static int sd_share(int id) /* a car's health, in thousandths of its full health
     if (h >= 0 ? mem_r8(&M.cpu, rec + 0x9C) != 0 : !ai_alive(k)) return 1000;
     return hp <= 0 ? 0 : hp * 1000 / max;
 }
+static int sd_damage(int id) /* the damage a car has dealt this match (the scoreboard's) */
+{
+    int h = id < 50 ? id - 1 : -1, k = id >= 50 ? id - 50 : -1;
+    for (int i = 0; i < match_cars(); i++) {
+        const MatchCar *m = match_car(i);
+        if (m && ((h >= 0 && m->human == h) || (k >= 0 && m->ai == k))) return m->damage;
+    }
+    return 0;
+}
+static int sd_from_start(void)
+{
+    const GameType *t = battle_rules();
+    return t && t->sudden_death_start == SD_START_MATCH;
+}
 static int sd_seconds_left(void) /* (the countdown on screen: -1 none) */
 {
     if (!sd_start || !sd_on()) return -1;
@@ -7123,19 +7284,29 @@ static void sd_frame(void)
 {
     if (!sd_on()) { sd_start = 0; return; }
     int car[CARS_HUMANS_MAX + CARS_MAX], n = sd_left(car, (int)(sizeof car / sizeof car[0]));
-    if (n != 2) { sd_start = 0; return; }
+    if (n > (int)(sizeof car / sizeof car[0])) n = (int)(sizeof car / sizeof car[0]);
+    int from_start = sd_from_start(); /* (the countdown from the match's start: any number of cars, the user's 2026-11-27) */
+    if (from_start ? n < 2 : n != 2) { sd_start = 0; return; }
     if (!sd_start) {
         sd_start = vp_gv() + 1;
         snprintf(flash_text, sizeof flash_text, "SUDDEN DEATH");
         flash_until = vp_gv() + 150;
-        fprintf(stderr, "sudden death: two cars left (%d, %d): %d seconds\n", car[0], car[1], sd_secs());
+        fprintf(stderr, "sudden death: %d cars left: %d seconds\n", n, sd_secs());
         return;
     }
     if (vp_gv() - (sd_start - 1) < 60ull * (uint64_t)sd_secs()) return;
-    sd_start = 0; /* (two still in after it: again) */
-    int a = sd_share(car[0]), b = sd_share(car[1]);
-    int out = a < b ? car[0] : b < a ? car[1] : car[(int)(vp_rand() & 1)];
-    fprintf(stderr, "sudden death: time up: car %d (%d/1000) and car %d (%d/1000): car %d explodes\n", car[0], a, car[1], b, out);
+    sd_start = 0; /* (two or more still in after it: again) */
+    /* the worst car: the least damage dealt (that end), else the least health; ties: the less health, then the gameplay
+     * random numbers (every machine the same) */
+    const GameType *t = battle_rules();
+    int by_damage = t && t->sudden_death_end == SUDDEN_LEAST_DAMAGE, out = -1, worst_d = 0, worst_s = 0, ties = 0;
+    for (int i = 0; i < n; i++) {
+        int d = by_damage ? sd_damage(car[i]) : 0, sh = sd_share(car[i]);
+        if (out < 0 || d < worst_d || (d == worst_d && sh < worst_s)) { out = car[i]; worst_d = d; worst_s = sh; ties = 1; }
+        else if (d == worst_d && sh == worst_s && (int)(vp_rand() % (uint32_t)++ties) == 0) out = car[i];
+    }
+    fprintf(stderr, "sudden death: time up, %d cars (%s): car %d explodes (damage %d, health %d/1000)\n", n,
+            by_damage ? "the least damage" : "the least health", out, worst_d, worst_s);
     uint32_t rec = out < 50 ? HUMAN_REC(out - 1) : AI_REC(out - 50);
     mem_w8(&M.cpu, rec + (out < 50 ? 0xAAu : 0x7Au), 0); /* (its shield down: state +0x0E) */
     if (out < 50) mem_w8(&M.cpu, rec + 0x1F4, 1); /* (and damageable) */
@@ -7349,7 +7520,7 @@ void vp_keep_register(void)
 {
 #define KEEP(v) killcam_keep(&(v), sizeof(v))
     KEEP(spawn_taken); KEEP(spawn_count); KEEP(spawn_recent); KEEP(spawn_recent_at); KEEP(spawn_recent_n); KEEP(roulette_count); KEEP(roulette_w); KEEP(life); KEEP(lives_round); KEEP(vp_port_event);
-    KEEP(spectating); KEEP(coop_out); KEEP(ai_life);
+    KEEP(spectating); KEEP(coop_out); KEEP(ai_life); KEEP(team_pool);
     KEEP(boss_first); KEEP(boss_state); KEEP(boss_until); KEEP(sd_start);
     KEEP(surv_clock_start); KEEP(surv_clock_end);
     KEEP(surv_round); KEEP(surv_state); KEEP(surv_until); KEEP(surv_down); KEEP(dm_start); KEEP(dm_ended);

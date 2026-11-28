@@ -40,6 +40,7 @@ enum { SEND_EVERY_MS = 4,             /* while a step waits: a send this often a
        RELAY_RATE = 600000 };           /* the reliable bytes a second to the relayed machines, all of them together (the
                                          * master relays 1 MB/s a sender: the rest for the inputs, voice and resends) */
 static Lobby *lob; /* (the server: below) */
+static uint32_t lag_catchups, lag_gap_max, lag_last_ms; /* (the lag numbers, the 600-step line) */
 static int ses_host_of_lobby(void) { return lobby_host_node(lob); }
 void ui_net_wait_notice(const char *title, const char *line); /* ui/options.c: the game held, why */
 void vp_net_notice(const char *text);                          /* vplus/fixes.c: a line over every view a while */
@@ -210,6 +211,7 @@ static int catch_up_step(void)
     M.vblank_offset -= 3;
     ng.steps++;
     ng.battle_steps++;
+    lag_catchups++; /* (the lag numbers: a step caught up) */
     if (getenv("TM2PC_NET_DEBUG")) fprintf(stderr, "network: caught up a step (%d)\n", (int)rb_now(ses_rollback(ng.ses)) - 1);
     return 1;
 }
@@ -1297,6 +1299,11 @@ static void frame_body(void)
     }
     ng.steps++;
     ng.battle_steps++;
+    { /* the lag numbers: the longest time between two steps (a game step is 50 ms; more is a wait) */
+        uint32_t t = now_ms();
+        if (lag_last_ms && t - lag_last_ms > lag_gap_max) lag_gap_max = t - lag_last_ms;
+        lag_last_ms = t;
+    }
     if (getenv("TM2PC_NET_DEBUG") && ng.battle_steps <= 4) { void killcam_keep_debug(int step); killcam_keep_debug((int)rb_now(ses_rollback(ng.ses)) - 1); }
     if (getenv("TM2PC_NET_DEBUG") && ((rb_now(ses_rollback(ng.ses)) - 1) % 25 == 0 || ng.battle_steps < 40)) { /* tests: the gameplay clock by step */
         uint64_t vp_gv(void);
@@ -1362,6 +1369,16 @@ static void frame_body(void)
         fprintf(stderr, "network: step %d, hashes checked %d, desyncs %d, stalls %d", (int)ng.steps, st->hashes_checked,
                 st->desyncs_seen, rs->stalls);
         if (ng.rollback) fprintf(stderr, ", rollbacks %d (%d steps again, the longest %d)", rs->rollbacks, rs->resimulated, rs->longest);
+        /* the lag numbers (both netplay reports, build/*_netplay_report.md: measure first): each other machine's round trip
+         * and whether it goes through the relay, the steps caught up and the longest time between two steps, these 600
+         * steps. A player's lag report then says the network, the relay or the PC */
+        fprintf(stderr, ", caught up %u, longest step gap %u ms, ping", lag_catchups, lag_gap_max);
+        for (int n = 0; n < SES_MAX_NODES; n++) {
+            if (n == ng.node || !lob || !lobby_view(lob)->m[n].present) continue;
+            int rtt = ses_rtt(ng.ses, n);
+            fprintf(stderr, " %d:%dms%s", n, rtt, lobby_node_relayed(lob, n) ? " relayed" : "");
+        }
+        lag_catchups = 0, lag_gap_max = 0;
         if (getenv("TM2PC_NET_DEBUG")) /* tests: each player's slot (its steps) and the inputs known */
             for (int h = 0; h < ng.humans && h < RB_MAX_SLOTS; h++) {
                 int32_t a, b;

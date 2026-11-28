@@ -138,6 +138,8 @@ static void video_key(const char *key, const char *val)
         settings_video.hud_no_marker_health = !strcmp(val, "off");
     } else if (!strcmp(key, "hud_marker_names")) {
         settings_video.hud_marker_names = !strcmp(val, "all") ? 1 : !strcmp(val, "off") ? 2 : 0;
+    } else if (!strcmp(key, "hud_team_score")) {
+        settings_video.hud_no_team_score = !strcmp(val, "off");
     } else if (!strcmp(key, "hud_lock_on")) { /* (and hud_lock_reticle) */
         settings_video.hud_reticle = !strcmp(val, "on");
     } else if (!strcmp(key, "hud_mirror_height")) {
@@ -148,7 +150,7 @@ static void video_key(const char *key, const char *val)
 /* ---- each player's HUD (settings.h) ---- */
 #define HUD_FIELDS(X) X(no_radar) X(full_weapons) X(no_target) X(no_messages) X(no_turbo) X(no_speed) X(no_lives) \
     X(style) X(buttons) X(mirror) X(low_top) X(layout) X(size) X(no_energy) X(turbo_bar) \
-    X(markers) X(no_marker_health) X(marker_names) X(reticle) X(mirror_height)
+    X(markers) X(no_marker_health) X(marker_names) X(reticle) X(mirror_height) X(no_team_score)
 HudSettings hud_players[4];
 static HudSettings hud_defaults;
 static void hud_from_video(HudSettings *h)
@@ -280,6 +282,7 @@ static void hud_lines(FILE *f)
     static const char *const names[3] = {"players", "all", "off"};
     fprintf(f, "hud_marker_names = %s\n", names[settings_video.hud_marker_names % 3]);
     fprintf(f, "hud_lock_on = %s\n", settings_video.hud_reticle ? "on" : "off");
+    fprintf(f, "hud_team_score = %s\n", settings_video.hud_no_team_score ? "off" : "on");
 }
 
 /* ---- [gameplay], [controls], [audio]: the game's own options ---- */

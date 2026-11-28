@@ -985,6 +985,7 @@ static int get_hud(int a)
     case 15: return settings_video.hud_marker_names % 3;
     case 16: return settings_video.hud_reticle;
     case 17: return settings_video.hud_mirror_height;
+    case 18: return !settings_video.hud_no_team_score;
     default: return !settings_video.hud_no_messages;
     }
 }
@@ -1008,6 +1009,7 @@ static void set_hud(int a, int v)
     case 15: settings_video.hud_marker_names = v; break;
     case 16: settings_video.hud_reticle = v; break;
     case 17: settings_video.hud_mirror_height = v; break;
+    case 18: settings_video.hud_no_team_score = !v; break;
     default: settings_video.hud_no_messages = !v; break;
     }
     hud_changed();
@@ -1646,15 +1648,16 @@ enum { GT_INFINITE, GT_HEALTH, GT_TURBO, GT_RESPAWN, GT_SPECIALS, GT_RECHARGE, G
        GT_SPAWN_SHIELD, GT_JUGG_HEALTH, GT_JUGG_HEAL, GT_JUGG_WEAPON, GT_JUGG_RAM, GT_JUGG_INFINITE, GT_JUGG_FORCE, GT_JUGG_CAR,
        GT_GUN_ORDER, GT_GUN_INFINITE, GT_GUN_AMMO, GT_HUNTED_COUNT, GT_HUNTED_ATTACK, GT_KOTH_MOVE,
        GT_KOTH_HILLS, GT_KOTH_SPOTS, GT_HUNTED_TEAMS, GT_JUGG_INVISIBLE, GT_HAZARDS, GT_DESTRUCTIBLES, GT_SUDDEN,
-       GT_SUDDEN_END, GT_MINES };
-/* how long a mine stays (decomp request 127: the user's two, never for good; MINES_x) */
-static const char *const mines_values[MINES_COUNT] = {"AFTER DEATH", "AFTER LAID"};
+       GT_SUDDEN_END, GT_MINES, GT_SUDDEN_START, GT_TEAM_LIVES };
+/* how long a mine stays (decomp request 127; MINES_x: never back as a choice, the user's 2026-11-27) */
+static const char *const mines_values[MINES_COUNT] = {"AFTER DEATH", "AFTER LAID", "NEVER"};
 /* Last Car Standing's sudden death: its countdown once two cars are left (the user's 2026-11-25) */
 enum { SUDDEN_STEPS = 8 };
 static const int sudden_steps[SUDDEN_STEPS] = {0, 15, 30, 45, 60, 90, 120, 180};
 static const char *const sudden_values[SUDDEN_STEPS] = {"OFF", "15 SECONDS", "30 SECONDS", "45 SECONDS", "1 MINUTE", "90 SECONDS",
                                                        "2 MINUTES", "3 MINUTES"};
-static const char *const sudden_end_values[SUDDEN_END_COUNT] = {"LOWER HEALTH EXPLODES"};
+static const char *const sudden_end_values[SUDDEN_END_COUNT] = {"LOWER HEALTH EXPLODES", "LEAST DAMAGE EXPLODES"};
+static const char *const sudden_start_values[SD_START_COUNT] = {"TWO CARS LEFT", "MATCH START"};
 static const char *const koth_move_values[6] = {"NEVER", "1 MINUTE", "2 MINUTES", "3 MINUTES", "4 MINUTES", "5 MINUTES"};
 static const char *const gun_order_values[2] = {"WEAKEST FIRST", "STRONGEST FIRST"};
 static const char *const one_to_20[20] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
@@ -1715,6 +1718,8 @@ static int get_gt_flag(int a)
            : a == GT_SPAWN_SHIELD ? step_of(shield_steps, SHIELD_STEPS, edit_gt.spawn_shield)
            : a == GT_SUDDEN ? step_of(sudden_steps, SUDDEN_STEPS, edit_gt.sudden_death)
            : a == GT_SUDDEN_END ? edit_gt.sudden_death_end
+           : a == GT_SUDDEN_START ? edit_gt.sudden_death_start
+           : a == GT_TEAM_LIVES ? edit_gt.team_lives
            : a == GT_MINES ? edit_gt.mines
            : a == GT_JUGG_HEALTH ? step_of(pct_steps, PCT_STEPS, edit_gt.jugg_health)
            : a == GT_JUGG_HEAL ? edit_gt.jugg_full_heal
@@ -1749,6 +1754,8 @@ static void set_gt_flag(int a, int v)
     else if (a == GT_SPAWN_SHIELD) edit_gt.spawn_shield = shield_steps[v % SHIELD_STEPS];
     else if (a == GT_SUDDEN) edit_gt.sudden_death = sudden_steps[v % SUDDEN_STEPS], rebuild_page = 1;
     else if (a == GT_SUDDEN_END) edit_gt.sudden_death_end = v % SUDDEN_END_COUNT;
+    else if (a == GT_SUDDEN_START) edit_gt.sudden_death_start = v % SD_START_COUNT;
+    else if (a == GT_TEAM_LIVES) edit_gt.team_lives = v & 1;
     else if (a == GT_MINES) edit_gt.mines = v % MINES_COUNT;
     else if (a == GT_JUGG_HEALTH) edit_gt.jugg_health = pct_steps[v % PCT_STEPS];
     else if (a == GT_JUGG_HEAL) edit_gt.jugg_full_heal = v;
@@ -1898,6 +1905,7 @@ static int rules_lines(const GameType *t, char lines[][48], int max)
     if (t->respawn) LINE("Respawn: %d s more", t->respawn);
     if (t->spawn_shield != d.spawn_shield) LINE("Spawn shield: %d s", t->spawn_shield);
     if (t->mines == MINES_AFTER_LAID) LINE("Mines: 15 s after laid");
+    if (t->mines == MINES_NEVER) LINE("Mines: stay");
     if (t->mode == MODE_JUGGERNAUT) { /* the mode's own settings, always listed (the user's) */
         LINE("Juggernaut toughness: %d%%", t->jugg_health);
         LINE("Juggernaut weapons: %d%%, rams: %d%%", t->jugg_weapon, t->jugg_ram);
@@ -2104,12 +2112,20 @@ static void build_battle(PageId page)
         if (t->mode == MODE_KING_OF_THE_HILL)
             add_page("King of the Hill", PAGE_BATTLE_KOTH, "The hills: how many, where, and when they move.");
         if (t->mode == MODE_LAST_CAR) {
-            add_choice("Sudden death", "Once two cars are left, a countdown starts on screen. Off: no countdown.", get_gt_flag,
+            add_choice("Team lives", "With teams: each team's extra lives pooled (its members' lives added together). A "
+                       "wrecked car comes back while its team has a life left; a team is out when its pool is empty and its "
+                       "last car is destroyed. The team scores show each pool.", get_gt_flag, set_gt_flag, GT_TEAM_LIVES,
+                       onoff_values, 2);
+            add_choice("Sudden death", "A countdown on screen; at zero a car explodes. Off: no countdown.", get_gt_flag,
                        set_gt_flag, GT_SUDDEN, sudden_values, SUDDEN_STEPS);
-            if (t->sudden_death)
-                add_choice("Sudden death end", "What happens when the countdown reaches zero: the car with less health left "
-                           "(its share of its own full health) explodes.", get_gt_flag, set_gt_flag, GT_SUDDEN_END,
-                           sudden_end_values, SUDDEN_END_COUNT);
+            if (t->sudden_death) {
+                add_choice("Sudden death start", "When the countdown starts: once only two cars are left, or at the start of "
+                           "the match (then at each zero the worst car of all still in explodes, and it starts again).",
+                           get_gt_flag, set_gt_flag, GT_SUDDEN_START, sudden_start_values, SD_START_COUNT);
+                add_choice("Sudden death end", "Which car explodes when the countdown reaches zero: the one with less health "
+                           "left (its share of its own full health), or the one that has dealt the least damage this match.",
+                           get_gt_flag, set_gt_flag, GT_SUDDEN_END, sudden_end_values, SUDDEN_END_COUNT);
+            }
         }
         add_choice("Respawn time", t->mode == MODE_LAST_CAR ? "With lives (the match's Lives): extra time before a destroyed "
                    "car comes back, after it finishes burning." : "Extra time before a destroyed car comes back, after it finishes "
@@ -2261,7 +2277,7 @@ static void build_battle(PageId page)
                        get_gt_energy, set_gt_energy, e, onoff_values, 2);
             if (e == ENERGY_MINES) /* (beside the mines, the user's 2026-11-26) */
                 add_choice("Mine timer", "How long a dropped mine stays: 15 seconds after its owner is destroyed, or "
-                           "15 seconds after it is laid.", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
+                           "15 seconds after it is laid, or never (it stays until a car drives over it).", get_gt_flag, set_gt_flag, GT_MINES, mines_values, MINES_COUNT);
         }
         break;
     case PAGE_BATTLE_HAZARDS:
@@ -2320,7 +2336,8 @@ static int get_tour(int a)
     const CustomTour *t = battle_tour();
     int s = a >> 2;
     switch (a & 3) {
-    case 0: return s == 0 ? t->stages > TOUR_STAGES_MIN : s == 1 ? t->difficulty : s == 2 ? t->versus_lives : t->bosses_regular;
+    case 0: return s == 0 ? t->stages > TOUR_STAGES_MIN : s == 1 ? t->difficulty : s == 2 ? t->versus_lives
+                   : s == 4 ? t->player_lives : s == 5 ? (t->cpu_lives > 0 ? t->cpu_lives - 1 : 0) : t->bosses_regular;
     case 1: return arena_list_index(t->stage[s].arena);
     case 2: return t->stage[s].enemies > 9 ? 9 : t->stage[s].enemies;
     default: return t->stage[s].bosses;
@@ -2335,6 +2352,8 @@ static void set_tour(int a, int v)
         if (s == 0) { t->stages = v ? TOUR_STAGES_MAX : TOUR_STAGES_MIN; rebuild_page = 1; }
         else if (s == 1) t->difficulty = v;
         else if (s == 2) t->versus_lives = v;
+        else if (s == 4) t->player_lives = v;
+        else if (s == 5) t->cpu_lives = v + 1;
         else t->bosses_regular = v;
         break;
     case 1: t->stage[s].arena = arena_list_value(v); break;
@@ -2376,8 +2395,16 @@ static void add_tour_rows(void)
         add_choice("Lives", "Each player's lives in a stage. The boss rounds: one life.", get_tour, /* (after the computer
                    * cars' rows, the user's 2026-11-17) */
                    set_tour, 2 << 2, lives_values, TOUR_VERSUS_LIVES_MAX + 1)->small = 1;
-    } else
-        add_choice("Difficulty", "Lives as the tournament's.", get_tour, set_tour, 1 << 2, difficulty_values, 3)->small = 1;
+    } else {
+        static const char *const player_lives_values[TOUR_LIVES_MAX + 1] = {"AS THE TOURNAMENT'S", "1", "2", "3", "4", "5",
+                                                                            "6", "7", "8", "9"};
+        static const char *const cpu_lives_values[TOUR_LIVES_MAX] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
+        add_choice("Difficulty", "How the computer cars fight.", get_tour, set_tour, 1 << 2, difficulty_values, 3)->small = 1;
+        add_choice("Player lives", "Each player's lives at the start, carried from stage to stage. As the tournament's: 3 "
+                   "(3 players: 2, 4 players: 1).", get_tour, set_tour, 4 << 2, player_lives_values, TOUR_LIVES_MAX + 1)->small = 1;
+        add_choice("Computer car lives", "Each computer car's lives in a stage (the tournament's: 1).", get_tour, set_tour,
+                   5 << 2, cpu_lives_values, TOUR_LIVES_MAX)->small = 1;
+    }
     add_page("Start", PAGE_ACTION, "Choose your car and play the first stage. No endings are unlocked with Custom Tournament.");
     rows[row_count - 1].small = 1;
     rows[row_count - 1].act = ACT_TOUR_START;
@@ -5151,6 +5178,8 @@ static void build(PageId page)
                    marker_name_values, 3)->small = 1;
         add_choice("Lock-on reticle", "A red circle, as in Twisted Metal (2012), around the car your missiles would home on.",
                    get_hud, set_hud, 16, onoff_values, 2)->small = 1;
+        add_choice("Team scores", "With teams: each team's score in its color under the message bar (kills, points, or "
+                   "lives left, by the mode).", get_hud, set_hud, 18, onoff_values, 2)->small = 1;
         break;
     case PAGE_AUDIO:
         add_choice("Music", "The game's own music, as well as your custom music files.", get_volume, set_volume, 0, NULL, 11);
@@ -10904,6 +10933,8 @@ int ui_custom_tour_on(void) { return battle_live && trun.on && !trun.versus; } /
 int ui_tour_on(void) { return battle_live && trun.on && !trun.duel && !trun.versus; } /* the players one side (the duel, versus: each their own) */
 static int tour_start_lives(void) /* as the tournament's: 3 (3 players: 2, 4 players: 1, as Vanilla Plus's lives per level) */
 {
+    const CustomTour *ct = battle_tour();
+    if (!trun.versus && ct->player_lives > 0) return ct->player_lives; /* (its own Player lives row) */
     int lives = 3 - (play_players > 2 ? play_players - 2 : 0);
     return lives < 1 ? 1 : lives;
 }
@@ -10925,7 +10956,8 @@ static void tour_stage_setup(void)
     tour_match.arena = trun.arena[trun.stage];
     tour_match.opponents = trun.duel ? 0 : trun.enemies[trun.stage];
     tour_match.difficulty = t->difficulty;
-    tour_match.lives = 1; /* the computer cars: one each, as the tournament's (the players' from ui_tour_lives) */
+    tour_match.lives = !trun.versus && t->cpu_lives > 0 ? t->cpu_lives : 1; /* the computer cars: one each, as the
+                                       * tournament's, or its Computer car lives row (the players' from ui_tour_lives) */
     /* 2-4 players: together against the computer cars, as the tournament's co-op (vplus/fixes.c vp_duo_frame: the
      * players one side), no team colors */
     battle_match_override(&tour_match);

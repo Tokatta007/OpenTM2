@@ -115,6 +115,8 @@ int battle_type_playable(const GameType *t)
     a.jugg_invisible = b.jugg_invisible;
     a.sudden_death = b.sudden_death;   /* made: sudden death (the user's 2026-11-25) */
     a.sudden_death_end = b.sudden_death_end;
+    a.sudden_death_start = b.sudden_death_start;
+    a.team_lives = b.team_lives;
     a.mines = b.mines;
     a.koth_move = b.koth_move;
     a.respawn = b.respawn; /* made: every mode (Last Car Standing's: with lives) */
@@ -438,6 +440,8 @@ static void type_key(GameType *t, const char *key, const char *val)
         {"jugg_invisible", offsetof(GameType, jugg_invisible), 0, 1},
         {"sudden_death", offsetof(GameType, sudden_death), 0, 600},
         {"sudden_death_end", offsetof(GameType, sudden_death_end), 0, SUDDEN_END_COUNT - 1},
+        {"sudden_death_start", offsetof(GameType, sudden_death_start), 0, SD_START_COUNT - 1},
+        {"team_lives", offsetof(GameType, team_lives), 0, 1},
         {"mines", offsetof(GameType, mines), 0, MINES_COUNT - 1},
     };
     static const struct { const char *key; size_t at; unsigned all; } masks[] = {
@@ -478,6 +482,8 @@ void battle_key(const char *section, const char *key, const char *val)
         else if (!strcmp(key, "bosses_regular")) /* (an older file, written after roster: Sweet Tooth was never offered, on;
                                                   * the bosses this switch's, their roster bits unused then) */
             T->roster = (T->roster & ~(3u << 13)) | 1u << 12 | (!strcmp(val, "on") || !strcmp(val, "1") ? 3u << 13 : 0u);
+        else if (!strcmp(key, "player_lives")) T->player_lives = clamp(atoi(val), 0, TOUR_LIVES_MAX);
+        else if (!strcmp(key, "cpu_lives")) T->cpu_lives = clamp(atoi(val), 0, TOUR_LIVES_MAX);
         else if (!strcmp(key, "versus_lives")) {
             int n = atoi(val);
             T->versus_lives = n < 0 ? 0 : n > TOUR_VERSUS_LIVES_MAX ? TOUR_VERSUS_LIVES_MAX : n;
@@ -570,8 +576,9 @@ void battle_write(FILE *f)
         const CustomTour *T = k ? &vtour : &tour;
         fprintf(f, "\n[%s]\n; stageN = arena (0 random, 1..8, 9..11 the secret ones), enemies (0 random), bosses (0-2),\n"
                    "; boss 1, boss 2 (cars in car-select order: 13 Minion, 14 Dark Tooth); roster: a bit per car (hex, 12 Sweet "
-                   "Tooth)\nstages = %d\ndifficulty = %d\nroster = %04X\nversus_lives = %d\n", k ? "versus_tournament" : "custom_tournament",
-                T->stages, T->difficulty, T->roster, T->versus_lives);
+                   "Tooth)\nstages = %d\ndifficulty = %d\nroster = %04X\nversus_lives = %d\nplayer_lives = %d\ncpu_lives = %d\n",
+                k ? "versus_tournament" : "custom_tournament", T->stages, T->difficulty, T->roster, T->versus_lives,
+                T->player_lives, T->cpu_lives);
         for (int i = 0; i < TOUR_STAGES_MAX; i++)
             fprintf(f, "stage%d = %d, %d, %d, %d, %d\n", i + 1, T->stage[i].arena, T->stage[i].enemies, T->stage[i].bosses,
                     T->stage[i].boss[0], T->stage[i].boss[1]);
@@ -600,7 +607,9 @@ void battle_write(FILE *f)
         fprintf(f, "hunted_count = %d\nhunted_attack = %d\nkoth_move = %d\n", t->hunted_count, t->hunted_attack, t->koth_move);
         fprintf(f, "koth_hills = %d\nkoth_spots = %d\nhunted_teams = %d\njugg_invisible = %d\n", t->koth_hills, t->koth_spots,
                 t->hunted_teams, t->jugg_invisible);
-        fprintf(f, "sudden_death = %d\nsudden_death_end = %d\n", t->sudden_death, t->sudden_death_end);
+        fprintf(f, "sudden_death = %d\nsudden_death_end = %d\nsudden_death_start = %d\n", t->sudden_death, t->sudden_death_end,
+                t->sudden_death_start);
+        fprintf(f, "team_lives = %d\n", t->team_lives);
         fprintf(f, "mines = %d\n", t->mines);
     }
 }
