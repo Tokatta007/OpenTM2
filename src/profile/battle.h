@@ -164,8 +164,12 @@ typedef struct {
     int bosses_regular;                /* (no longer used: the roster's bits 13-14; kept for the layout) */
     int versus_lives;                  /* a Versus Tournament: each player's extra lives in a stage, 0..TOUR_VERSUS_LIVES_MAX
                                         * (the host's; its difficulty is then the computer cars' only) */
+    int player_lives;                  /* a Custom Tournament: each player's lives at its start, 1..TOUR_LIVES_MAX (0: the
+                                        * tournament's, 3 less one a player past 2); carried from stage to stage as ever */
+    int cpu_lives;                     /* a Custom Tournament: each computer car's lives, 1..TOUR_LIVES_MAX (0: 1, the
+                                        * tournament's) (the user's 2026-11-27, both) */
 } CustomTour;
-enum { TOUR_VERSUS_LIVES_MAX = 5 };
+enum { TOUR_VERSUS_LIVES_MAX = 5, TOUR_LIVES_MAX = 9 };
 enum { TOUR_MINION = 13, TOUR_DARK_TOOTH = 14 };
 /* Dark Tooth for players (and picked as an opponent): his own Drivers row, a bit of drivers above the 14 (set: off; saved
  * as dark_tooth_player, the bits by car as before) */

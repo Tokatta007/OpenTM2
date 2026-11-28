@@ -2328,7 +2328,8 @@ static int get_tour(int a)
     const CustomTour *t = battle_tour();
     int s = a >> 2;
     switch (a & 3) {
-    case 0: return s == 0 ? t->stages > TOUR_STAGES_MIN : s == 1 ? t->difficulty : s == 2 ? t->versus_lives : t->bosses_regular;
+    case 0: return s == 0 ? t->stages > TOUR_STAGES_MIN : s == 1 ? t->difficulty : s == 2 ? t->versus_lives
+                   : s == 4 ? t->player_lives : s == 5 ? (t->cpu_lives > 0 ? t->cpu_lives - 1 : 0) : t->bosses_regular;
     case 1: return arena_list_index(t->stage[s].arena);
     case 2: return t->stage[s].enemies > 9 ? 9 : t->stage[s].enemies;
     default: return t->stage[s].bosses;
@@ -2343,6 +2344,8 @@ static void set_tour(int a, int v)
         if (s == 0) { t->stages = v ? TOUR_STAGES_MAX : TOUR_STAGES_MIN; rebuild_page = 1; }
         else if (s == 1) t->difficulty = v;
         else if (s == 2) t->versus_lives = v;
+        else if (s == 4) t->player_lives = v;
+        else if (s == 5) t->cpu_lives = v + 1;
         else t->bosses_regular = v;
         break;
     case 1: t->stage[s].arena = arena_list_value(v); break;
@@ -2384,8 +2387,16 @@ static void add_tour_rows(void)
         add_choice("Lives", "Each player's lives in a stage. The boss rounds: one life.", get_tour, /* (after the computer
                    * cars' rows, the user's 2026-11-17) */
                    set_tour, 2 << 2, lives_values, TOUR_VERSUS_LIVES_MAX + 1)->small = 1;
-    } else
-        add_choice("Difficulty", "Lives as the tournament's.", get_tour, set_tour, 1 << 2, difficulty_values, 3)->small = 1;
+    } else {
+        static const char *const player_lives_values[TOUR_LIVES_MAX + 1] = {"AS THE TOURNAMENT'S", "1", "2", "3", "4", "5",
+                                                                            "6", "7", "8", "9"};
+        static const char *const cpu_lives_values[TOUR_LIVES_MAX] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
+        add_choice("Difficulty", "How the computer cars fight.", get_tour, set_tour, 1 << 2, difficulty_values, 3)->small = 1;
+        add_choice("Player lives", "Each player's lives at the start, carried from stage to stage. As the tournament's: 3 "
+                   "(3 players: 2, 4 players: 1).", get_tour, set_tour, 4 << 2, player_lives_values, TOUR_LIVES_MAX + 1)->small = 1;
+        add_choice("Computer car lives", "Each computer car's lives in a stage (the tournament's: 1).", get_tour, set_tour,
+                   5 << 2, cpu_lives_values, TOUR_LIVES_MAX)->small = 1;
+    }
     add_page("Start", PAGE_ACTION, "Choose your car and play the first stage. No endings are unlocked with Custom Tournament.");
     rows[row_count - 1].small = 1;
     rows[row_count - 1].act = ACT_TOUR_START;
@@ -10912,6 +10923,8 @@ int ui_custom_tour_on(void) { return battle_live && trun.on && !trun.versus; } /
 int ui_tour_on(void) { return battle_live && trun.on && !trun.duel && !trun.versus; } /* the players one side (the duel, versus: each their own) */
 static int tour_start_lives(void) /* as the tournament's: 3 (3 players: 2, 4 players: 1, as Vanilla Plus's lives per level) */
 {
+    const CustomTour *ct = battle_tour();
+    if (!trun.versus && ct->player_lives > 0) return ct->player_lives; /* (its own Player lives row) */
     int lives = 3 - (play_players > 2 ? play_players - 2 : 0);
     return lives < 1 ? 1 : lives;
 }
@@ -10933,7 +10946,8 @@ static void tour_stage_setup(void)
     tour_match.arena = trun.arena[trun.stage];
     tour_match.opponents = trun.duel ? 0 : trun.enemies[trun.stage];
     tour_match.difficulty = t->difficulty;
-    tour_match.lives = 1; /* the computer cars: one each, as the tournament's (the players' from ui_tour_lives) */
+    tour_match.lives = !trun.versus && t->cpu_lives > 0 ? t->cpu_lives : 1; /* the computer cars: one each, as the
+                                       * tournament's, or its Computer car lives row (the players' from ui_tour_lives) */
     /* 2-4 players: together against the computer cars, as the tournament's co-op (vplus/fixes.c vp_duo_frame: the
      * players one side), no team colors */
     battle_match_override(&tour_match);
